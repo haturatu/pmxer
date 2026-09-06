@@ -83,6 +83,13 @@ int main() {
     auto material = *session.document.resolve(materialHandle);
     material.diffuse[0] = 0.25F;
     assert(pmxer::editMaterial(session, materialHandle, material).success);
+    auto metadata = session.document.model().metadata;
+    metadata.modelName = "edited metadata";
+    assert(pmxer::editMetadata(session, metadata).success);
+    assert(session.commands.undo(session.document));
+    assert(session.document.model().metadata.modelName == "sample");
+    assert(session.commands.redo(session.document));
+    assert(session.document.model().metadata.modelName == "edited metadata");
     const auto boneHandle = session.document.boneHandle(0);
     auto bone = *session.document.resolve(boneHandle);
     bone.name = "edited";

@@ -33,6 +33,29 @@ class SnapshotCommand final : public EditorCommand {
     std::string description_;
 };
 
+class MetadataCommand final : public EditorCommand {
+  public:
+    MetadataCommand(mmd::PmxMetadata before, mmd::PmxMetadata after, std::string description)
+        : before_(std::move(before)), after_(std::move(after)), description_(std::move(description)) {}
+
+    bool apply(mmd::PmxDocument &document) override {
+        return document.replaceMetadata(after_).committed;
+    }
+
+    bool undo(mmd::PmxDocument &document) override {
+        return document.replaceMetadata(before_).committed;
+    }
+
+    const std::string &description() const noexcept override {
+        return description_;
+    }
+
+  private:
+    mmd::PmxMetadata before_;
+    mmd::PmxMetadata after_;
+    std::string description_;
+};
+
 template <typename Handle, typename Value>
 using PropertySetter = mmd::PmxTransactionResult (*)(mmd::PmxDocument &, Handle, const Value &);
 
@@ -108,10 +131,6 @@ mmd::PmxTransactionResult setSoftBodyValue(mmd::PmxDocument &document, mmd::Soft
     return document.replaceSoftBody(handle, value);
 }
 
-mmd::PmxTransactionResult setMetadataValue(mmd::PmxDocument &document, mmd::PmxMetadata, const mmd::PmxMetadata &value) {
-    return document.replaceMetadata(value);
-}
-
 template <typename Handle, typename Value, typename Resolver>
 OperationResult applyProperty(DocumentSession &session, Handle handle, const Value &value, Resolver resolver,
                                PropertySetter<Handle, Value> setter, std::string description) {
@@ -172,10 +191,12 @@ OperationResult editTexture(DocumentSession &session, mmd::TextureHandle handle,
 }
 
 OperationResult editMetadata(DocumentSession &session, const mmd::PmxMetadata &value) {
-    const auto committed = setMetadataValue(session.document, {}, value);
+    const auto before = session.document.model().metadata;
+    const auto committed = session.document.replaceMetadata(value);
     if (!committed.committed)
         return {false, committed.errors.empty() ? "編集結果が検証に失敗しました" : committed.errors.front()};
-    session.commands.markDirty();
+    session.commands.recordApplied(
+        std::make_unique<MetadataCommand>(before, value, "モデル情報を編集"));
     session.modified = session.commands.isModified();
     ++session.revision;
     session.validation = committed.validation;
