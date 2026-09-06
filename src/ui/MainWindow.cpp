@@ -269,7 +269,8 @@ int runApplication(const EditCommand &options) {
             }
             ImGui::SameLine();
             if (ImGui::Button("破棄して終了")) {
-                session.modified = false;
+                // Discard is provisional until every document accepts quitting.
+                // A later cancellation must leave this document dirty.
                 ++quitSessionIndex;
                 quitPromptOpened = false;
                 ImGui::CloseCurrentPopup();

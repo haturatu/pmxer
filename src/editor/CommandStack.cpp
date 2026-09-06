@@ -5,8 +5,9 @@ namespace pmxer {
 void CommandStack::recordApplied(std::unique_ptr<EditorCommand> command) {
     if (!command)
         return;
-    currentState_ = nextState_++;
-    undo_.push_back({std::move(command), currentState_});
+    const auto afterState = nextState_++;
+    undo_.push_back({std::move(command), currentState_, afterState});
+    currentState_ = afterState;
     redo_.clear();
 }
 
@@ -19,7 +20,7 @@ bool CommandStack::undo(mmd::PmxDocument &document) {
         undo_.push_back(std::move(entry));
         return false;
     }
-    currentState_ = undo_.empty() ? 0 : undo_.back().state;
+    currentState_ = entry.beforeState;
     redo_.push_back(std::move(entry));
     return true;
 }
@@ -33,7 +34,7 @@ bool CommandStack::redo(mmd::PmxDocument &document) {
         redo_.push_back(std::move(entry));
         return false;
     }
-    currentState_ = entry.state;
+    currentState_ = entry.afterState;
     undo_.push_back(std::move(entry));
     return true;
 }
@@ -43,6 +44,7 @@ void CommandStack::clear() noexcept {
     redo_.clear();
     currentState_ = 0;
     cleanState_ = 0;
+    nextState_ = 1;
 }
 
 void CommandStack::markClean() noexcept {

@@ -33,7 +33,8 @@ class CommandStack {
   private:
     struct Entry {
         std::unique_ptr<EditorCommand> command;
-        std::uint64_t state{};
+        std::uint64_t beforeState{};
+        std::uint64_t afterState{};
     };
     std::vector<Entry> undo_;
     std::vector<Entry> redo_;

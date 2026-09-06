@@ -38,6 +38,22 @@ mmd::PmxModel sampleModel() {
 } // namespace
 
 int main() {
+    pmxer::DocumentSession recovered(sampleModel());
+    recovered.commands.markDirty();
+    const auto recoveredHandle = recovered.document.vertexHandle(0);
+    auto recoveredVertex = *recovered.document.resolve(recoveredHandle);
+    recoveredVertex.position[0] = 4.0F;
+    assert(pmxer::editVertex(recovered, recoveredHandle, recoveredVertex).success);
+    assert(recovered.undo());
+    assert(recovered.modified);
+    assert(recovered.commands.isModified());
+    assert(recovered.redo());
+    recovered.commands.markClean();
+    assert(recovered.undo());
+    assert(recovered.modified);
+    assert(recovered.redo());
+    assert(!recovered.modified);
+
     pmxer::DocumentSession session(sampleModel());
     assert(session.document.validate().valid());
     const auto handle = session.document.vertexHandle(0);
