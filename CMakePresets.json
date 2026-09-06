@@ -28,6 +28,18 @@
       }
     },
     {
+      "name": "linux-clang",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-clang",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "PMXER_BUILD_GUI": "OFF",
+        "PMXER_WARNINGS_AS_ERRORS": "ON",
+        "PMXER_ENABLE_SANITIZERS": "ON"
+      }
+    },
+    {
       "name": "linux-release",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/linux-release",
@@ -73,6 +85,7 @@
   "buildPresets": [
     { "name": "linux-dev", "configurePreset": "linux-dev" },
     { "name": "linux-cli", "configurePreset": "linux-cli" },
+    { "name": "linux-clang", "configurePreset": "linux-clang" },
     { "name": "linux-release", "configurePreset": "linux-release" },
     { "name": "windows-release", "configurePreset": "windows-release" },
     { "name": "macos-arm64-release", "configurePreset": "macos-arm64-release" },
@@ -81,6 +94,7 @@
   "testPresets": [
     { "name": "linux-dev", "configurePreset": "linux-dev", "output": { "outputOnFailure": true } },
     { "name": "linux-cli", "configurePreset": "linux-cli", "output": { "outputOnFailure": true } },
+    { "name": "linux-clang", "configurePreset": "linux-clang", "output": { "outputOnFailure": true } },
     { "name": "linux-release", "configurePreset": "linux-release", "output": { "outputOnFailure": true } }
   ]
 }
