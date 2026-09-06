@@ -47,19 +47,20 @@ CLI は GUI なしでもビルドできます。
 ```sh
 cmake --preset linux-cli
 cmake --build --preset linux-cli
-./build/linux-cli/pmxer-cli info model.pmx
+./build/linux-cli/pmxer info model.pmx
 ```
 
 ## CLI
 
 ```text
-pmxer [options] [file.pmx ...]
+pmxer [edit-options] [file.pmx ...]
+pmxer <command> [options] ...
 
-pmxer-cli info [--json] model.pmx
-pmxer-cli validate [--json] model.pmx [other.pmx ...]
-pmxer-cli diff [--json] [--profile logical|preservation] before.pmx after.pmx
-pmxer-cli normalize [-o output.pmx] model.pmx
-pmxer-cli help [command]
+pmxer info [--json] model.pmx
+pmxer validate [--json] model.pmx [other.pmx ...]
+pmxer diff [--json] [--profile logical|preservation] before.pmx after.pmx
+pmxer normalize [-o output.pmx] model.pmx
+pmxer help [command]
 ```
 
 GUI起動時は `--font`、`--font-size`、`--resource-dir`、`--renderer`、`--gpu-debug`、
@@ -68,7 +69,7 @@ GUI起動時は `--font`、`--font-size`、`--resource-dir`、`--renderer`、`--
 
 ## ログ
 
-診断ログは DEBUG と INFO を標準出力、WARN と ERROR を標準エラーへ出力します。致命的な CLI エラーは終了コード 1 です。
+診断ログは DEBUG と INFO を標準出力、WARN と ERROR を標準エラーへ出力します。終了コードは、成功 0、検査結果の不合格 1、引数エラー 2、入出力エラー 3、内部エラー 70 です。
 
 ## ライセンス
 

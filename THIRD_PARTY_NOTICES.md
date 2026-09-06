@@ -6,6 +6,6 @@ source distributions.
 
 - SDL3
 - Dear ImGui
+- argparse (p-ranav/argparse) - MIT
 - libmmd
 - Bullet Physics when enabled
-
