@@ -2,13 +2,17 @@
 
 #include "../editor/DocumentSession.hpp"
 #include "../editor/EditorDiagnostics.hpp"
+#include "../editor/DiffController.hpp"
+#include "../editor/RecoveryController.hpp"
 #include "../editor/SaveController.hpp"
+#include "ViewportPanel.hpp"
 
 #include <imgui.h>
 
 namespace pmxer {
 
 void drawEditorPanels(DocumentSession &session) {
+    drawViewportPanel(session);
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("編集")) {
             if (ImGui::MenuItem("元に戻す", "Ctrl+Z", false, session.commands.undoCount() != 0))
@@ -34,6 +38,11 @@ void drawEditorPanels(DocumentSession &session) {
     ImGui::Text("Undo: %zu / Redo: %zu", session.commands.undoCount(), session.commands.redoCount());
     if (ImGui::Button("保存"))
         (void)saveDocument(session);
+    ImGui::SameLine();
+    if (ImGui::Button("回復保存"))
+        (void)writeRecovery(session);
+    const auto differences = compareWithBaseline(session);
+    ImGui::Text("差分: %zu", differences.differences.size());
     ImGui::End();
 
     const auto detailed = validateForEditing(session.document.model());

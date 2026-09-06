@@ -43,11 +43,29 @@ int main() {
     changed.position[0] = 2.0F;
     assert(pmxer::editVertex(session, handle, changed).success);
     assert(session.modified);
+    assert(!session.changes.vertices.empty());
     assert(session.commands.undoCount() == 1);
     assert(session.commands.undo(session.document));
     assert(session.document.model().vertices[0].position[0] == 0.0F);
     assert(session.commands.redo(session.document));
     assert(session.document.model().vertices[0].position[0] == 2.0F);
+
+    const auto materialHandle = session.document.materialHandle(0);
+    auto material = *session.document.resolve(materialHandle);
+    material.diffuse[0] = 0.25F;
+    assert(pmxer::editMaterial(session, materialHandle, material).success);
+    const auto boneHandle = session.document.boneHandle(0);
+    auto bone = *session.document.resolve(boneHandle);
+    bone.name = "edited";
+    assert(pmxer::editBone(session, boneHandle, bone).success);
+
+    auto skin = mmd::PmxVertexSkin{};
+    skin.bones[0] = boneHandle;
+    auto vertexTransaction = session.document.transaction();
+    assert(vertexTransaction.setVertexSkin(handle, skin));
+    const auto vertexResult = vertexTransaction.commit();
+    assert(vertexResult.committed);
+    assert(!vertexResult.changes.vertices.empty());
 
     pmxer::PickingTable picking;
     const pmxer::SelectionItem item{pmxer::SelectionKind::vertex, handle.id, handle.generation};
@@ -63,4 +81,3 @@ int main() {
     std::filesystem::remove(path);
     return 0;
 }
-

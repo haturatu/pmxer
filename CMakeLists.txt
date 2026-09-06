@@ -48,6 +48,7 @@ add_library(pmxer_editor
   src/editor/DiffController.cpp
   src/editor/ReferenceInspector.cpp
   src/editor/EditorDiagnostics.cpp
+  src/editor/RecoveryController.cpp
   src/editor/EditorOperations.cpp
   src/editor/tools/SdefTool.cpp
   src/editor/tools/StandardBoneTool.cpp
@@ -143,6 +144,7 @@ if(PMXER_BUILD_GUI)
   add_library(pmxer_ui
     src/ui/MainWindow.cpp
     src/ui/EditorPanels.cpp
+    src/ui/ViewportPanel.cpp
   )
   target_include_directories(pmxer_ui PUBLIC src)
   target_link_libraries(pmxer_ui PUBLIC pmxer_render pmxer_imgui SDL3::SDL3)
@@ -178,3 +180,4 @@ endif()
 
 install(TARGETS pmxer pmxer-cli RUNTIME DESTINATION bin)
 install(DIRECTORY assets/ DESTINATION share/pmxer/assets)
+install(FILES LICENSE THIRD_PARTY_NOTICES.md DESTINATION .)

@@ -3,8 +3,19 @@
 namespace pmxer {
 namespace {
 
-void add(ReferenceSummary &summary, mmd::ReferenceObjectKind kind) {
-    switch (kind) {
+void add(ReferenceSummary &summary, const mmd::ReferenceSite &site) {
+    switch (site.field) {
+    case mmd::ReferenceField::vertexBone:
+        ++summary.vertices;
+        return;
+    case mmd::ReferenceField::boneIkTarget:
+    case mmd::ReferenceField::boneIkLink:
+        ++summary.ikLinks;
+        return;
+    default:
+        break;
+    }
+    switch (site.ownerKind) {
     case mmd::ReferenceObjectKind::vertex:
         ++summary.vertices;
         break;
@@ -35,7 +46,7 @@ template <typename Handle>
 ReferenceSummary summarize(const mmd::PmxDocument &document, Handle handle) {
     ReferenceSummary summary;
     for (const auto &site : document.referencesTo(handle))
-        add(summary, site.ownerKind);
+        add(summary, site);
     return summary;
 }
 
@@ -54,4 +65,3 @@ ReferenceSummary summarizeReferences(const mmd::PmxDocument &document, mmd::Text
 }
 
 } // namespace pmxer
-

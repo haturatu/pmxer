@@ -55,6 +55,10 @@ OperationResult editVertex(DocumentSession &session, mmd::VertexHandle handle, c
     return applyTransaction(session, [&](auto &transaction) { return transaction.setVertex(handle, value); }, "頂点を編集");
 }
 
+OperationResult editMetadata(DocumentSession &session, const mmd::PmxMetadata &value) {
+    return applyTransaction(session, [&](auto &transaction) { return transaction.setMetadata(value); }, "モデル情報を編集");
+}
+
 OperationResult editMaterial(DocumentSession &session, mmd::MaterialHandle handle, const mmd::PmxMaterial &value) {
     return applyTransaction(session, [&](auto &transaction) { return transaction.setMaterial(handle, value); }, "材質を編集");
 }

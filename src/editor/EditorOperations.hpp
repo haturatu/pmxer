@@ -18,6 +18,7 @@ struct OperationResult {
     DocumentSession &, const std::function<bool(mmd::PmxDocument::Transaction &)> &, std::string description);
 
 [[nodiscard]] OperationResult editVertex(DocumentSession &, mmd::VertexHandle, const mmd::PmxVertex &);
+[[nodiscard]] OperationResult editMetadata(DocumentSession &, const mmd::PmxMetadata &);
 [[nodiscard]] OperationResult editMaterial(DocumentSession &, mmd::MaterialHandle, const mmd::PmxMaterial &);
 [[nodiscard]] OperationResult editBone(DocumentSession &, mmd::BoneHandle, const mmd::PmxBone &);
 [[nodiscard]] OperationResult editMorph(DocumentSession &, mmd::MorphHandle, const mmd::PmxMorph &);

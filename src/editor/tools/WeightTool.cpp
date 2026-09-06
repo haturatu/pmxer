@@ -10,16 +10,21 @@ bool assignBone(DocumentSession &session, const std::vector<mmd::VertexHandle> &
                 std::size_t slot) {
     if (slot >= 4 || session.document.resolve(bone) == nullptr)
         return false;
-    const auto *bonePointer = session.document.resolve(bone);
-    const auto &bones = session.document.model().bones;
-    const auto boneIndex = static_cast<std::int32_t>(bonePointer - bones.data());
     return applyTransaction(session, [&](auto &transaction) {
         for (const auto handle : handles) {
             const auto *source = session.document.resolve(handle);
             if (source == nullptr)
                 return false;
-            auto value = *source;
-            value.bones[slot] = boneIndex;
+            mmd::PmxVertexSkin value;
+            value.type = source->weightType;
+            value.weights = source->weights;
+            value.sdefC = source->sdefC;
+            value.sdefR0 = source->sdefR0;
+            value.sdefR1 = source->sdefR1;
+            for (std::size_t i = 0; i < 4; ++i)
+                if (source->bones[i] >= 0 && static_cast<std::size_t>(source->bones[i]) < session.document.model().bones.size())
+                    value.bones[i] = session.document.boneHandle(static_cast<std::size_t>(source->bones[i]));
+            value.bones[slot] = bone;
             if (!transaction.setVertexSkin(handle, value))
                 return false;
         }
@@ -31,13 +36,22 @@ bool mirrorWeights(DocumentSession &session, const std::vector<mmd::VertexHandle
                    const std::vector<mmd::VertexHandle> &destinationHandles) {
     if (sourceHandles.size() != destinationHandles.size())
         return false;
-    std::vector<mmd::PmxVertex> values;
+    std::vector<mmd::PmxVertexSkin> values;
     values.reserve(sourceHandles.size());
     for (const auto handle : sourceHandles) {
         const auto *value = session.document.resolve(handle);
         if (value == nullptr)
             return false;
-        values.push_back(*value);
+        mmd::PmxVertexSkin skin;
+        skin.type = value->weightType;
+        skin.weights = value->weights;
+        skin.sdefC = value->sdefC;
+        skin.sdefR0 = value->sdefR0;
+        skin.sdefR1 = value->sdefR1;
+        for (std::size_t i = 0; i < 4; ++i)
+            if (value->bones[i] >= 0 && static_cast<std::size_t>(value->bones[i]) < session.document.model().bones.size())
+                skin.bones[i] = session.document.boneHandle(static_cast<std::size_t>(value->bones[i]));
+        values.push_back(skin);
     }
     return applyTransaction(session, [&](auto &transaction) {
         for (std::size_t i = 0; i < values.size(); ++i)
@@ -52,4 +66,3 @@ bool pruneWeights(DocumentSession &session, float threshold) {
 }
 
 } // namespace pmxer
-

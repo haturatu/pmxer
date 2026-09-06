@@ -5,22 +5,14 @@
 namespace pmxer {
 
 bool addBoneToDisplayFrame(DocumentSession &session, mmd::DisplayFrameHandle frame, mmd::BoneHandle bone) {
-    const auto *value = session.document.resolve(bone);
-    if (value == nullptr)
-        return false;
-    const auto index = static_cast<std::int32_t>(value - session.document.model().bones.data());
     return applyTransaction(session, [&](auto &transaction) {
-        return transaction.addDisplayFrameItem(frame, {true, index});
+        return transaction.addDisplayFrameItem(frame, bone);
     }, "表示枠にボーンを追加").success;
 }
 
 bool addMorphToDisplayFrame(DocumentSession &session, mmd::DisplayFrameHandle frame, mmd::MorphHandle morph) {
-    const auto *value = session.document.resolve(morph);
-    if (value == nullptr)
-        return false;
-    const auto index = static_cast<std::int32_t>(value - session.document.model().morphs.data());
     return applyTransaction(session, [&](auto &transaction) {
-        return transaction.addDisplayFrameItem(frame, {false, index});
+        return transaction.addDisplayFrameItem(frame, morph);
     }, "表示枠にモーフを追加").success;
 }
 
@@ -31,4 +23,3 @@ bool moveDisplayItem(DocumentSession &session, mmd::DisplayFrameHandle frame, st
 }
 
 } // namespace pmxer
-
