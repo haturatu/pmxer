@@ -14,6 +14,7 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "PMXER_BUILD_GUI": "ON",
         "PMXER_FETCH_GUI_DEPENDENCIES": "ON",
+        "PMXER_FETCH_LIBMMD_DEPENDENCIES": "ON",
         "PMXER_WARNINGS_AS_ERRORS": "ON"
       }
     },
@@ -24,6 +25,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "PMXER_BUILD_GUI": "OFF",
+        "PMXER_FETCH_LIBMMD_DEPENDENCIES": "ON",
         "PMXER_WARNINGS_AS_ERRORS": "ON"
       }
     },
@@ -35,6 +37,7 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_CXX_COMPILER": "clang++",
         "PMXER_BUILD_GUI": "OFF",
+        "PMXER_FETCH_LIBMMD_DEPENDENCIES": "ON",
         "PMXER_WARNINGS_AS_ERRORS": "ON",
         "PMXER_ENABLE_SANITIZERS": "ON"
       }
@@ -46,7 +49,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "PMXER_BUILD_GUI": "ON",
-        "PMXER_FETCH_GUI_DEPENDENCIES": "ON"
+        "PMXER_FETCH_GUI_DEPENDENCIES": "ON",
+        "PMXER_FETCH_LIBMMD_DEPENDENCIES": "ON"
       }
     },
     {
@@ -56,7 +60,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "PMXER_BUILD_GUI": "ON",
-        "PMXER_FETCH_GUI_DEPENDENCIES": "ON"
+        "PMXER_FETCH_GUI_DEPENDENCIES": "ON",
+        "PMXER_FETCH_LIBMMD_DEPENDENCIES": "ON"
       }
     },
     {
@@ -67,7 +72,8 @@
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_OSX_ARCHITECTURES": "arm64",
         "PMXER_BUILD_GUI": "ON",
-        "PMXER_FETCH_GUI_DEPENDENCIES": "ON"
+        "PMXER_FETCH_GUI_DEPENDENCIES": "ON",
+        "PMXER_FETCH_LIBMMD_DEPENDENCIES": "ON"
       }
     },
     {
@@ -78,7 +84,8 @@
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_OSX_ARCHITECTURES": "x86_64",
         "PMXER_BUILD_GUI": "ON",
-        "PMXER_FETCH_GUI_DEPENDENCIES": "ON"
+        "PMXER_FETCH_GUI_DEPENDENCIES": "ON",
+        "PMXER_FETCH_LIBMMD_DEPENDENCIES": "ON"
       }
     }
   ],
