@@ -3,6 +3,10 @@
 #include <chrono>
 #include <string>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 namespace pmxer {
 
 std::filesystem::path temporarySibling(const std::filesystem::path &destination) {
@@ -16,14 +20,18 @@ bool atomicReplace(const std::filesystem::path &temporary, const std::filesystem
     if (!error)
         return true;
 #ifdef _WIN32
-    std::filesystem::remove(destination, error);
-    if (error)
-        return false;
-    error.clear();
-    std::filesystem::rename(temporary, destination, error);
+    if (ReplaceFileW(destination.c_str(), temporary.c_str(), nullptr, REPLACEFILE_WRITE_THROUGH, nullptr, nullptr))
+        return true;
+
+    const auto replaceError = GetLastError();
+    if (replaceError == ERROR_FILE_NOT_FOUND &&
+        MoveFileExW(temporary.c_str(), destination.c_str(), MOVEFILE_WRITE_THROUGH | MOVEFILE_REPLACE_EXISTING))
+        return true;
+
+    return false;
+#else
+    return false;
 #endif
-    return !error;
 }
 
 } // namespace pmxer
-
