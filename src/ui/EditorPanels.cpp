@@ -940,9 +940,23 @@ void drawPhysicsPanel(DocumentSession &session) {
             auto &draft = *session.ui.rigidBodyDraft;
             inputString("剛体名", draft.name);
             chooseBone("関連ボーン", model, draft.bone);
+            int shape = draft.shape;
+            ImGui::InputInt("形状", &shape);
+            draft.shape = static_cast<std::uint8_t>(std::clamp(shape, 0, 2));
             ImGui::InputFloat3("大きさ", draft.size.data());
+            ImGui::InputFloat3("位置", draft.position.data());
+            ImGui::InputFloat3("回転", draft.rotation.data());
             ImGui::InputFloat("質量", &draft.mass);
+            ImGui::InputFloat("移動減衰", &draft.linearDamping);
+            ImGui::InputFloat("回転減衰", &draft.angularDamping);
+            ImGui::InputFloat("反発", &draft.restitution);
             ImGui::InputFloat("摩擦", &draft.friction);
+            int group = draft.group;
+            int collisionMask = draft.collisionMask;
+            ImGui::InputInt("衝突グループ", &group);
+            ImGui::InputInt("衝突マスク", &collisionMask);
+            draft.group = static_cast<std::uint8_t>(std::clamp(group, 0, 15));
+            draft.collisionMask = static_cast<std::uint16_t>(std::clamp(collisionMask, 0, 65535));
             int mode = draft.mode;
             ImGui::InputInt("モード", &mode);
             draft.mode = static_cast<std::uint8_t>(std::clamp(mode, 0, 2));
@@ -986,6 +1000,10 @@ void drawPhysicsPanel(DocumentSession &session) {
             ImGui::InputFloat3("移動上限", draft.translationMaximum.data());
             ImGui::InputFloat3("回転下限", draft.rotationMinimum.data());
             ImGui::InputFloat3("回転上限", draft.rotationMaximum.data());
+            ImGui::InputFloat3("位置", draft.position.data());
+            ImGui::InputFloat3("回転", draft.rotation.data());
+            ImGui::InputFloat3("移動ばね", draft.translationSpring.data());
+            ImGui::InputFloat3("回転ばね", draft.rotationSpring.data());
             if (ImGui::Button("ジョイントを適用")) {
                 const auto result = applyTransaction(session, [&](auto &transaction) {
                     if (draft.bodyA < 0 || draft.bodyB < 0 || static_cast<std::size_t>(draft.bodyA) >= model.rigidBodies.size() ||
@@ -1018,8 +1036,31 @@ void drawPhysicsPanel(DocumentSession &session) {
                 session.ui.softBodyDraft = *session.document.resolve(handle);
             auto &draft = *session.ui.softBodyDraft;
             inputString("ソフトボディ名", draft.name);
+            int shape = draft.shape;
+            int group = draft.group;
+            int collisionMask = draft.collisionMask;
+            int flags = draft.flags;
+            ImGui::InputInt("形状", &shape);
+            ImGui::InputInt("材質番号", &draft.material);
+            ImGui::InputInt("衝突グループ", &group);
+            ImGui::InputInt("衝突マスク", &collisionMask);
+            ImGui::InputInt("フラグ", &flags);
+            draft.shape = static_cast<std::uint8_t>(std::clamp(shape, 0, 1));
+            draft.group = static_cast<std::uint8_t>(std::clamp(group, 0, 15));
+            draft.collisionMask = static_cast<std::uint16_t>(std::clamp(collisionMask, 0, 65535));
+            draft.flags = static_cast<std::uint8_t>(std::clamp(flags, 0, 255));
+            ImGui::InputInt("曲げリンク距離", &draft.bendingLinkDistance);
+            ImGui::InputInt("クラスタ数", &draft.clusterCount);
             ImGui::InputFloat("総質量", &draft.totalMass);
             ImGui::InputFloat("衝突余白", &draft.collisionMargin);
+            ImGui::InputInt("空気力モデル", &draft.aeroModel);
+            for (std::size_t i = 0; i < draft.config.size(); i += 3) {
+                const auto label = "設定 " + std::to_string(i / 3);
+                ImGui::InputFloat3(label.c_str(), draft.config.data() + i);
+            }
+            ImGui::InputFloat3("クラスタ設定", draft.cluster.data());
+            ImGui::InputInt4("反復設定", draft.iteration.data());
+            ImGui::InputFloat3("材質設定", draft.materialConfig.data());
             ImGui::Text("アンカー %zu / 固定頂点 %zu", draft.anchors.size(), draft.pinnedVertices.size());
             if (ImGui::Button("ソフトボディを適用")) {
                 const auto result = applyTransaction(session, [&](auto &transaction) {
