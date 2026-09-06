@@ -11,9 +11,15 @@ bool setMaterialTexture(DocumentSession &session, mmd::MaterialHandle handle, st
     auto edited = *source;
     edited.textureIndex = -1;
     if (texture) {
+        bool found = false;
         for (std::size_t index = 0; index < session.document.model().textures.size(); ++index)
-            if (session.document.textureHandle(index) == *texture)
+            if (session.document.textureHandle(index) == *texture) {
                 edited.textureIndex = static_cast<std::int32_t>(index);
+                found = true;
+                break;
+            }
+        if (!found)
+            return false;
     }
     return editMaterial(session, handle, edited).success;
 }
