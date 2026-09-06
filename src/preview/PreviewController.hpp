@@ -22,7 +22,7 @@ class PreviewController {
     void setIkEnabled(bool enabled);
     void setFrame(float frame);
     void reset();
-    [[nodiscard]] mmd::AnimatedModelFrame evaluate(float deltaSeconds = 0.0F);
+    [[nodiscard]] mmd::AnimatedModelFrame evaluate(float deltaSeconds = 0.0F, bool gpuSkinning = false);
     [[nodiscard]] const mmd::PmxModel &model() const noexcept;
 
   private:
@@ -35,4 +35,3 @@ class PreviewController {
 };
 
 } // namespace pmxer
-
