@@ -7,19 +7,17 @@
 namespace pmxer {
 namespace {
 
-class SnapshotCommand final : public EditorCommand {
+class PatchCommand final : public EditorCommand {
   public:
-    SnapshotCommand(mmd::PmxDocument before, mmd::PmxDocument after, std::uint64_t domain, std::string description)
-        : before_(std::move(before)), after_(std::move(after)), domain_(domain), description_(std::move(description)) {}
+    PatchCommand(mmd::PmxPatch patch, std::string description)
+        : patch_(std::move(patch)), description_(std::move(description)) {}
 
     bool apply(mmd::PmxDocument &document) override {
-        document.restoreSnapshot(after_, domain_);
-        return true;
+        return document.applyPatch(patch_, true);
     }
 
     bool undo(mmd::PmxDocument &document) override {
-        document.restoreSnapshot(before_, domain_);
-        return true;
+        return document.applyPatch(patch_, false);
     }
 
     const std::string &description() const noexcept override {
@@ -27,9 +25,7 @@ class SnapshotCommand final : public EditorCommand {
     }
 
   private:
-    mmd::PmxDocument before_;
-    mmd::PmxDocument after_;
-    std::uint64_t domain_{};
+    mmd::PmxPatch patch_;
     std::string description_;
 };
 
@@ -208,16 +204,13 @@ OperationResult applyReversibleTransaction(DocumentSession &session, Transaction
 OperationResult applyTransaction(DocumentSession &session,
                                   const std::function<bool(mmd::PmxDocument::Transaction &)> &callback,
                                   std::string description) {
-    const mmd::PmxDocument before(session.document);
     auto transaction = session.document.transaction();
     if (!callback(transaction))
         return {false, "対象が見つかりません"};
     const auto committed = transaction.commit();
     if (!committed.committed)
         return {false, committed.errors.empty() ? "編集結果が検証に失敗しました" : committed.errors.front()};
-    const mmd::PmxDocument after(session.document);
-    session.commands.recordApplied(
-        std::make_unique<SnapshotCommand>(before, after, session.document.domain(), std::move(description)));
+    session.commands.recordApplied(std::make_unique<PatchCommand>(committed.patch, std::move(description)));
     session.modified = session.commands.isModified();
     ++session.revision;
     session.validation = committed.validation;

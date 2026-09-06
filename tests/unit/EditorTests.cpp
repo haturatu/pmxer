@@ -78,6 +78,7 @@ int main() {
 
     pmxer::DocumentSession historySession(sampleModel());
     const auto historyHandle = historySession.document.vertexHandle(0);
+    mmd::MorphHandle historyMorph;
     auto historyVertex = *historySession.document.resolve(historyHandle);
     historyVertex.position[0] = 3.0F;
     assert(pmxer::editVertex(historySession, historyHandle, historyVertex).success);
@@ -87,7 +88,8 @@ int main() {
                    mmd::PmxMorph morph;
                    morph.name = "history_morph";
                    morph.type = 1;
-                   return static_cast<bool>(transaction.addMorph(std::move(morph)));
+                   historyMorph = transaction.addMorph(std::move(morph));
+                   return static_cast<bool>(historyMorph);
                },
                "構造変更")
                .success);
@@ -100,6 +102,10 @@ int main() {
     assert(historySession.undo());
     assert(historySession.document.resolve(historyHandle) != nullptr);
     assert(historySession.document.resolve(historyHandle)->position[0] == 0.0F);
+    assert(historySession.redo());
+    assert(historySession.redo());
+    assert(historySession.document.resolve(historyMorph) != nullptr);
+    assert(historySession.document.resolve(historyMorph)->name == "history_morph");
 
     auto reorderModel = sampleModel();
     reorderModel.morphs.resize(2);
