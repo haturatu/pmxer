@@ -14,7 +14,7 @@ cbuffer FrameData : register(b0, space1) {
     row_major float4x4 viewProjection;
 };
 
-cbuffer MaterialData : register(b0, space3) {
+cbuffer MaterialData : register(b0, space2) {
     float4 diffuse;
     float4 textureMultiply;
     float4 textureAdd;
@@ -25,12 +25,12 @@ cbuffer MaterialData : register(b0, space3) {
     float4 materialModes;
 };
 
-Texture2D baseTexture : register(t0, space3);
-Texture2D sphereTexture : register(t1, space3);
-Texture2D toonTexture : register(t2, space3);
-SamplerState baseSampler : register(s0, space3);
-SamplerState sphereSampler : register(s1, space3);
-SamplerState toonSampler : register(s2, space3);
+Texture2D baseTexture : register(t0, space2);
+Texture2D sphereTexture : register(t1, space2);
+Texture2D toonTexture : register(t2, space2);
+SamplerState baseSampler : register(s0, space2);
+SamplerState sphereSampler : register(s1, space2);
+SamplerState toonSampler : register(s2, space2);
 
 VertexOutput mainVS(VertexInput input) {
     VertexOutput output;
