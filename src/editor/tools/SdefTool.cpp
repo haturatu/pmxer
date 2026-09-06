@@ -3,8 +3,38 @@
 #include "../EditorOperations.hpp"
 
 #include <cmath>
+#include <optional>
+#include <string>
 
 namespace pmxer {
+namespace {
+
+std::optional<mmd::BoneHandle> mirroredBone(const mmd::PmxDocument &document, std::int32_t index) {
+    if (index < 0 || static_cast<std::size_t>(index) >= document.model().bones.size())
+        return std::nullopt;
+    auto name = document.model().bones[static_cast<std::size_t>(index)].name;
+    const auto suffix = name.size() >= 2 ? name.substr(name.size() - 2) : std::string{};
+    if (suffix == "_l")
+        name.replace(name.size() - 1, 1, "r");
+    else if (suffix == "_r")
+        name.replace(name.size() - 1, 1, "l");
+    else {
+        const auto left = name.find("左");
+        const auto right = name.find("右");
+        if (left != std::string::npos)
+            name.replace(left, std::string("左").size(), "右");
+        else if (right != std::string::npos)
+            name.replace(right, std::string("右").size(), "左");
+        else
+            return document.boneHandle(static_cast<std::size_t>(index));
+    }
+    for (std::size_t candidate = 0; candidate < document.model().bones.size(); ++candidate)
+        if (document.model().bones[candidate].name == name)
+            return document.boneHandle(candidate);
+    return document.boneHandle(static_cast<std::size_t>(index));
+}
+
+} // namespace
 
 SdefReport convertBdef2ToSdef(DocumentSession &session, const std::vector<mmd::VertexHandle> &handles) {
     SdefReport report;
@@ -115,8 +145,8 @@ bool mirrorSdef(DocumentSession &session, const std::vector<mmd::VertexHandle> &
         value.sdefR0 = source->sdefR0;
         value.sdefR1 = source->sdefR1;
         for (std::size_t i = 0; i < 4; ++i)
-            if (source->bones[i] >= 0 && static_cast<std::size_t>(source->bones[i]) < session.document.model().bones.size())
-                value.bones[i] = session.document.boneHandle(static_cast<std::size_t>(source->bones[i]));
+            if (const auto bone = mirroredBone(session.document, source->bones[i]))
+                value.bones[i] = *bone;
         value.sdefC[0] = -value.sdefC[0];
         value.sdefR0[0] = -value.sdefR0[0];
         value.sdefR1[0] = -value.sdefR1[0];

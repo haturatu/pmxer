@@ -3,8 +3,37 @@
 #include "../EditorOperations.hpp"
 
 #include <algorithm>
+#include <optional>
+#include <string>
 
 namespace pmxer {
+namespace {
+
+std::optional<mmd::BoneHandle> mirroredBone(const mmd::PmxDocument &document, std::int32_t index) {
+    if (index < 0 || static_cast<std::size_t>(index) >= document.model().bones.size())
+        return std::nullopt;
+    auto name = document.model().bones[static_cast<std::size_t>(index)].name;
+    if (name.size() >= 2 && name.ends_with("_l"))
+        name.replace(name.size() - 1, 1, "r");
+    else if (name.size() >= 2 && name.ends_with("_r"))
+        name.replace(name.size() - 1, 1, "l");
+    else {
+        const auto left = name.find("左");
+        const auto right = name.find("右");
+        if (left != std::string::npos)
+            name.replace(left, std::string("左").size(), "右");
+        else if (right != std::string::npos)
+            name.replace(right, std::string("右").size(), "左");
+        else
+            return document.boneHandle(static_cast<std::size_t>(index));
+    }
+    for (std::size_t candidate = 0; candidate < document.model().bones.size(); ++candidate)
+        if (document.model().bones[candidate].name == name)
+            return document.boneHandle(candidate);
+    return document.boneHandle(static_cast<std::size_t>(index));
+}
+
+} // namespace
 
 bool assignBone(DocumentSession &session, const std::vector<mmd::VertexHandle> &handles, mmd::BoneHandle bone,
                 std::size_t slot) {
@@ -49,8 +78,8 @@ bool mirrorWeights(DocumentSession &session, const std::vector<mmd::VertexHandle
         skin.sdefR0 = value->sdefR0;
         skin.sdefR1 = value->sdefR1;
         for (std::size_t i = 0; i < 4; ++i)
-            if (value->bones[i] >= 0 && static_cast<std::size_t>(value->bones[i]) < session.document.model().bones.size())
-                skin.bones[i] = session.document.boneHandle(static_cast<std::size_t>(value->bones[i]));
+            if (const auto bone = mirroredBone(session.document, value->bones[i]))
+                skin.bones[i] = *bone;
         values.push_back(skin);
     }
     return applyTransaction(session, [&](auto &transaction) {

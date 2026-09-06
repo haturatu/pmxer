@@ -466,6 +466,11 @@ void drawVertexPanel(DocumentSession &session) {
         session.ui.status = report.converted != 0 ? "BDEF2へ変換しました" : "BDEF2へ変換できませんでした";
         session.ui.vertexDraft.reset();
     }
+    ImGui::SameLine();
+    if (ImGui::Button("SDEFミラー")) {
+        session.ui.status = mirrorSdef(session, {handle}) ? "SDEFをミラーしました" : "SDEFミラーに失敗しました";
+        session.ui.vertexDraft.reset();
+    }
     ImGui::End();
 }
 
