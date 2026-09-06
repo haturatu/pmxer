@@ -31,6 +31,17 @@ struct alignas(16) FrameUniforms {
     std::array<float, 16> viewProjection{};
 };
 
+struct alignas(16) MaterialUniforms {
+    std::array<float, 4> diffuse{};
+    std::array<float, 4> textureMultiply{1.0F, 1.0F, 1.0F, 1.0F};
+    std::array<float, 4> textureAdd{};
+    std::array<float, 4> sphereMultiply{1.0F, 1.0F, 1.0F, 1.0F};
+    std::array<float, 4> sphereAdd{};
+    std::array<float, 4> toonMultiply{1.0F, 1.0F, 1.0F, 1.0F};
+    std::array<float, 4> toonAdd{};
+    std::array<float, 4> materialModes{};
+};
+
 FrameUniforms makeUniforms(const EditorUiState &ui, float aspect) {
     const CameraState camera{ui.cameraTarget, ui.cameraYaw, ui.cameraPitch, ui.cameraDistance};
     const auto matrices = makeCameraMatrices(camera, aspect);
@@ -282,7 +293,7 @@ GpuModelRenderer::GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path 
     fragmentInfo.entrypoint = "mainPS";
     fragmentInfo.format = shaders.format;
     fragmentInfo.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
-    fragmentInfo.num_samplers = 1;
+    fragmentInfo.num_samplers = 3;
     fragmentInfo.num_uniform_buffers = 1;
     impl_->vertexShader = SDL_CreateGPUShader(device, &vertexInfo);
     impl_->fragmentShader = SDL_CreateGPUShader(device, &fragmentInfo);
@@ -442,23 +453,51 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
                                    ? &frame->materials[materialIndex]
                                    : nullptr;
         const auto &diffuse = animated != nullptr ? animated->diffuse : material.diffuse;
-        const auto color = std::array<float, 4>{diffuse[0], diffuse[1], diffuse[2], diffuse[3]};
-        SDL_PushGPUFragmentUniformData(commands, 0, color.data(), sizeof(color));
-        const auto textureIndex = material.textureIndex;
-        const auto *texture = textureIndex >= 0 && static_cast<std::size_t>(textureIndex) < impl_->textures.size() &&
-                                      impl_->textures[static_cast<std::size_t>(textureIndex)] != nullptr
-                                  ? impl_->textures[static_cast<std::size_t>(textureIndex)]
-                                  : impl_->defaultTexture;
-        const SDL_GPUTextureSamplerBinding binding{texture, impl_->textureSampler};
-        SDL_BindGPUFragmentSamplers(pass, 0, &binding, 1);
+        MaterialUniforms uniforms;
+        uniforms.diffuse = {diffuse[0], diffuse[1], diffuse[2], diffuse[3]};
+        if (animated != nullptr) {
+            uniforms.textureMultiply = {animated->textureMultiply[0], animated->textureMultiply[1],
+                                        animated->textureMultiply[2], animated->textureMultiply[3]};
+            uniforms.textureAdd = {animated->textureAdd[0], animated->textureAdd[1], animated->textureAdd[2],
+                                   animated->textureAdd[3]};
+            uniforms.sphereMultiply = {animated->sphereMultiply[0], animated->sphereMultiply[1],
+                                       animated->sphereMultiply[2], animated->sphereMultiply[3]};
+            uniforms.sphereAdd = {animated->sphereAdd[0], animated->sphereAdd[1], animated->sphereAdd[2],
+                                  animated->sphereAdd[3]};
+            uniforms.toonMultiply = {animated->toonMultiply[0], animated->toonMultiply[1], animated->toonMultiply[2],
+                                     animated->toonMultiply[3]};
+            uniforms.toonAdd = {animated->toonAdd[0], animated->toonAdd[1], animated->toonAdd[2],
+                                animated->toonAdd[3]};
+        }
+        uniforms.materialModes = {static_cast<float>(material.sphereMode), static_cast<float>(material.toonMode),
+                                  0.0F, 0.0F};
+        SDL_PushGPUFragmentUniformData(commands, 0, &uniforms, sizeof(uniforms));
+        const auto textureFor = [&](std::int32_t index) -> SDL_GPUTexture * {
+            return index >= 0 && static_cast<std::size_t>(index) < impl_->textures.size() &&
+                           impl_->textures[static_cast<std::size_t>(index)] != nullptr
+                       ? impl_->textures[static_cast<std::size_t>(index)]
+                       : impl_->defaultTexture;
+        };
+        const std::array<SDL_GPUTextureSamplerBinding, 3> bindings{{
+            {textureFor(material.textureIndex), impl_->textureSampler},
+            {textureFor(material.sphereTextureIndex), impl_->textureSampler},
+            {material.toonMode == 0 ? textureFor(material.toonTextureIndex) : impl_->defaultTexture,
+             impl_->textureSampler},
+        }};
+        SDL_BindGPUFragmentSamplers(pass, 0, bindings.data(), static_cast<Uint32>(bindings.size()));
         SDL_DrawGPUIndexedPrimitives(pass, static_cast<Uint32>(count), 1, static_cast<Uint32>(indexBegin), 0, 0);
         indexBegin += count;
     }
     if (indexBegin < impl_->indexCount) {
-        const auto color = std::array<float, 4>{1.0F, 1.0F, 1.0F, 1.0F};
-        SDL_PushGPUFragmentUniformData(commands, 0, color.data(), sizeof(color));
-        const SDL_GPUTextureSamplerBinding binding{impl_->defaultTexture, impl_->textureSampler};
-        SDL_BindGPUFragmentSamplers(pass, 0, &binding, 1);
+        MaterialUniforms uniforms;
+        uniforms.diffuse = {1.0F, 1.0F, 1.0F, 1.0F};
+        SDL_PushGPUFragmentUniformData(commands, 0, &uniforms, sizeof(uniforms));
+        const std::array<SDL_GPUTextureSamplerBinding, 3> bindings{{
+            {impl_->defaultTexture, impl_->textureSampler},
+            {impl_->defaultTexture, impl_->textureSampler},
+            {impl_->defaultTexture, impl_->textureSampler},
+        }};
+        SDL_BindGPUFragmentSamplers(pass, 0, bindings.data(), static_cast<Uint32>(bindings.size()));
         SDL_DrawGPUIndexedPrimitives(pass, static_cast<Uint32>(impl_->indexCount - indexBegin), 1,
                                      static_cast<Uint32>(indexBegin), 0, 0);
     }

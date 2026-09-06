@@ -16,10 +16,21 @@ cbuffer FrameData : register(b0, space1) {
 
 cbuffer MaterialData : register(b0, space3) {
     float4 diffuse;
+    float4 textureMultiply;
+    float4 textureAdd;
+    float4 sphereMultiply;
+    float4 sphereAdd;
+    float4 toonMultiply;
+    float4 toonAdd;
+    float4 materialModes;
 };
 
 Texture2D baseTexture : register(t0, space3);
+Texture2D sphereTexture : register(t1, space3);
+Texture2D toonTexture : register(t2, space3);
 SamplerState baseSampler : register(s0, space3);
+SamplerState sphereSampler : register(s1, space3);
+SamplerState toonSampler : register(s2, space3);
 
 VertexOutput mainVS(VertexInput input) {
     VertexOutput output;
@@ -31,7 +42,26 @@ VertexOutput mainVS(VertexInput input) {
 
 float4 mainPS(VertexOutput input) : SV_Target0 {
     const float3 lightDirection = normalize(float3(-0.35, 0.75, 0.55));
-    const float light = 0.25 + 0.75 * saturate(dot(normalize(input.normal), lightDirection));
+    const float lightValue = saturate(dot(normalize(input.normal), lightDirection));
+    const float light = 0.25 + 0.75 * lightValue;
     const float4 textureColor = baseTexture.Sample(baseSampler, input.uv);
-    return float4(diffuse.rgb * textureColor.rgb * light, diffuse.a * textureColor.a);
+    float3 color = diffuse.rgb * (textureColor.rgb * textureMultiply.rgb + textureAdd.rgb);
+    if (materialModes.x > 0.5) {
+        const float2 sphereUv = normalize(input.normal).xy * 0.5 + 0.5;
+        const float4 sphereColor = sphereTexture.Sample(sphereSampler, sphereUv);
+        if (materialModes.x < 1.5)
+            color *= sphereColor.rgb * sphereMultiply.rgb + sphereAdd.rgb;
+        else if (materialModes.x < 2.5)
+            color += sphereColor.rgb * sphereMultiply.rgb + sphereAdd.rgb;
+    }
+    float3 lighting = light.xxx;
+    if (materialModes.y < 0.5) {
+        const float toonBand = step(0.5, lightValue);
+        const float2 toonUv = float2(0.5, 1.0 - toonBand);
+        const float4 toonColor = toonTexture.Sample(toonSampler, toonUv);
+        lighting *= toonColor.rgb * toonMultiply.rgb + toonAdd.rgb;
+    } else {
+        lighting *= lerp(0.55, 1.0, step(0.5, lightValue));
+    }
+    return float4(color * lighting, diffuse.a * textureColor.a * textureMultiply.a + textureAdd.a);
 }
