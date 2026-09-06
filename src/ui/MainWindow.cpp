@@ -141,6 +141,7 @@ int runApplication(const EditCommand &options) {
     bool quitPromptOpened = false;
     bool recoveryPromptOpened = false;
     std::size_t quitSessionIndex = 0;
+    std::vector<bool> quitDiscarded;
     SDL_GPUTexture *depthTexture = nullptr;
     Uint32 depthWidth = 0;
     Uint32 depthHeight = 0;
@@ -178,6 +179,7 @@ int runApplication(const EditCommand &options) {
                 quitRequested = true;
                 quitPromptOpened = false;
                 quitSessionIndex = 0;
+                quitDiscarded.assign(sessions.size(), false);
             }
         }
         if (const auto result = fileDialog.takeResult()) {
@@ -243,6 +245,15 @@ int runApplication(const EditCommand &options) {
             while (quitSessionIndex < sessions.size() && !sessions[quitSessionIndex]->modified)
                 ++quitSessionIndex;
             if (quitSessionIndex >= sessions.size()) {
+                for (std::size_t index = 0; index < quitDiscarded.size(); ++index) {
+                    if (!quitDiscarded[index])
+                        continue;
+                    auto &session = *sessions[index];
+                    const auto recovery = session.recoveryFile.value_or(
+                        session.path.empty() ? recoveryPath({}, session.recoveryId) : recoveryPath(session.path));
+                    (void)discardRecoveryFile(recovery);
+                    session.recoveryFile.reset();
+                }
                 quitRequested = false;
                 running = false;
             } else {
@@ -274,8 +285,7 @@ int runApplication(const EditCommand &options) {
             }
             ImGui::SameLine();
             if (ImGui::Button("破棄して終了")) {
-                // Discard is provisional until every document accepts quitting.
-                // A later cancellation must leave this document dirty.
+                quitDiscarded[quitSessionIndex] = true;
                 ++quitSessionIndex;
                 quitPromptOpened = false;
                 ImGui::CloseCurrentPopup();
