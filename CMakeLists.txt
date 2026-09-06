@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.25)
 
 project(pmxer VERSION 0.1.0 LANGUAGES CXX)
 
+# The bundled physics dependency still declares a pre-3.5 minimum. CMake 4
+# requires an explicit compatibility floor when that subproject is added.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "Compatibility floor for bundled dependencies")
+
 if(POLICY CMP0169)
   cmake_policy(SET CMP0169 OLD)
 endif()

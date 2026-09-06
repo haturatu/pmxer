@@ -28,7 +28,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libsdl3-dev
+          sudo apt-get install -y ninja-build
       - name: Configure
         run: cmake --preset ${{ matrix.preset }}
       - name: Build
@@ -45,7 +45,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libsdl3-dev clang clang-tidy clang-format
+          sudo apt-get install -y ninja-build clang clang-tidy clang-format
       - name: GCC debug
         run: |
           cmake --preset linux-cli -DCMAKE_CXX_COMPILER=g++
