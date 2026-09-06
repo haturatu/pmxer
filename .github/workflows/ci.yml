@@ -31,7 +31,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build xvfb mesa-vulkan-drivers glslang-tools libx11-dev libxext-dev libxrandr-dev libxrender-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev libwayland-dev libxkbcommon-dev libdecor-0-dev
+          sudo apt-get install -y ninja-build xvfb mesa-vulkan-drivers glslang-tools gdb libx11-dev libxext-dev libxrandr-dev libxrender-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev libwayland-dev libxkbcommon-dev libdecor-0-dev
       - name: Install offline shader compiler
         if: runner.os != 'Linux'
         shell: bash
@@ -73,6 +73,8 @@ jobs:
             ./build/${{ matrix.preset }}/pmxer
           status=$?
           if [ "$status" -ne 124 ]; then
+            xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
+              gdb -batch -ex run -ex bt --args ./build/${{ matrix.preset }}/pmxer || true
             exit "$status"
           fi
       - name: Test
