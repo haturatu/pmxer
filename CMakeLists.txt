@@ -51,6 +51,14 @@ add_library(pmxer_editor
   src/editor/EditorOperations.cpp
   src/editor/tools/SdefTool.cpp
   src/editor/tools/StandardBoneTool.cpp
+  src/editor/tools/WeightTool.cpp
+  src/editor/tools/MaterialTool.cpp
+  src/editor/tools/MorphTool.cpp
+  src/editor/tools/PhysicsTool.cpp
+  src/editor/tools/DisplayFrameTool.cpp
+  src/editor/tools/BoneTool.cpp
+  src/editor/tools/VertexTool.cpp
+  src/editor/tools/ModelMergeTool.cpp
 )
 target_include_directories(pmxer_editor PUBLIC src)
 target_link_libraries(pmxer_editor PUBLIC mmd::core pmxer_platform)
@@ -71,6 +79,22 @@ add_library(pmxer_render
 )
 target_include_directories(pmxer_render PUBLIC src)
 target_link_libraries(pmxer_render PUBLIC pmxer_editor pmxer_preview)
+
+find_program(PMXER_SHADERCROSS shadercross)
+set(PMXER_SHADER_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+file(MAKE_DIRECTORY "${PMXER_SHADER_OUTPUT_DIR}")
+if(PMXER_SHADERCROSS)
+  add_custom_command(
+    OUTPUT "${PMXER_SHADER_OUTPUT_DIR}/model.spv"
+    COMMAND "${PMXER_SHADERCROSS}" -s assets/shaders/model.hlsl -d "${PMXER_SHADER_OUTPUT_DIR}/model.spv"
+    DEPENDS assets/shaders/model.hlsl
+    VERBATIM
+  )
+  add_custom_target(pmxer_shaders DEPENDS "${PMXER_SHADER_OUTPUT_DIR}/model.spv")
+else()
+  add_custom_target(pmxer_shaders SOURCES assets/shaders/model.hlsl)
+endif()
+add_dependencies(pmxer_render pmxer_shaders)
 
 if(PMXER_BUILD_GUI)
   find_package(SDL3 CONFIG QUIET)

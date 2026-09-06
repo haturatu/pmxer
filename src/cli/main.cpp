@@ -1,5 +1,6 @@
 #include "../editor/DiffController.hpp"
 #include "../editor/DocumentSession.hpp"
+#include "../editor/EditorOperations.hpp"
 #include "../editor/SaveController.hpp"
 #include "../editor/ValidationController.hpp"
 #include "../platform/Log.hpp"
@@ -70,6 +71,11 @@ int diff(const std::filesystem::path &left, const std::filesystem::path &right) 
 int normalize(const std::filesystem::path &source, const std::filesystem::path &destination) {
     try {
         pmxer::DocumentSession session(mmd::pmx::load(source), destination);
+        const auto normalized = pmxer::normalizeWeights(session);
+        if (!normalized.success) {
+            pmxer::log::error(normalized.message.c_str());
+            return 1;
+        }
         const auto result = pmxer::saveDocument(session, destination);
         if (!result.success) {
             pmxer::log::error(result.message.c_str());
@@ -101,4 +107,3 @@ int main(int argc, char **argv) {
     usage();
     return 1;
 }
-

@@ -14,6 +14,9 @@ struct OperationResult {
     std::string message;
 };
 
+[[nodiscard]] OperationResult applyTransaction(
+    DocumentSession &, const std::function<bool(mmd::PmxDocument::Transaction &)> &, std::string description);
+
 [[nodiscard]] OperationResult editVertex(DocumentSession &, mmd::VertexHandle, const mmd::PmxVertex &);
 [[nodiscard]] OperationResult editMaterial(DocumentSession &, mmd::MaterialHandle, const mmd::PmxMaterial &);
 [[nodiscard]] OperationResult editBone(DocumentSession &, mmd::BoneHandle, const mmd::PmxBone &);
@@ -27,4 +30,3 @@ struct OperationResult {
 [[nodiscard]] OperationResult setVertexSkin(DocumentSession &, mmd::VertexHandle, const mmd::PmxVertex &);
 
 } // namespace pmxer
-

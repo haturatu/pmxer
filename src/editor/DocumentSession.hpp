@@ -7,6 +7,7 @@
 
 #include <filesystem>
 #include <optional>
+#include <utility>
 
 namespace pmxer {
 
@@ -16,6 +17,7 @@ struct DocumentSession {
     CommandStack commands;
     SelectionState selection;
     mmd::ValidationResult validation;
+    mmd::PmxChangeSet changes;
     std::optional<mmd::PmxModel> baseline;
     bool modified{};
     bool previewPhysics{true};
@@ -24,7 +26,24 @@ struct DocumentSession {
     DocumentSession() = default;
     explicit DocumentSession(mmd::PmxModel model, std::filesystem::path source = {})
         : path(std::move(source)), document(std::move(model)), validation(document.validate()), baseline(document.model()) {}
+
+    [[nodiscard]] bool undo() {
+        if (!commands.undo(document))
+            return false;
+        modified = true;
+        selection.clear();
+        validation = document.validate();
+        return true;
+    }
+
+    [[nodiscard]] bool redo() {
+        if (!commands.redo(document))
+            return false;
+        modified = true;
+        selection.clear();
+        validation = document.validate();
+        return true;
+    }
 };
 
 } // namespace pmxer
-

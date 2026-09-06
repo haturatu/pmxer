@@ -31,8 +31,11 @@ class SnapshotCommand final : public EditorCommand {
     std::string description_;
 };
 
-template <typename Callback>
-OperationResult editTransaction(DocumentSession &session, Callback &&callback, std::string description) {
+} // namespace
+
+OperationResult applyTransaction(DocumentSession &session,
+                                  const std::function<bool(mmd::PmxDocument::Transaction &)> &callback,
+                                  std::string description) {
     const auto before = session.document.model();
     auto transaction = session.document.transaction();
     if (!callback(transaction))
@@ -44,42 +47,41 @@ OperationResult editTransaction(DocumentSession &session, Callback &&callback, s
     session.commands.recordApplied(std::make_unique<SnapshotCommand>(before, after, std::move(description)));
     session.modified = true;
     session.validation = committed.validation;
+    session.changes = committed.changes;
     return {true, {}};
 }
 
-} // namespace
-
 OperationResult editVertex(DocumentSession &session, mmd::VertexHandle handle, const mmd::PmxVertex &value) {
-    return editTransaction(session, [&](auto &transaction) { return transaction.setVertex(handle, value); }, "頂点を編集");
+    return applyTransaction(session, [&](auto &transaction) { return transaction.setVertex(handle, value); }, "頂点を編集");
 }
 
 OperationResult editMaterial(DocumentSession &session, mmd::MaterialHandle handle, const mmd::PmxMaterial &value) {
-    return editTransaction(session, [&](auto &transaction) { return transaction.setMaterial(handle, value); }, "材質を編集");
+    return applyTransaction(session, [&](auto &transaction) { return transaction.setMaterial(handle, value); }, "材質を編集");
 }
 
 OperationResult editBone(DocumentSession &session, mmd::BoneHandle handle, const mmd::PmxBone &value) {
-    return editTransaction(session, [&](auto &transaction) { return transaction.setBone(handle, value); }, "ボーンを編集");
+    return applyTransaction(session, [&](auto &transaction) { return transaction.setBone(handle, value); }, "ボーンを編集");
 }
 
 OperationResult editMorph(DocumentSession &session, mmd::MorphHandle handle, const mmd::PmxMorph &value) {
-    return editTransaction(session, [&](auto &transaction) { return transaction.setMorph(handle, value); }, "モーフを編集");
+    return applyTransaction(session, [&](auto &transaction) { return transaction.setMorph(handle, value); }, "モーフを編集");
 }
 
 OperationResult editDisplayFrame(DocumentSession &session, mmd::DisplayFrameHandle handle,
                                   const mmd::PmxDisplayFrame &value) {
-    return editTransaction(session, [&](auto &transaction) { return transaction.setDisplayFrame(handle, value); }, "表示枠を編集");
+    return applyTransaction(session, [&](auto &transaction) { return transaction.setDisplayFrame(handle, value); }, "表示枠を編集");
 }
 
 OperationResult editRigidBody(DocumentSession &session, mmd::RigidBodyHandle handle, const mmd::PmxRigidBody &value) {
-    return editTransaction(session, [&](auto &transaction) { return transaction.setRigidBody(handle, value); }, "剛体を編集");
+    return applyTransaction(session, [&](auto &transaction) { return transaction.setRigidBody(handle, value); }, "剛体を編集");
 }
 
 OperationResult editJoint(DocumentSession &session, mmd::JointHandle handle, const mmd::PmxJoint &value) {
-    return editTransaction(session, [&](auto &transaction) { return transaction.setJoint(handle, value); }, "ジョイントを編集");
+    return applyTransaction(session, [&](auto &transaction) { return transaction.setJoint(handle, value); }, "ジョイントを編集");
 }
 
 OperationResult editSoftBody(DocumentSession &session, mmd::SoftBodyHandle handle, const mmd::PmxSoftBody &value) {
-    return editTransaction(session, [&](auto &transaction) { return transaction.setSoftBody(handle, value); }, "ソフトボディを編集");
+    return applyTransaction(session, [&](auto &transaction) { return transaction.setSoftBody(handle, value); }, "ソフトボディを編集");
 }
 
 OperationResult normalizeWeights(DocumentSession &session, float threshold) {
@@ -101,7 +103,7 @@ OperationResult normalizeWeights(DocumentSession &session, float threshold) {
                 for (std::size_t i = 0; i < count; ++i)
                     vertex.weights[i] = std::max(0.0F, vertex.weights[i]) / total;
     }
-    return editTransaction(session, [&](auto &transaction) {
+    return applyTransaction(session, [&](auto &transaction) {
         for (std::size_t i = 0; i < values.size(); ++i)
             if (!transaction.setVertex(session.document.vertexHandle(i), values[i]))
                 return false;

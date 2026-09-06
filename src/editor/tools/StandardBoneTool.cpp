@@ -1,6 +1,9 @@
 #include "StandardBoneTool.hpp"
 
+#include "../EditorOperations.hpp"
+
 #include <algorithm>
+#include <unordered_map>
 
 namespace pmxer {
 namespace {
@@ -42,25 +45,29 @@ RecipeCheck inspectStandardBones(const mmd::PmxModel &model) {
 }
 
 bool applyStandardBones(DocumentSession &session, const std::vector<BoneRecipe> &requested) {
-    auto transaction = session.document.transaction();
-    for (const auto &recipe : requested) {
-        if (findBone(session.document, recipe.name))
-            continue;
-        mmd::PmxBone bone;
-        bone.name = recipe.name;
-        bone.englishName = recipe.name;
-        bone.deformLayer = recipe.deformLayer;
-        mmd::BoneDraft draft{bone, findBone(session.document, recipe.parent)};
-        if (!transaction.addBone(std::move(draft)))
-            return false;
-    }
-    const auto result = transaction.commit();
-    if (!result.committed)
-        return false;
-    session.modified = true;
-    session.validation = result.validation;
-    return true;
+    return applyTransaction(session, [&](auto &transaction) {
+        std::unordered_map<std::string, mmd::BoneHandle> created;
+        for (const auto &recipe : requested) {
+            if (findBone(session.document, recipe.name))
+                continue;
+            mmd::PmxBone bone;
+            bone.name = recipe.name;
+            bone.englishName = recipe.name;
+            bone.deformLayer = recipe.deformLayer;
+            auto parent = findBone(session.document, recipe.parent);
+            if (!parent) {
+                const auto found = created.find(recipe.parent);
+                if (found != created.end())
+                    parent = found->second;
+            }
+            mmd::BoneDraft draft{bone, parent};
+            const auto createdBone = transaction.addBone(std::move(draft));
+            if (!createdBone)
+                return false;
+            created.emplace(recipe.name, createdBone);
+        }
+        return true;
+    }, "標準ボーンを追加").success;
 }
 
 } // namespace pmxer
-
