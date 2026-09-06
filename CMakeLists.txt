@@ -255,6 +255,8 @@ if(BUILD_TESTING)
 
   add_executable(pmxer_cli_tests tests/integration/CliTests.cpp)
   target_link_libraries(pmxer_cli_tests PRIVATE pmxer_editor)
+  add_dependencies(pmxer_cli_tests pmxer-cli)
+  target_compile_definitions(pmxer_cli_tests PRIVATE PMXER_CLI_PATH="$<TARGET_FILE:pmxer-cli>")
   add_test(NAME pmxer_cli COMMAND pmxer_cli_tests)
 
   add_executable(pmxer_command_line_tests tests/unit/CommandLineTests.cpp src/app/CommandLine.cpp)
