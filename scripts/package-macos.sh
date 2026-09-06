@@ -11,6 +11,9 @@ mkdir -p "${app_dir}/Contents/MacOS" "${app_dir}/Contents/Resources"
 cmake --install "${source_dir}" --prefix "${stage_dir}/install"
 cp "${stage_dir}/install/bin/pmxer" "${app_dir}/Contents/MacOS/pmxer"
 cp -R "${stage_dir}/install/share/pmxer/assets" "${app_dir}/Contents/Resources/"
+if [[ -d "${stage_dir}/install/share/pmxer/shaders" ]]; then
+  cp -R "${stage_dir}/install/share/pmxer/shaders" "${app_dir}/Contents/Resources/"
+fi
 cp "${root_dir}/cmake/Info.plist" "${app_dir}/Contents/Info.plist"
 if [[ -n "${PMXER_MACOS_SIGNING_IDENTITY:-}" ]]; then
   codesign --deep --force --options runtime --sign "${PMXER_MACOS_SIGNING_IDENTITY}" "${app_dir}"
