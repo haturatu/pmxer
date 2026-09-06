@@ -36,6 +36,11 @@
 namespace pmxer {
 namespace {
 
+void replacePreviewFrame(PreviewSession &state, mmd::AnimatedModelFrame frame) {
+    state.frame = std::move(frame);
+    ++state.frameRevision;
+}
+
 PreviewSession &updatePreview(DocumentSession &session) {
     auto &state = session.preview;
     if (!state.controller || state.revision != session.revision) {
@@ -49,7 +54,7 @@ PreviewSession &updatePreview(DocumentSession &session) {
             state.controller->setPose(&*state.pose);
         state.controller->setPhysicsEnabled(session.previewPhysics);
         state.controller->setIkEnabled(session.previewIk);
-        state.frame = state.controller->evaluate();
+        replacePreviewFrame(state, state.controller->evaluate());
     } else {
         state.controller->setPhysicsEnabled(session.previewPhysics);
         state.controller->setIkEnabled(session.previewIk);
@@ -65,7 +70,7 @@ PreviewSession &updatePreview(DocumentSession &session) {
         state.accumulator += std::clamp(elapsed, 0.0, 0.1);
         constexpr double fixedStep = 1.0 / 60.0;
         while (state.accumulator >= fixedStep) {
-            state.frame = state.controller->evaluate(static_cast<float>(fixedStep));
+            replacePreviewFrame(state, state.controller->evaluate(static_cast<float>(fixedStep)));
             state.accumulator -= fixedStep;
         }
     } else {
@@ -317,6 +322,7 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog) {
             session.document = mmd::PmxDocument(std::move(*session.recoveryModel));
             session.recoveryModel.reset();
             session.commands.clear();
+            session.commands.markDirty();
             session.selection.clear();
             session.modified = true;
             ++session.revision;
@@ -451,7 +457,7 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog) {
             preview.controller->setMotion(&*preview.motion);
             preview.accumulator = 0.0;
             preview.clockInitialized = false;
-            preview.frame = preview.controller->evaluate();
+            replacePreviewFrame(preview, preview.controller->evaluate());
             session.ui.status = "モーションを読み込みました";
         } catch (const std::exception &error) {
             session.ui.status = error.what();
@@ -466,7 +472,7 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog) {
             preview.controller->setPose(&*preview.pose);
             preview.accumulator = 0.0;
             preview.clockInitialized = false;
-            preview.frame = preview.controller->evaluate();
+            replacePreviewFrame(preview, preview.controller->evaluate());
             session.ui.status = "ポーズを読み込みました";
         } catch (const std::exception &error) {
             session.ui.status = error.what();
@@ -476,12 +482,15 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog) {
         ImGui::TextWrapped("状態: %s", session.ui.status.c_str());
     ImGui::Text("変更済み: %s / Undo %zu / Redo %zu", session.modified ? "はい" : "いいえ",
                 session.commands.undoCount(), session.commands.redoCount());
-    const auto differences = compareWithBaseline(session);
-    ImGui::Text("基準との差分: %zu", differences.differences.size());
     if (ImGui::Begin("差分")) {
-        for (const auto &line : formatDifferences(differences))
+        if (session.derived.diffRevision != session.revision) {
+            session.derived.diff = compareWithBaseline(session);
+            session.derived.diffRevision = session.revision;
+        }
+        ImGui::Text("基準との差分: %zu", session.derived.diff.differences.size());
+        for (const auto &line : formatDifferences(session.derived.diff))
             ImGui::TextWrapped("%s", line.c_str());
-        if (differences.differences.empty())
+        if (session.derived.diff.differences.empty())
             ImGui::TextUnformatted("差分はありません");
     }
     ImGui::End();
@@ -1264,10 +1273,13 @@ void drawPhysicsPanel(DocumentSession &session) {
 }
 
 void drawDiagnosticsPanel(DocumentSession &session) {
-    const auto detailed = validateForEditing(session.document.model());
-    ImGui::Begin("診断");
-    for (std::size_t index = 0; index < detailed.issues.size(); ++index) {
-        const auto &issue = detailed.issues[index];
+    if (ImGui::Begin("診断")) {
+        if (session.derived.diagnosticsRevision != session.revision) {
+            session.derived.diagnostics = validateForEditing(session.document.model());
+            session.derived.diagnosticsRevision = session.revision;
+        }
+        for (std::size_t index = 0; index < session.derived.diagnostics.issues.size(); ++index) {
+        const auto &issue = session.derived.diagnostics.issues[index];
         const auto level = validationSeverityName(issue.severity);
         ImGui::TextWrapped("[%s] %s: %s", level.c_str(), issue.object.c_str(), issue.message.c_str());
         const auto selectable = toSelectionKind(issue.location.kind);
@@ -1277,9 +1289,10 @@ void drawDiagnosticsPanel(DocumentSession &session) {
             if (ImGui::SmallButton(button.c_str()))
                 session.selection.set({*selectable, issue.location.id, issue.location.generation});
         }
+        }
+        if (session.derived.diagnostics.issues.empty())
+            ImGui::TextUnformatted("問題はありません");
     }
-    if (detailed.issues.empty())
-        ImGui::TextUnformatted("問題はありません");
     ImGui::End();
 }
 

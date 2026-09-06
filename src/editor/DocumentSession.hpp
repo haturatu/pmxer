@@ -81,9 +81,17 @@ struct PreviewSession {
     std::optional<mmd::VpdPose> pose;
     std::optional<mmd::AnimatedModelFrame> frame;
     std::uint64_t revision{std::numeric_limits<std::uint64_t>::max()};
+    std::uint64_t frameRevision{};
     double accumulator{};
     std::chrono::steady_clock::time_point lastTick{};
     bool clockInitialized{};
+};
+
+struct DerivedEditorState {
+    std::uint64_t diagnosticsRevision{std::numeric_limits<std::uint64_t>::max()};
+    mmd::ValidationResult diagnostics;
+    std::uint64_t diffRevision{std::numeric_limits<std::uint64_t>::max()};
+    mmd::SemanticCompareResult diff;
 };
 
 struct DocumentSession {
@@ -102,6 +110,7 @@ struct DocumentSession {
     std::uint64_t revision{};
     std::chrono::steady_clock::time_point lastRecovery{};
     PreviewSession preview;
+    DerivedEditorState derived;
     EditorUiState ui;
 
     DocumentSession() = default;
@@ -111,7 +120,7 @@ struct DocumentSession {
     [[nodiscard]] bool undo() {
         if (!commands.undo(document))
             return false;
-        modified = true;
+        modified = commands.isModified();
         selection.clear();
         ui.clearDrafts();
         changes.topologyChanged = true;
@@ -125,7 +134,7 @@ struct DocumentSession {
     [[nodiscard]] bool redo() {
         if (!commands.redo(document))
             return false;
-        modified = true;
+        modified = commands.isModified();
         selection.clear();
         ui.clearDrafts();
         changes.topologyChanged = true;
