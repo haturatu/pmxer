@@ -57,6 +57,7 @@ int main() {
     pmxer::DocumentSession session(sampleModel());
     assert(session.document.validate().valid());
     const auto handle = session.document.vertexHandle(0);
+    assert(!session.document.referencesTo(session.document.boneHandle(0)).empty());
     pmxer::DocumentSession otherSession(sampleModel());
     assert(session.document.resolve(otherSession.document.vertexHandle(0)) == nullptr);
     auto changed = *session.document.resolve(handle);
@@ -69,6 +70,11 @@ int main() {
     assert(session.document.model().vertices[0].position[0] == 0.0F);
     assert(session.commands.redo(session.document));
     assert(session.document.model().vertices[0].position[0] == 2.0F);
+
+    auto invalidVertex = *session.document.resolve(handle);
+    invalidVertex.bones[0] = 99;
+    assert(!session.document.replaceVertex(handle, invalidVertex).committed);
+    assert(session.document.resolve(handle)->bones[0] == 0);
 
     pmxer::DocumentSession historySession(sampleModel());
     const auto historyHandle = historySession.document.vertexHandle(0);
@@ -124,6 +130,10 @@ int main() {
     auto bone = *session.document.resolve(boneHandle);
     bone.name = "edited";
     assert(pmxer::editBone(session, boneHandle, bone).success);
+    auto cyclicBone = *session.document.resolve(boneHandle);
+    cyclicBone.parent = 0;
+    assert(!session.document.replaceBone(boneHandle, cyclicBone).committed);
+    assert(session.document.resolve(boneHandle)->parent == -1);
 
     auto parentTransaction = session.document.transaction();
     assert(parentTransaction.setBoneParent(boneHandle, std::nullopt));
