@@ -7,6 +7,9 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -76,6 +79,54 @@ bool uploadBuffer(SDL_GPUDevice *device, SDL_GPUCommandBuffer *commands, SDL_GPU
     return true;
 }
 
+SDL_GPUTexture *uploadTexture(SDL_GPUDevice *device, SDL_GPUCommandBuffer *commands, const unsigned char *pixels,
+                              int width, int height, std::vector<SDL_GPUTransferBuffer *> &transfers) {
+    if (pixels == nullptr || width <= 0 || height <= 0)
+        return nullptr;
+    SDL_GPUTextureCreateInfo textureInfo{};
+    textureInfo.type = SDL_GPU_TEXTURETYPE_2D;
+    textureInfo.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+    textureInfo.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    textureInfo.width = static_cast<Uint32>(width);
+    textureInfo.height = static_cast<Uint32>(height);
+    textureInfo.layer_count_or_depth = 1;
+    textureInfo.num_levels = 1;
+    textureInfo.sample_count = SDL_GPU_SAMPLECOUNT_1;
+    auto *texture = SDL_CreateGPUTexture(device, &textureInfo);
+    if (texture == nullptr)
+        return nullptr;
+
+    const auto size = static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4U;
+    SDL_GPUTransferBufferCreateInfo transferInfo{};
+    transferInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+    transferInfo.size = static_cast<Uint32>(size);
+    auto *transfer = SDL_CreateGPUTransferBuffer(device, &transferInfo);
+    if (transfer == nullptr) {
+        SDL_ReleaseGPUTexture(device, texture);
+        return nullptr;
+    }
+    auto *mapped = static_cast<unsigned char *>(SDL_MapGPUTransferBuffer(device, transfer, false));
+    if (mapped == nullptr) {
+        SDL_ReleaseGPUTransferBuffer(device, transfer);
+        SDL_ReleaseGPUTexture(device, texture);
+        return nullptr;
+    }
+    std::memcpy(mapped, pixels, size);
+    SDL_UnmapGPUTransferBuffer(device, transfer);
+    auto *copy = SDL_BeginGPUCopyPass(commands);
+    if (copy == nullptr) {
+        SDL_ReleaseGPUTransferBuffer(device, transfer);
+        SDL_ReleaseGPUTexture(device, texture);
+        return nullptr;
+    }
+    SDL_GPUTextureTransferInfo source{transfer, 0, static_cast<Uint32>(width), static_cast<Uint32>(height)};
+    SDL_GPUTextureRegion destination{texture, 0, 0, 0, 0, 0, static_cast<Uint32>(width), static_cast<Uint32>(height), 1};
+    SDL_UploadToGPUTexture(copy, &source, &destination, true);
+    SDL_EndGPUCopyPass(copy);
+    transfers.push_back(transfer);
+    return texture;
+}
+
 struct ShaderSelection {
     std::filesystem::path vertex;
     std::filesystem::path fragment;
@@ -105,6 +156,9 @@ struct GpuModelRenderer::Impl {
     SDL_GPUGraphicsPipeline *pipeline{};
     SDL_GPUBuffer *vertexBuffer{};
     SDL_GPUBuffer *indexBuffer{};
+    SDL_GPUSampler *textureSampler{};
+    SDL_GPUTexture *defaultTexture{};
+    std::vector<SDL_GPUTexture *> textures;
     std::vector<SDL_GPUTransferBuffer *> transfers;
     std::filesystem::path shaderDirectory;
     const mmd::PmxModel *model{};
@@ -136,9 +190,56 @@ struct GpuModelRenderer::Impl {
         transfers.clear();
     }
 
+    void clearTextures() {
+        for (auto *texture : textures)
+            SDL_ReleaseGPUTexture(device, texture);
+        textures.clear();
+        if (defaultTexture != nullptr) {
+            SDL_ReleaseGPUTexture(device, defaultTexture);
+            defaultTexture = nullptr;
+        }
+    }
+
+    bool prepareTextures(SDL_GPUCommandBuffer *commands, const mmd::PmxModel &model) {
+        clearTextures();
+        if (textureSampler == nullptr) {
+            SDL_GPUSamplerCreateInfo samplerInfo{};
+            samplerInfo.min_filter = SDL_GPU_FILTER_LINEAR;
+            samplerInfo.mag_filter = SDL_GPU_FILTER_LINEAR;
+            samplerInfo.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR;
+            samplerInfo.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
+            samplerInfo.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
+            samplerInfo.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
+            textureSampler = SDL_CreateGPUSampler(device, &samplerInfo);
+        }
+        const unsigned char white[] = {255, 255, 255, 255};
+        defaultTexture = uploadTexture(device, commands, white, 1, 1, transfers);
+        if (defaultTexture == nullptr || textureSampler == nullptr)
+            return false;
+
+        textures.resize(model.textures.size(), nullptr);
+        for (std::size_t index = 0; index < model.textures.size(); ++index) {
+            const auto path = mmd::pmx::resolveTexturePath(model, index);
+            if (!std::filesystem::exists(path))
+                continue;
+            int width = 0;
+            int height = 0;
+            int channels = 0;
+            auto *pixels = stbi_load(path.string().c_str(), &width, &height, &channels, 4);
+            if (pixels == nullptr)
+                continue;
+            textures[index] = uploadTexture(device, commands, pixels, width, height, transfers);
+            stbi_image_free(pixels);
+        }
+        return true;
+    }
+
     ~Impl() {
         clearBuffers();
+        clearTextures();
         clearTransfers();
+        if (textureSampler != nullptr)
+            SDL_ReleaseGPUSampler(device, textureSampler);
         if (pipeline != nullptr)
             SDL_ReleaseGPUGraphicsPipeline(device, pipeline);
         if (vertexShader != nullptr)
@@ -181,6 +282,7 @@ GpuModelRenderer::GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path 
     fragmentInfo.entrypoint = "mainPS";
     fragmentInfo.format = shaders.format;
     fragmentInfo.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
+    fragmentInfo.num_samplers = 1;
     fragmentInfo.num_uniform_buffers = 1;
     impl_->vertexShader = SDL_CreateGPUShader(device, &vertexInfo);
     impl_->fragmentShader = SDL_CreateGPUShader(device, &fragmentInfo);
@@ -259,9 +361,13 @@ bool GpuModelRenderer::prepare(SDL_GPUCommandBuffer *commands, const mmd::PmxMod
     const auto verticesChanged = modelChanged || dynamic || frameChanged ||
                                  (documentChanged && (changes.topologyChanged || !changes.vertices.empty())) ||
                                  impl_->vertexBuffer == nullptr;
+    const auto texturesChanged = modelChanged || (documentChanged && changes.texturesChanged) ||
+                                 impl_->defaultTexture == nullptr;
     const auto vertexBytes = source.size() * sizeof(GpuVertex);
     const auto indexBytes = model.indices.size() * sizeof(std::uint32_t);
     impl_->clearTransfers();
+    if (texturesChanged && !impl_->prepareTextures(commands, model))
+        return false;
     const auto ensureBuffer = [&](SDL_GPUBuffer *&buffer, std::size_t &capacity, SDL_GPUBufferUsageFlags usage,
                                   std::size_t required) {
         if (buffer != nullptr && capacity >= required)
@@ -338,12 +444,21 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
         const auto &diffuse = animated != nullptr ? animated->diffuse : material.diffuse;
         const auto color = std::array<float, 4>{diffuse[0], diffuse[1], diffuse[2], diffuse[3]};
         SDL_PushGPUFragmentUniformData(commands, 0, color.data(), sizeof(color));
+        const auto textureIndex = material.textureIndex;
+        const auto *texture = textureIndex >= 0 && static_cast<std::size_t>(textureIndex) < impl_->textures.size() &&
+                                      impl_->textures[static_cast<std::size_t>(textureIndex)] != nullptr
+                                  ? impl_->textures[static_cast<std::size_t>(textureIndex)]
+                                  : impl_->defaultTexture;
+        const SDL_GPUTextureSamplerBinding binding{texture, impl_->textureSampler};
+        SDL_BindGPUFragmentSamplers(pass, 0, &binding, 1);
         SDL_DrawGPUIndexedPrimitives(pass, static_cast<Uint32>(count), 1, static_cast<Uint32>(indexBegin), 0, 0);
         indexBegin += count;
     }
     if (indexBegin < impl_->indexCount) {
         const auto color = std::array<float, 4>{1.0F, 1.0F, 1.0F, 1.0F};
         SDL_PushGPUFragmentUniformData(commands, 0, color.data(), sizeof(color));
+        const SDL_GPUTextureSamplerBinding binding{impl_->defaultTexture, impl_->textureSampler};
+        SDL_BindGPUFragmentSamplers(pass, 0, &binding, 1);
         SDL_DrawGPUIndexedPrimitives(pass, static_cast<Uint32>(impl_->indexCount - indexBegin), 1,
                                      static_cast<Uint32>(indexBegin), 0, 0);
     }

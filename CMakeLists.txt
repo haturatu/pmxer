@@ -201,6 +201,17 @@ add_custom_target(pmxer_shaders DEPENDS ${PMXER_SHADER_OUTPUTS})
 add_dependencies(pmxer_render pmxer_shaders)
 
 if(PMXER_BUILD_GUI)
+  FetchContent_Declare(
+    stb_image
+    URL https://github.com/nothings/stb/archive/2c980bb59875b0d32144a71867fbdebb2f77cd20.tar.gz
+    URL_HASH SHA256=9a955b1b49a4410088a2e0ee2a9c057c3c907d0c1d75454144cb980aca0ba515
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+  )
+  FetchContent_GetProperties(stb_image)
+  if(NOT stb_image_POPULATED)
+    FetchContent_Populate(stb_image)
+  endif()
+
   find_package(SDL3 CONFIG QUIET)
   if(NOT TARGET SDL3::SDL3)
     if(NOT PMXER_FETCH_GUI_DEPENDENCIES)
@@ -251,6 +262,7 @@ if(PMXER_BUILD_GUI)
     src/platform/FileDialog.cpp
   )
   target_include_directories(pmxer_ui PUBLIC src)
+  target_include_directories(pmxer_ui PRIVATE "${stb_image_SOURCE_DIR}")
   target_link_libraries(pmxer_ui PUBLIC pmxer_render pmxer_imgui SDL3::SDL3)
   target_compile_definitions(pmxer_ui PRIVATE PMXER_HAS_GUI=1 PMXER_SHADER_DIRECTORY="${PMXER_SHADER_OUTPUT_DIR}")
 endif()

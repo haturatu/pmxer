@@ -7,5 +7,6 @@ source distributions.
 - SDL3
 - Dear ImGui
 - argparse (p-ranav/argparse) - MIT
+- stb_image - Public Domain or MIT
 - libmmd
 - Bullet Physics when enabled
