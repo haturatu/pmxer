@@ -52,6 +52,11 @@ jobs:
         run: scripts/package-linux.sh build/${{ matrix.preset }} package "${GITHUB_REF_NAME#v}"
       - name: Package macOS
         if: runner.os == 'macOS'
+        env:
+          PMXER_MACOS_SIGNING_IDENTITY: ${{ secrets.PMXER_MACOS_SIGNING_IDENTITY }}
+          PMXER_APPLE_ID: ${{ secrets.PMXER_APPLE_ID }}
+          PMXER_APPLE_TEAM_ID: ${{ secrets.PMXER_APPLE_TEAM_ID }}
+          PMXER_APPLE_PASSWORD: ${{ secrets.PMXER_APPLE_PASSWORD }}
         run: scripts/package-macos.sh build/${{ matrix.preset }} "${GITHUB_REF_NAME#v}" "${{ matrix.artifact }}" package
       - name: Package Windows
         if: runner.os == 'Windows'
