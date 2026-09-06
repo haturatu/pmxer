@@ -1,14 +1,12 @@
 #include "GpuModelRenderer.hpp"
 
 #include "Camera.hpp"
+#include "ImageDecoder.hpp"
 
 #include "../platform/Log.hpp"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
-
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
 
 #include <algorithm>
 #include <array>
@@ -233,14 +231,14 @@ struct GpuModelRenderer::Impl {
             const auto path = mmd::pmx::resolveTexturePath(model, index);
             if (!std::filesystem::exists(path))
                 continue;
-            int width = 0;
-            int height = 0;
-            int channels = 0;
-            auto *pixels = stbi_load(path.string().c_str(), &width, &height, &channels, 4);
-            if (pixels == nullptr)
+            const auto image = decodeImage(path);
+            if (!image) {
+                const auto message = std::string{"Texture decode failed: "} + path.generic_string() + ": " + image.error;
+                log::warn(message.c_str());
                 continue;
-            textures[index] = uploadTexture(device, commands, pixels, width, height, transfers);
-            stbi_image_free(pixels);
+            }
+            textures[index] = uploadTexture(device, commands, image.rgba.data(),
+                                            static_cast<int>(image.width), static_cast<int>(image.height), transfers);
         }
         return true;
     }

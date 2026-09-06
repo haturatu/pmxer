@@ -262,6 +262,7 @@ if(PMXER_BUILD_GUI)
     src/ui/EditorPanels.cpp
     src/ui/ViewportPanel.cpp
     src/render/GpuModelRenderer.cpp
+    src/render/ImageDecoder.cpp
     src/platform/FileDialog.cpp
   )
   target_include_directories(pmxer_ui PUBLIC src)
@@ -307,6 +308,14 @@ if(BUILD_TESTING)
   target_include_directories(pmxer_command_line_tests PRIVATE src)
   target_link_libraries(pmxer_command_line_tests PRIVATE pmxer_command_line)
   add_test(NAME pmxer_command_line COMMAND pmxer_command_line_tests)
+  if(PMXER_BUILD_GUI)
+    add_executable(pmxer_image_decoder_tests
+      tests/unit/ImageDecoderTests.cpp
+      src/render/ImageDecoder.cpp
+    )
+    target_include_directories(pmxer_image_decoder_tests PRIVATE src "${stb_image_SOURCE_DIR}")
+    add_test(NAME pmxer_image_decoder COMMAND pmxer_image_decoder_tests)
+  endif()
 endif()
 
 install(TARGETS pmxer RUNTIME DESTINATION bin)
