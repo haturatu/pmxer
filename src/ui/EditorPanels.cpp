@@ -245,6 +245,20 @@ bool chooseRigidBody(const char *label, const mmd::PmxModel &model, std::int32_t
     return changed;
 }
 
+std::vector<mmd::VertexHandle> selectedVertices(const DocumentSession &session, mmd::VertexHandle fallback) {
+    std::vector<mmd::VertexHandle> result;
+    for (const auto &item : session.selection.items()) {
+        if (item.kind != SelectionKind::vertex)
+            continue;
+        const mmd::VertexHandle handle{item.id, item.generation};
+        if (session.document.resolve(handle) != nullptr)
+            result.push_back(handle);
+    }
+    if (result.empty())
+        result.push_back(fallback);
+    return result;
+}
+
 bool chooseIndex(const char *label, std::size_t count, std::int32_t &index) {
     if (count == 0)
         return false;
@@ -407,6 +421,7 @@ void drawVertexPanel(DocumentSession &session) {
         return;
     }
     const auto handle = session.document.vertexHandle(session.ui.vertexIndex);
+    const auto targets = selectedVertices(session, handle);
     if (!session.ui.vertexDraft)
         session.ui.vertexDraft = *session.document.resolve(handle);
     auto &draft = *session.ui.vertexDraft;
@@ -456,19 +471,19 @@ void drawVertexPanel(DocumentSession &session) {
         session.ui.status = normalizeWeights(session).success ? "ウェイトを正規化しました" : "正規化に失敗しました";
     ImGui::SameLine();
     if (ImGui::Button("BDEF2→SDEF")) {
-        const auto report = convertBdef2ToSdef(session, {handle});
+        const auto report = convertBdef2ToSdef(session, targets);
         session.ui.status = report.converted != 0 ? "SDEFへ変換しました" : "SDEFへ変換できませんでした";
         session.ui.vertexDraft.reset();
     }
     ImGui::SameLine();
     if (ImGui::Button("SDEF→BDEF2")) {
-        const auto report = convertSdefToBdef2(session, {handle});
+        const auto report = convertSdefToBdef2(session, targets);
         session.ui.status = report.converted != 0 ? "BDEF2へ変換しました" : "BDEF2へ変換できませんでした";
         session.ui.vertexDraft.reset();
     }
     ImGui::SameLine();
     if (ImGui::Button("SDEFミラー")) {
-        session.ui.status = mirrorSdef(session, {handle}) ? "SDEFをミラーしました" : "SDEFミラーに失敗しました";
+        session.ui.status = mirrorSdef(session, targets) ? "SDEFをミラーしました" : "SDEFミラーに失敗しました";
         session.ui.vertexDraft.reset();
     }
     ImGui::End();
