@@ -895,8 +895,24 @@ void drawPhysicsPanel(DocumentSession &session) {
             ImGui::InputInt("モード", &mode);
             draft.mode = static_cast<std::uint8_t>(std::clamp(mode, 0, 2));
             if (ImGui::Button("剛体を適用")) {
-                session.ui.status = editRigidBody(session, handle, draft).success ? "剛体を更新しました" : "剛体更新に失敗しました";
+                const auto result = applyTransaction(session, [&](auto &transaction) {
+                    const auto bone = draft.bone >= 0 && static_cast<std::size_t>(draft.bone) < model.bones.size()
+                                          ? std::optional{session.document.boneHandle(static_cast<std::size_t>(draft.bone))}
+                                          : std::nullopt;
+                    return transaction.setRigidBodyName(handle, draft.name) &&
+                           transaction.setRigidBodyEnglishName(handle, draft.englishName) &&
+                           transaction.setRigidBodyBone(handle, bone) &&
+                           transaction.setRigidBodyShape(handle, draft.shape, draft.size) &&
+                           transaction.setRigidBodyTransform(handle, draft.position, draft.rotation) &&
+                           transaction.setRigidBodyPhysical(handle, draft.mass, draft.linearDamping,
+                                                            draft.angularDamping, draft.restitution, draft.friction) &&
+                           transaction.setRigidBodyCollision(handle, draft.group, draft.collisionMask) &&
+                           transaction.setRigidBodyMode(handle, draft.mode);
+                }, "剛体を更新");
+                session.ui.status = result.success ? "剛体を更新しました" : result.message;
                 session.ui.rigidBodyDraft.reset();
+                ImGui::End();
+                return;
             }
         }
     }
@@ -909,6 +925,8 @@ void drawPhysicsPanel(DocumentSession &session) {
                 session.ui.jointDraft = *session.document.resolve(handle);
             auto &draft = *session.ui.jointDraft;
             inputString("ジョイント名", draft.name);
+            chooseRigidBody("剛体A", model, draft.bodyA);
+            chooseRigidBody("剛体B", model, draft.bodyB);
             int type = draft.type;
             ImGui::InputInt("種類", &type);
             draft.type = static_cast<std::uint8_t>(std::clamp(type, 0, 5));
@@ -917,8 +935,25 @@ void drawPhysicsPanel(DocumentSession &session) {
             ImGui::InputFloat3("回転下限", draft.rotationMinimum.data());
             ImGui::InputFloat3("回転上限", draft.rotationMaximum.data());
             if (ImGui::Button("ジョイントを適用")) {
-                session.ui.status = editJoint(session, handle, draft).success ? "ジョイントを更新しました" : "ジョイント更新に失敗しました";
+                const auto result = applyTransaction(session, [&](auto &transaction) {
+                    if (draft.bodyA < 0 || draft.bodyB < 0 || static_cast<std::size_t>(draft.bodyA) >= model.rigidBodies.size() ||
+                        static_cast<std::size_t>(draft.bodyB) >= model.rigidBodies.size())
+                        return false;
+                    return transaction.setJointName(handle, draft.name) &&
+                           transaction.setJointEnglishName(handle, draft.englishName) &&
+                           transaction.setJointType(handle, draft.type) &&
+                           transaction.setJointBodies(handle,
+                                                      session.document.rigidBodyHandle(static_cast<std::size_t>(draft.bodyA)),
+                                                      session.document.rigidBodyHandle(static_cast<std::size_t>(draft.bodyB))) &&
+                           transaction.setJointTransform(handle, draft.position, draft.rotation) &&
+                           transaction.setJointLimits(handle, draft.translationMinimum, draft.translationMaximum,
+                                                      draft.rotationMinimum, draft.rotationMaximum) &&
+                           transaction.setJointSprings(handle, draft.translationSpring, draft.rotationSpring);
+                }, "ジョイントを更新");
+                session.ui.status = result.success ? "ジョイントを更新しました" : result.message;
                 session.ui.jointDraft.reset();
+                ImGui::End();
+                return;
             }
         }
     }
@@ -935,8 +970,15 @@ void drawPhysicsPanel(DocumentSession &session) {
             ImGui::InputFloat("衝突余白", &draft.collisionMargin);
             ImGui::Text("アンカー %zu / 固定頂点 %zu", draft.anchors.size(), draft.pinnedVertices.size());
             if (ImGui::Button("ソフトボディを適用")) {
-                session.ui.status = editSoftBody(session, handle, draft).success ? "ソフトボディを更新しました" : "ソフトボディ更新に失敗しました";
+                const auto result = applyTransaction(session, [&](auto &transaction) {
+                    return transaction.setSoftBodyName(handle, draft.name) &&
+                           transaction.setSoftBodyEnglishName(handle, draft.englishName) &&
+                           transaction.setSoftBody(handle, draft);
+                }, "ソフトボディを更新");
+                session.ui.status = result.success ? "ソフトボディを更新しました" : result.message;
                 session.ui.softBodyDraft.reset();
+                ImGui::End();
+                return;
             }
         }
     }
