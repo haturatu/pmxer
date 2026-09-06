@@ -3,6 +3,7 @@
 #include <mmd/document.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -23,13 +24,22 @@ class CommandStack {
     [[nodiscard]] bool undo(mmd::PmxDocument &document);
     [[nodiscard]] bool redo(mmd::PmxDocument &document);
     void clear() noexcept;
+    void markClean() noexcept;
+    void markDirty() noexcept;
+    [[nodiscard]] bool isModified() const noexcept;
     [[nodiscard]] std::size_t undoCount() const noexcept;
     [[nodiscard]] std::size_t redoCount() const noexcept;
 
   private:
-    std::vector<std::unique_ptr<EditorCommand>> undo_;
-    std::vector<std::unique_ptr<EditorCommand>> redo_;
+    struct Entry {
+        std::unique_ptr<EditorCommand> command;
+        std::uint64_t state{};
+    };
+    std::vector<Entry> undo_;
+    std::vector<Entry> redo_;
+    std::uint64_t nextState_{1};
+    std::uint64_t currentState_{};
+    std::uint64_t cleanState_{};
 };
 
 } // namespace pmxer
-

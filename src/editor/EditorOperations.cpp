@@ -124,7 +124,7 @@ OperationResult applyProperty(DocumentSession &session, Handle handle, const Val
 
     session.commands.recordApplied(
         std::make_unique<PropertyCommand<Handle, Value>>(handle, before, value, setter, std::move(description)));
-    session.modified = true;
+    session.modified = session.commands.isModified();
     ++session.revision;
     session.validation = committed.validation;
     session.changes = committed.changes;
@@ -145,7 +145,7 @@ OperationResult applyTransaction(DocumentSession &session,
         return {false, committed.errors.empty() ? "編集結果が検証に失敗しました" : committed.errors.front()};
     const auto after = session.document.model();
     session.commands.recordApplied(std::make_unique<SnapshotCommand>(before, after, std::move(description)));
-    session.modified = true;
+    session.modified = session.commands.isModified();
     ++session.revision;
     session.validation = committed.validation;
     session.changes = committed.changes;

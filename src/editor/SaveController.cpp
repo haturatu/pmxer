@@ -40,7 +40,8 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
             return result;
         }
         session.path = destination;
-        session.modified = false;
+        session.commands.markClean();
+        session.modified = session.commands.isModified();
         session.baseline = written;
         (void)discardRecovery(destination);
         result.success = true;

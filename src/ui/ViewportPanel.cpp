@@ -160,8 +160,13 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         const auto mouse = ImGui::GetIO().MousePos;
         std::size_t closest{};
         float distanceSquared = std::numeric_limits<float>::max();
+        const CameraState camera{session.ui.cameraTarget, session.ui.cameraYaw, session.ui.cameraPitch,
+                                 session.ui.cameraDistance};
         for (std::size_t i = 0; i < vertices.size(); ++i) {
-            const auto point = project(vertices[i], bounds, origin, available, session.ui);
+            const auto point = projectWorldToScreen(camera, vertices[i].position, origin.x, origin.y, available.x,
+                                                    available.y);
+            if (!point.inFront)
+                continue;
             const auto dx = point.x - mouse.x;
             const auto dy = point.y - mouse.y;
             const auto candidate = dx * dx + dy * dy;
