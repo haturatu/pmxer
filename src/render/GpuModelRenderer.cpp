@@ -199,6 +199,13 @@ GpuModelRenderer::GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path 
     }};
     SDL_GPUColorTargetDescription target{};
     target.format = static_cast<SDL_GPUTextureFormat>(colorFormat);
+    target.blend_state.enable_blend = true;
+    target.blend_state.src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+    target.blend_state.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+    target.blend_state.color_blend_op = SDL_GPU_BLENDOP_ADD;
+    target.blend_state.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+    target.blend_state.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+    target.blend_state.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
     SDL_GPUGraphicsPipelineCreateInfo pipelineInfo{};
     pipelineInfo.vertex_shader = impl_->vertexShader;
     pipelineInfo.fragment_shader = impl_->fragmentShader;
