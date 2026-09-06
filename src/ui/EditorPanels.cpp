@@ -8,6 +8,7 @@
 #include "../editor/RecoveryController.hpp"
 #include "../editor/SaveController.hpp"
 #include "../editor/tools/PhysicsTool.hpp"
+#include "../editor/tools/SdefTool.hpp"
 #include "../editor/tools/TextureTool.hpp"
 #include "../preview/PreviewController.hpp"
 #include "ViewportPanel.hpp"
@@ -298,6 +299,18 @@ void drawVertexPanel(DocumentSession &session) {
     ImGui::SameLine();
     if (ImGui::Button("ウェイト正規化"))
         session.ui.status = normalizeWeights(session).success ? "ウェイトを正規化しました" : "正規化に失敗しました";
+    ImGui::SameLine();
+    if (ImGui::Button("BDEF2→SDEF")) {
+        const auto report = convertBdef2ToSdef(session, {handle});
+        session.ui.status = report.converted != 0 ? "SDEFへ変換しました" : "SDEFへ変換できませんでした";
+        session.ui.vertexDraft.reset();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("SDEF→BDEF2")) {
+        const auto report = convertSdefToBdef2(session, {handle});
+        session.ui.status = report.converted != 0 ? "BDEF2へ変換しました" : "BDEF2へ変換できませんでした";
+        session.ui.vertexDraft.reset();
+    }
     ImGui::End();
 }
 

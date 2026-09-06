@@ -36,13 +36,12 @@ bool generateRigidBodyChain(DocumentSession &session, const std::vector<mmd::Bon
             mmd::PmxRigidBody body;
             body.name = bone->name + "_body";
             body.englishName = body.name;
-            body.bone = static_cast<std::int32_t>(bone - session.document.model().bones.data());
             body.shape = shape;
             body.size = {0.1F, 0.1F, 0.1F};
             body.mass = 1.0F;
             body.linearDamping = 0.5F;
             body.angularDamping = 0.5F;
-            if (!transaction.addRigidBody(std::move(body)))
+            if (!transaction.addRigidBody(mmd::RigidBodyDraft{std::move(body), boneHandle}))
                 return false;
         }
         return true;
@@ -50,4 +49,3 @@ bool generateRigidBodyChain(DocumentSession &session, const std::vector<mmd::Bon
 }
 
 } // namespace pmxer
-

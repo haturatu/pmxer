@@ -75,6 +75,9 @@ struct DocumentSession {
         modified = true;
         selection.clear();
         ui.clearDrafts();
+        changes.topologyChanged = true;
+        changes.physicsChanged = true;
+        changes.texturesChanged = true;
         ++revision;
         validation = document.validate();
         return true;
@@ -86,6 +89,9 @@ struct DocumentSession {
         modified = true;
         selection.clear();
         ui.clearDrafts();
+        changes.topologyChanged = true;
+        changes.physicsChanged = true;
+        changes.texturesChanged = true;
         ++revision;
         validation = document.validate();
         return true;
