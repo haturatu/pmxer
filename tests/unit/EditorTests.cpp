@@ -70,6 +70,10 @@ int main() {
                "構造変更")
                .success);
     assert(historySession.undo());
+    const auto restoredHandle = historySession.document.vertexHandle(0);
+    assert(historyHandle.domain == restoredHandle.domain);
+    assert(historyHandle.id == restoredHandle.id);
+    assert(historyHandle.generation == restoredHandle.generation);
     assert(historySession.document.resolve(historyHandle) != nullptr);
     assert(historySession.undo());
     assert(historySession.document.resolve(historyHandle) != nullptr);
