@@ -2,8 +2,10 @@
 
 #include <mmd/pmx.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 
 namespace pmxer {

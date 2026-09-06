@@ -32,7 +32,7 @@ FrameUniforms makeUniforms(const EditorUiState &ui, float aspect) {
     const CameraState camera{ui.cameraTarget, ui.cameraYaw, ui.cameraPitch, ui.cameraDistance};
     const auto matrices = makeCameraMatrices(camera, aspect);
     FrameUniforms result{};
-    result.viewProjection = matrices.viewProjection;
+    std::copy(matrices.viewProjection.begin(), matrices.viewProjection.end(), result.viewProjection);
     return result;
 }
 
