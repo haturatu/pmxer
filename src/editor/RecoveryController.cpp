@@ -8,6 +8,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 
 namespace pmxer {
 namespace {
@@ -28,7 +29,7 @@ std::string escapeJson(std::string value) {
 RecoveryResult writeRecovery(const DocumentSession &session) {
     if (!session.modified)
         return {false, {}};
-    const auto path = recoveryPath(session.path);
+    const auto path = session.path.empty() ? recoveryPath(session.path, session.recoveryId) : recoveryPath(session.path);
     const auto temporary = temporarySibling(path);
     try {
         std::filesystem::create_directories(path.parent_path());
@@ -69,6 +70,35 @@ bool discardRecovery(const std::filesystem::path &source) {
     std::error_code error;
     std::filesystem::remove(recoveryPath(source), error);
     std::filesystem::remove(recoveryPath(source).string() + ".json", error);
+    return !error;
+}
+
+std::vector<RecoveryEntry> findUntitledRecoveries() {
+    std::vector<RecoveryEntry> result;
+    std::error_code error;
+    if (!std::filesystem::is_directory(recoveryDirectory(), error))
+        return result;
+    for (const auto &entry : std::filesystem::directory_iterator(recoveryDirectory(), error)) {
+        if (error || !entry.is_regular_file(error) || entry.path().extension() != ".pmx")
+            continue;
+        const auto metadataPath = entry.path().string() + ".json";
+        std::ifstream metadata(metadataPath);
+        const std::string contents((std::istreambuf_iterator<char>(metadata)), std::istreambuf_iterator<char>());
+        if (contents.find("\"source\": \"\"") == std::string::npos)
+            continue;
+        try {
+            result.push_back({entry.path(), mmd::pmx::load(entry.path())});
+        } catch (...) {
+            log::warn("回復情報の読み込みに失敗しました");
+        }
+    }
+    return result;
+}
+
+bool discardRecoveryFile(const std::filesystem::path &path) {
+    std::error_code error;
+    std::filesystem::remove(path, error);
+    std::filesystem::remove(path.string() + ".json", error);
     return !error;
 }
 

@@ -10,6 +10,7 @@
 
 #include <exception>
 #include <array>
+#include <cstddef>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -80,6 +81,7 @@ int runApplication(const EditCommand &options) {
     };
     for (const auto &path : options.documents)
         loadSession(path);
+    auto untitledRecoveries = findUntitledRecoveries();
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -133,6 +135,7 @@ int runApplication(const EditCommand &options) {
     bool running = true;
     bool quitRequested = false;
     bool quitPromptOpened = false;
+    bool recoveryPromptOpened = false;
     std::size_t quitSessionIndex = 0;
     SDL_GPUTexture *depthTexture = nullptr;
     Uint32 depthWidth = 0;
@@ -194,6 +197,43 @@ int runApplication(const EditCommand &options) {
         ImGui_ImplSDLGPU3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
+        if (!untitledRecoveries.empty() && !recoveryPromptOpened) {
+            ImGui::OpenPopup("回復情報");
+            recoveryPromptOpened = true;
+        }
+        if (recoveryPromptOpened && ImGui::BeginPopupModal("回復情報", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextUnformatted("未保存の無題ドキュメントがあります。");
+            for (std::size_t index = 0; index < untitledRecoveries.size(); ++index) {
+                ImGui::PushID(static_cast<int>(index));
+                ImGui::Text("%s", untitledRecoveries[index].path.filename().string().c_str());
+                ImGui::SameLine();
+                if (ImGui::Button("復元")) {
+                    auto session = std::make_unique<DocumentSession>(std::move(untitledRecoveries[index].model));
+                    session->commands.markDirty();
+                    session->modified = true;
+                    session->previewPhysics = options.physics;
+                    session->previewIk = !options.safeMode;
+                    sessions.push_back(std::move(session));
+                    discardRecoveryFile(untitledRecoveries[index].path);
+                    untitledRecoveries.erase(untitledRecoveries.begin() + static_cast<std::ptrdiff_t>(index));
+                    ImGui::PopID();
+                    break;
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("破棄")) {
+                    discardRecoveryFile(untitledRecoveries[index].path);
+                    untitledRecoveries.erase(untitledRecoveries.begin() + static_cast<std::ptrdiff_t>(index));
+                    ImGui::PopID();
+                    break;
+                }
+                ImGui::PopID();
+            }
+            if (untitledRecoveries.empty()) {
+                recoveryPromptOpened = false;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
         if (quitRequested && !quitPromptOpened) {
             while (quitSessionIndex < sessions.size() && !sessions[quitSessionIndex]->modified)
                 ++quitSessionIndex;

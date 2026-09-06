@@ -7,6 +7,7 @@
 #include <mmd/animation.hpp>
 
 #include <filesystem>
+#include <atomic>
 #include <chrono>
 #include <optional>
 #include <cstddef>
@@ -14,8 +15,16 @@
 #include <limits>
 #include <memory>
 #include <utility>
+#include <string>
 
 namespace pmxer {
+
+inline std::string makeRecoveryId() {
+    static std::atomic<std::uint64_t> sequence{1};
+    const auto stamp = static_cast<std::uint64_t>(
+        std::chrono::steady_clock::now().time_since_epoch().count());
+    return std::to_string(stamp) + "-" + std::to_string(sequence.fetch_add(1, std::memory_order_relaxed));
+}
 
 class PreviewController;
 
@@ -96,6 +105,7 @@ struct DerivedEditorState {
 
 struct DocumentSession {
     std::filesystem::path path;
+    std::string recoveryId;
     mmd::PmxDocument document;
     CommandStack commands;
     SelectionState selection;
@@ -113,9 +123,10 @@ struct DocumentSession {
     DerivedEditorState derived;
     EditorUiState ui;
 
-    DocumentSession() = default;
+    DocumentSession() : recoveryId(makeRecoveryId()) {}
     explicit DocumentSession(mmd::PmxModel model, std::filesystem::path source = {})
-        : path(std::move(source)), document(std::move(model)), validation(document.validate()), baseline(document.model()) {}
+        : path(std::move(source)), recoveryId(makeRecoveryId()), document(std::move(model)), validation(document.validate()),
+          baseline(document.model()) {}
 
     [[nodiscard]] bool undo() {
         if (!commands.undo(document))

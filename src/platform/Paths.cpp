@@ -34,9 +34,15 @@ std::filesystem::path recoveryDirectory() {
 }
 
 std::filesystem::path recoveryPath(const std::filesystem::path &source) {
+    return recoveryPath(source, {});
+}
+
+std::filesystem::path recoveryPath(const std::filesystem::path &source, std::string_view recoveryId) {
     const auto name = source.filename().empty() ? "untitled.pmx" : source.filename().string();
     std::uint64_t hash = 1469598103934665603ULL;
-    for (const auto value : source.lexically_normal().string()) {
+    auto key = source.lexically_normal().string();
+    key.append(recoveryId);
+    for (const auto value : key) {
         hash ^= static_cast<unsigned char>(value);
         hash *= 1099511628211ULL;
     }
