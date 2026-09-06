@@ -49,6 +49,13 @@ jobs:
             --output "$archive"
           python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$archive" "$destination" \
             || python -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$archive" "$destination"
+          package=$(find "$destination" -type f \( -name '*.tar.gz' -o -name '*.tgz' -o -name '*.zip' \) -print -quit)
+          if [[ "$package" == *.zip ]]; then
+            python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$package" "$destination" \
+              || python -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$package" "$destination"
+          elif [[ -n "$package" ]]; then
+            tar -xf "$package" -C "$destination"
+          fi
           compiler=$(find "$destination" -type f \( -name shadercross -o -name shadercross.exe \) -print -quit)
           test -n "$compiler"
           chmod +x "$compiler" || true
