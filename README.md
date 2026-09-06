@@ -53,11 +53,18 @@ cmake --build --preset linux-cli
 ## CLI
 
 ```text
-pmxer-cli validate model.pmx
-pmxer-cli info model.pmx
-pmxer-cli diff before.pmx after.pmx
-pmxer-cli normalize model.pmx output.pmx
+pmxer [options] [file.pmx ...]
+
+pmxer-cli info [--json] model.pmx
+pmxer-cli validate [--json] model.pmx [other.pmx ...]
+pmxer-cli diff [--json] [--profile logical|preservation] before.pmx after.pmx
+pmxer-cli normalize [-o output.pmx] model.pmx
+pmxer-cli help [command]
 ```
+
+GUI起動時は `--font`、`--font-size`、`--resource-dir`、`--renderer`、`--gpu-debug`、
+`--no-physics`、`--safe-mode` を指定できます。`PMXER_FONT` と
+`PMXER_RESOURCE_DIR` 環境変数も利用できます。
 
 ## ログ
 

@@ -167,6 +167,7 @@ target_sources(pmxer PRIVATE src/app/CommandLine.cpp)
 target_link_libraries(pmxer PRIVATE pmxer_ui)
 
 add_executable(pmxer-cli src/cli/main.cpp)
+target_sources(pmxer-cli PRIVATE src/app/CommandLine.cpp)
 target_link_libraries(pmxer-cli PRIVATE pmxer_editor pmxer_preview)
 
 if(PMXER_WARNINGS_AS_ERRORS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -183,6 +184,10 @@ if(BUILD_TESTING)
   add_executable(pmxer_cli_tests tests/integration/CliTests.cpp)
   target_link_libraries(pmxer_cli_tests PRIVATE pmxer_editor)
   add_test(NAME pmxer_cli COMMAND pmxer_cli_tests)
+
+  add_executable(pmxer_command_line_tests tests/unit/CommandLineTests.cpp src/app/CommandLine.cpp)
+  target_include_directories(pmxer_command_line_tests PRIVATE src)
+  add_test(NAME pmxer_command_line COMMAND pmxer_command_line_tests)
 endif()
 
 install(TARGETS pmxer pmxer-cli RUNTIME DESTINATION bin)

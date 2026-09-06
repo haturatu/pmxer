@@ -128,6 +128,57 @@ StartupParseResult parseStartupArguments(int argc, char *const argv[]) {
     return result;
 }
 
+CliParseResult parseCliArguments(int argc, char *const argv[]) {
+    CliParseResult result;
+    if (argc < 2) {
+        result.options.help = true;
+        return result;
+    }
+    result.options.command = argv[1] == nullptr ? std::string{} : argv[1];
+    for (int index = 2; index < argc; ++index) {
+        const std::string argument = argv[index] == nullptr ? std::string{} : argv[index];
+        if (argument == "-h" || argument == "--help") {
+            result.options.help = true;
+            continue;
+        }
+        if (argument == "--json") {
+            result.options.json = true;
+            continue;
+        }
+        if (argument == "--profile") {
+            if (index + 1 >= argc) {
+                result.error = "--profile requires a value";
+                return result;
+            }
+            result.options.profile = argv[++index];
+        } else if (argument.rfind("--profile=", 0) == 0) {
+            result.options.profile = argument.substr(std::string("--profile=").size());
+        } else if (argument == "-o" || argument == "--output") {
+            if (index + 1 >= argc) {
+                result.error = "--output requires a value";
+                return result;
+            }
+            result.options.output = argv[++index];
+        } else if (argument.rfind("--output=", 0) == 0) {
+            result.options.output = argument.substr(std::string("--output=").size());
+        } else if (!argument.empty() && argument[0] == '-') {
+            result.error = "unknown option: " + argument;
+            return result;
+        } else if (result.options.command == "help" && result.options.helpCommand.empty()) {
+            result.options.helpCommand = argument;
+        } else {
+            result.options.operands.emplace_back(argument);
+        }
+    }
+    if (result.options.command == "help")
+        result.options.help = true;
+    else if (result.options.help)
+        result.options.helpCommand = result.options.command;
+    if (result.options.profile != "logical" && result.options.profile != "preservation")
+        result.error = "invalid comparison profile: " + result.options.profile;
+    return result;
+}
+
 std::string startupUsage() {
     return "Usage: pmxer [options] [file.pmx ...]\n"
            "\n"
@@ -146,6 +197,29 @@ std::string startupUsage() {
 
 std::string applicationVersion() {
     return "0.1.0";
+}
+
+std::string cliUsage(std::string_view command) {
+    if (command == "info")
+        return "Usage: pmxer-cli info [--json] MODEL\n";
+    if (command == "validate")
+        return "Usage: pmxer-cli validate [--json] MODEL...\n";
+    if (command == "diff")
+        return "Usage: pmxer-cli diff [--json] [--profile logical|preservation] LEFT RIGHT\n";
+    if (command == "normalize")
+        return "Usage: pmxer-cli normalize [-o OUTPUT] INPUT\n";
+    return "Usage: pmxer-cli <command> [options]\n\n"
+           "Commands:\n"
+           "  info       Print model counts\n"
+           "  validate   Validate one or more models\n"
+           "  diff       Compare two models\n"
+           "  normalize  Normalize weights and save a model\n"
+           "  help       Show command help\n\n"
+           "Options:\n"
+           "  -h, --help\n"
+           "      --json\n"
+           "      --profile logical|preservation\n"
+           "  -o, --output OUTPUT\n";
 }
 
 } // namespace pmxer
