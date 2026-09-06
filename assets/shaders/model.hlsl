@@ -14,6 +14,7 @@ struct VertexOutput {
 
 cbuffer FrameData : register(b0, space1) {
     row_major float4x4 viewProjection;
+    float4 edgeParameters;
 };
 
 cbuffer MaterialData : register(b0, space3) {
@@ -24,6 +25,7 @@ cbuffer MaterialData : register(b0, space3) {
     float4 sphereAdd;
     float4 toonMultiply;
     float4 toonAdd;
+    float4 edgeColor;
     float4 materialModes;
 };
 
@@ -36,7 +38,8 @@ SamplerState toonSampler : register(s2, space2);
 
 VertexOutput mainVS(VertexInput input) {
     VertexOutput output;
-    output.position = mul(viewProjection, float4(input.position, 1.0));
+    const float3 position = input.position + normalize(input.normal) * edgeParameters.x * 0.01;
+    output.position = mul(viewProjection, float4(position, 1.0));
     output.uv = input.uv;
     output.normal = input.normal;
     output.additionalUv1 = input.additionalUv1;
@@ -44,6 +47,8 @@ VertexOutput mainVS(VertexInput input) {
 }
 
 float4 mainPS(VertexOutput input) : SV_Target0 {
+    if (materialModes.z > 0.5)
+        return edgeColor;
     const float3 lightDirection = normalize(float3(-0.35, 0.75, 0.55));
     const float lightValue = saturate(dot(normalize(input.normal), lightDirection));
     const float light = 0.25 + 0.75 * lightValue;
@@ -65,5 +70,6 @@ float4 mainPS(VertexOutput input) : SV_Target0 {
     const float2 toonUv = float2(0.5, 1.0 - lightValue);
     const float4 toonColor = toonTexture.Sample(toonSampler, toonUv);
     lighting *= toonColor.rgb * toonMultiply.rgb + toonAdd.rgb;
-    return float4(color * lighting, diffuse.a * textureColor.a * textureMultiply.a + textureAdd.a);
+    return float4(color * lighting,
+                  saturate(diffuse.a * (textureColor.a * textureMultiply.a + textureAdd.a)));
 }

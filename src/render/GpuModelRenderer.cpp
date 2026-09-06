@@ -28,6 +28,7 @@ struct GpuVertex {
 
 struct alignas(16) FrameUniforms {
     std::array<float, 16> viewProjection{};
+    std::array<float, 4> edgeParameters{};
 };
 
 struct alignas(16) MaterialUniforms {
@@ -38,6 +39,7 @@ struct alignas(16) MaterialUniforms {
     std::array<float, 4> sphereAdd{};
     std::array<float, 4> toonMultiply{1.0F, 1.0F, 1.0F, 1.0F};
     std::array<float, 4> toonAdd{};
+    std::array<float, 4> edgeColor{};
     std::array<float, 4> materialModes{};
 };
 
@@ -166,6 +168,7 @@ struct GpuModelRenderer::Impl {
     SDL_GPUShader *fragmentShader{};
     SDL_GPUGraphicsPipeline *pipeline{};
     SDL_GPUGraphicsPipeline *singleSidedPipeline{};
+    SDL_GPUGraphicsPipeline *edgePipeline{};
     SDL_GPUBuffer *vertexBuffer{};
     SDL_GPUBuffer *indexBuffer{};
     SDL_GPUSampler *textureSampler{};
@@ -284,6 +287,8 @@ struct GpuModelRenderer::Impl {
             SDL_ReleaseGPUGraphicsPipeline(device, pipeline);
         if (singleSidedPipeline != nullptr)
             SDL_ReleaseGPUGraphicsPipeline(device, singleSidedPipeline);
+        if (edgePipeline != nullptr)
+            SDL_ReleaseGPUGraphicsPipeline(device, edgePipeline);
         if (vertexShader != nullptr)
             SDL_ReleaseGPUShader(device, vertexShader);
         if (fragmentShader != nullptr)
@@ -381,6 +386,13 @@ GpuModelRenderer::GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path 
         impl_->errorMessage = SDL_GetError();
         return;
     }
+    pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_FRONT;
+    pipelineInfo.depth_stencil_state.enable_depth_write = false;
+    impl_->edgePipeline = SDL_CreateGPUGraphicsPipeline(device, &pipelineInfo);
+    if (impl_->edgePipeline == nullptr) {
+        impl_->errorMessage = SDL_GetError();
+        return;
+    }
     impl_->available = true;
 }
 
@@ -470,8 +482,7 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
     if (width <= 1.0F || height <= 1.0F)
         return;
     const auto aspect = width / height;
-    const auto uniforms = makeUniforms(ui, aspect);
-    SDL_PushGPUVertexUniformData(commands, 0, &uniforms, sizeof(uniforms));
+    const auto frameUniforms = makeUniforms(ui, aspect);
     SDL_GPUViewport viewport{x, y, width, height, 0.0F, 1.0F};
     SDL_SetGPUViewport(pass, &viewport);
     SDL_Rect scissor{static_cast<int>(x), static_cast<int>(y), static_cast<int>(width), static_cast<int>(height)};
@@ -487,9 +498,6 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
         const auto count = std::min(available, static_cast<std::size_t>(material.indexCount));
         if (count == 0)
             continue;
-        SDL_BindGPUGraphicsPipeline(pass, (material.drawFlags & 0x01U) != 0U
-                                              ? impl_->pipeline
-                                              : impl_->singleSidedPipeline);
         const auto *animated = frame != nullptr && materialIndex < frame->materials.size()
                                    ? &frame->materials[materialIndex]
                                    : nullptr;
@@ -512,7 +520,6 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
         }
         uniforms.materialModes = {static_cast<float>(material.sphereMode), static_cast<float>(material.toonMode),
                                   0.0F, 0.0F};
-        SDL_PushGPUFragmentUniformData(commands, 0, &uniforms, sizeof(uniforms));
         const auto textureFor = [&](std::int32_t index) -> SDL_GPUTexture * {
             return index >= 0 && static_cast<std::size_t>(index) < impl_->textures.size() &&
                            impl_->textures[static_cast<std::size_t>(index)] != nullptr
@@ -529,6 +536,25 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
              impl_->textureSampler},
         }};
         SDL_BindGPUFragmentSamplers(pass, 0, bindings.data(), static_cast<Uint32>(bindings.size()));
+        const auto &edgeColor = animated != nullptr ? animated->edgeColor : material.edgeColor;
+        const auto edgeSize = animated != nullptr ? animated->edgeSize : material.edgeSize;
+        if ((material.drawFlags & 0x10U) != 0U && edgeSize > 0.0F && edgeColor[3] > 0.0F) {
+            auto edgeFrame = frameUniforms;
+            edgeFrame.edgeParameters[0] = edgeSize;
+            auto edgeMaterial = uniforms;
+            edgeMaterial.edgeColor = {edgeColor[0], edgeColor[1], edgeColor[2], edgeColor[3]};
+            edgeMaterial.materialModes[2] = 1.0F;
+            SDL_PushGPUVertexUniformData(commands, 0, &edgeFrame, sizeof(edgeFrame));
+            SDL_PushGPUFragmentUniformData(commands, 0, &edgeMaterial, sizeof(edgeMaterial));
+            SDL_BindGPUGraphicsPipeline(pass, impl_->edgePipeline);
+            SDL_DrawGPUIndexedPrimitives(pass, static_cast<Uint32>(count), 1,
+                                         static_cast<Uint32>(indexBegin), 0, 0);
+        }
+        SDL_PushGPUVertexUniformData(commands, 0, &frameUniforms, sizeof(frameUniforms));
+        SDL_PushGPUFragmentUniformData(commands, 0, &uniforms, sizeof(uniforms));
+        SDL_BindGPUGraphicsPipeline(pass, (material.drawFlags & 0x01U) != 0U
+                                              ? impl_->pipeline
+                                              : impl_->singleSidedPipeline);
         SDL_DrawGPUIndexedPrimitives(pass, static_cast<Uint32>(count), 1, static_cast<Uint32>(indexBegin), 0, 0);
         indexBegin += count;
     }
@@ -536,6 +562,7 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
         SDL_BindGPUGraphicsPipeline(pass, impl_->pipeline);
         MaterialUniforms uniforms;
         uniforms.diffuse = {1.0F, 1.0F, 1.0F, 1.0F};
+        SDL_PushGPUVertexUniformData(commands, 0, &frameUniforms, sizeof(frameUniforms));
         SDL_PushGPUFragmentUniformData(commands, 0, &uniforms, sizeof(uniforms));
         const std::array<SDL_GPUTextureSamplerBinding, 3> bindings{{
             {impl_->defaultTexture, impl_->textureSampler},
