@@ -43,6 +43,11 @@ struct EditorUiState {
     std::string status;
     bool previewPlaying{};
     bool morphOffsetDirty{};
+    float cameraYaw{};
+    float cameraPitch{};
+    float cameraDistance{3.0F};
+    mmd::Float3 cameraTarget{};
+    bool cameraInitialized{};
 
     void clearDrafts() {
         vertexDraft.reset();

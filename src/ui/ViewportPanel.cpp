@@ -16,14 +16,33 @@ struct Bounds {
     float maxX{std::numeric_limits<float>::lowest()};
     float minY{std::numeric_limits<float>::max()};
     float maxY{std::numeric_limits<float>::lowest()};
+    float minZ{std::numeric_limits<float>::max()};
+    float maxZ{std::numeric_limits<float>::lowest()};
 };
 
-ImVec2 project(const mmd::PmxVertex &vertex, const Bounds &bounds, ImVec2 origin, ImVec2 size) {
-    const auto width = std::max(bounds.maxX - bounds.minX, 0.001F);
-    const auto height = std::max(bounds.maxY - bounds.minY, 0.001F);
-    const auto scale = std::min(size.x / width, size.y / height) * 0.8F;
-    return {origin.x + size.x * 0.5F + (vertex.position[0] - (bounds.minX + bounds.maxX) * 0.5F) * scale,
-            origin.y + size.y * 0.5F - (vertex.position[1] - (bounds.minY + bounds.maxY) * 0.5F) * scale};
+ImVec2 project(const mmd::Float3 &position, const Bounds &bounds, ImVec2 origin, ImVec2 size,
+               const EditorUiState &ui) {
+    const auto radius = std::max({bounds.maxX - bounds.minX, bounds.maxY - bounds.minY, bounds.maxZ - bounds.minZ, 0.001F});
+    const auto scale = std::min(size.x / radius, size.y / radius) * 0.8F;
+    const auto dx = position[0] - ui.cameraTarget[0];
+    const auto dy = position[1] - ui.cameraTarget[1];
+    const auto dz = position[2] - ui.cameraTarget[2];
+    const auto cosYaw = std::cos(ui.cameraYaw);
+    const auto sinYaw = std::sin(ui.cameraYaw);
+    const auto yawX = cosYaw * dx + sinYaw * dz;
+    const auto yawZ = -sinYaw * dx + cosYaw * dz;
+    const auto cosPitch = std::cos(ui.cameraPitch);
+    const auto sinPitch = std::sin(ui.cameraPitch);
+    const auto viewY = cosPitch * dy - sinPitch * yawZ;
+    const auto viewZ = sinPitch * dy + cosPitch * yawZ;
+    const auto perspective = ui.cameraDistance / std::max(ui.cameraDistance + viewZ, 0.1F);
+    return {origin.x + size.x * 0.5F + yawX * scale * perspective,
+            origin.y + size.y * 0.5F - viewY * scale * perspective};
+}
+
+ImVec2 project(const mmd::PmxVertex &vertex, const Bounds &bounds, ImVec2 origin, ImVec2 size,
+               const EditorUiState &ui) {
+    return project(vertex.position, bounds, origin, size, ui);
 }
 
 ImU32 weightColor(float weight) {
@@ -65,12 +84,30 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         bounds.maxX = std::max(bounds.maxX, vertex.position[0]);
         bounds.minY = std::min(bounds.minY, vertex.position[1]);
         bounds.maxY = std::max(bounds.maxY, vertex.position[1]);
+        bounds.minZ = std::min(bounds.minZ, vertex.position[2]);
+        bounds.maxZ = std::max(bounds.maxZ, vertex.position[2]);
     }
     if (vertices.empty()) {
         draw->AddText({origin.x + 16.0F, origin.y + 16.0F}, IM_COL32_WHITE, "頂点がありません");
         ImGui::End();
         return;
     }
+    if (!session.ui.cameraInitialized) {
+        session.ui.cameraTarget = {(bounds.minX + bounds.maxX) * 0.5F, (bounds.minY + bounds.maxY) * 0.5F,
+                                   (bounds.minZ + bounds.maxZ) * 0.5F};
+        session.ui.cameraDistance = std::max({bounds.maxX - bounds.minX, bounds.maxY - bounds.minY,
+                                              bounds.maxZ - bounds.minZ, 0.1F}) * 2.0F;
+        session.ui.cameraInitialized = true;
+    }
+    if (hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
+        const auto delta = ImGui::GetIO().MouseDelta;
+        session.ui.cameraYaw += delta.x * 0.01F;
+        session.ui.cameraPitch = std::clamp(session.ui.cameraPitch + delta.y * 0.01F, -1.5F, 1.5F);
+    }
+    if (hovered && ImGui::GetIO().MouseWheel != 0.0F)
+        session.ui.cameraDistance = std::clamp(session.ui.cameraDistance *
+                                                   std::exp(-ImGui::GetIO().MouseWheel * 0.1F),
+                                               0.01F, 100000.0F);
 
     std::size_t indexBegin = 0;
     for (const auto &material : model.materials) {
@@ -82,9 +119,9 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             const auto c = model.indices[i + 2];
             if (a >= model.vertices.size() || b >= model.vertices.size() || c >= model.vertices.size())
                 continue;
-            draw->AddTriangleFilled(project(vertices[a], bounds, origin, available),
-                                    project(vertices[b], bounds, origin, available),
-                                    project(vertices[c], bounds, origin, available), color);
+            draw->AddTriangleFilled(project(vertices[a], bounds, origin, available, session.ui),
+                                    project(vertices[b], bounds, origin, available, session.ui),
+                                    project(vertices[c], bounds, origin, available, session.ui), color);
         }
         indexBegin = indexEnd;
     }
@@ -94,15 +131,15 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         const auto c = model.indices[i + 2];
         if (a >= model.vertices.size() || b >= model.vertices.size() || c >= model.vertices.size())
             continue;
-        const auto pa = project(vertices[a], bounds, origin, available);
-        const auto pb = project(vertices[b], bounds, origin, available);
-        const auto pc = project(vertices[c], bounds, origin, available);
+        const auto pa = project(vertices[a], bounds, origin, available, session.ui);
+        const auto pb = project(vertices[b], bounds, origin, available, session.ui);
+        const auto pc = project(vertices[c], bounds, origin, available, session.ui);
         draw->AddLine(pa, pb, IM_COL32(115, 145, 190, 180));
         draw->AddLine(pb, pc, IM_COL32(115, 145, 190, 180));
         draw->AddLine(pc, pa, IM_COL32(115, 145, 190, 180));
     }
     for (std::size_t i = 0; i < vertices.size() && i < 10000; ++i) {
-        const auto point = project(vertices[i], bounds, origin, available);
+        const auto point = project(vertices[i], bounds, origin, available, session.ui);
         const auto handle = session.document.vertexHandle(i);
         const bool selected = session.selection.contains({SelectionKind::vertex, handle.id, handle.generation});
         const auto vertexColor = selected ? IM_COL32(255, 220, 80, 255) : weightColor(model.vertices[i].weights[0]);
@@ -116,13 +153,13 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         mmd::PmxVertex to;
         from.position = bone.position;
         to.position = model.bones[static_cast<std::size_t>(bone.parent)].position;
-        draw->AddLine(project(from, bounds, origin, available), project(to, bounds, origin, available),
+        draw->AddLine(project(from, bounds, origin, available, session.ui), project(to, bounds, origin, available, session.ui),
                       IM_COL32(245, 190, 80, 220), 2.0F);
     }
     for (const auto &body : model.rigidBodies) {
         mmd::PmxVertex center;
         center.position = body.position;
-        const auto point = project(center, bounds, origin, available);
+        const auto point = project(center, bounds, origin, available, session.ui);
         const auto radius = std::max(3.0F, (std::abs(body.size[0]) + std::abs(body.size[1])) * 0.5F *
                                                std::min(available.x, available.y) /
                                                std::max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY));
@@ -140,7 +177,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         mmd::PmxVertex second;
         first.position = model.rigidBodies[static_cast<std::size_t>(joint.bodyA)].position;
         second.position = model.rigidBodies[static_cast<std::size_t>(joint.bodyB)].position;
-        draw->AddLine(project(first, bounds, origin, available), project(second, bounds, origin, available),
+        draw->AddLine(project(first, bounds, origin, available, session.ui), project(second, bounds, origin, available, session.ui),
                       IM_COL32(180, 255, 180, 170), 1.0F);
     }
     if (!session.selection.items().empty() && session.selection.items().front().kind == SelectionKind::vertex) {
@@ -156,7 +193,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                                                                         {model.vertices[i].sdefR1, IM_COL32(100, 150, 255, 255), 4.0F}}}) {
                 mmd::PmxVertex marker;
                 marker.position = value;
-                draw->AddCircleFilled(project(marker, bounds, origin, available), radius, color);
+                draw->AddCircleFilled(project(marker, bounds, origin, available, session.ui), radius, color);
             }
         }
     }
@@ -171,7 +208,8 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 continue;
             for (const auto &offset : morph.offsets)
                 if (offset.index >= 0 && static_cast<std::size_t>(offset.index) < model.vertices.size()) {
-                    draw->AddCircle(project(model.vertices[static_cast<std::size_t>(offset.index)], bounds, origin, available),
+                    draw->AddCircle(project(model.vertices[static_cast<std::size_t>(offset.index)], bounds, origin, available,
+                                             session.ui),
                                     5.0F, IM_COL32(220, 100, 255, 240));
                 }
         }
@@ -181,7 +219,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         std::size_t closest{};
         float distanceSquared = std::numeric_limits<float>::max();
         for (std::size_t i = 0; i < vertices.size(); ++i) {
-            const auto point = project(vertices[i], bounds, origin, available);
+            const auto point = project(vertices[i], bounds, origin, available, session.ui);
             const auto dx = point.x - mouse.x;
             const auto dy = point.y - mouse.y;
             const auto candidate = dx * dx + dy * dy;
