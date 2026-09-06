@@ -11,6 +11,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install build tools
         run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/pmxer-shader-toolchain
+          key: shader-toolchain-f686492-83fa691-1ff05be-dxc-1.9.2607
       - name: Compile platform shaders from pinned sources
         run: scripts/compile-shaders.sh assets/shaders/model.hlsl "$RUNNER_TEMP/compiled-shaders"
       - uses: actions/upload-artifact@v4
