@@ -2,8 +2,11 @@
 
 #include "../editor/DocumentSession.hpp"
 #include "../editor/SaveController.hpp"
+#include "../platform/Log.hpp"
 
 #include <mmd/pmx.hpp>
+
+#include <exception>
 
 #if PMXER_HAS_GUI
 #include "EditorPanels.hpp"
@@ -36,8 +39,14 @@ int runApplication(const std::filesystem::path *initialPath) {
     }
 
     std::optional<DocumentSession> session;
-    if (initialPath != nullptr && !initialPath->empty())
-        session.emplace(mmd::pmx::load(*initialPath), *initialPath);
+    if (initialPath != nullptr && !initialPath->empty()) {
+        try {
+            session.emplace(mmd::pmx::load(*initialPath), *initialPath);
+            session->ui.openPath = initialPath->string();
+        } catch (const std::exception &error) {
+            log::error(error.what());
+        }
+    }
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();

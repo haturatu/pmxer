@@ -46,6 +46,7 @@ OperationResult applyTransaction(DocumentSession &session,
     const auto after = session.document.model();
     session.commands.recordApplied(std::make_unique<SnapshotCommand>(before, after, std::move(description)));
     session.modified = true;
+    ++session.revision;
     session.validation = committed.validation;
     session.changes = committed.changes;
     return {true, {}};

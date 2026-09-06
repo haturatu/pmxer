@@ -16,6 +16,8 @@ void add(ReferenceSummary &summary, const mmd::ReferenceSite &site) {
         break;
     }
     switch (site.ownerKind) {
+    case mmd::ReferenceObjectKind::model:
+        break;
     case mmd::ReferenceObjectKind::vertex:
         ++summary.vertices;
         break;

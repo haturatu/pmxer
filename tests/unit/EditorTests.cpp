@@ -59,6 +59,20 @@ int main() {
     bone.name = "edited";
     assert(pmxer::editBone(session, boneHandle, bone).success);
 
+    auto parentTransaction = session.document.transaction();
+    assert(parentTransaction.setBoneParent(boneHandle, std::nullopt));
+    const auto parentResult = parentTransaction.commit();
+    assert(parentResult.committed);
+
+    auto invalid = sampleModel();
+    invalid.metadata.version = 2.0F;
+    invalid.vertices[0].weightType = mmd::PmxWeightType::qdef;
+    const mmd::PmxDocument invalidDocument(invalid);
+    const auto invalidValidation = invalidDocument.validate();
+    assert(!invalidValidation.valid());
+    assert(!invalidValidation.issues.empty());
+    assert(invalidValidation.issues.front().location.kind == mmd::ReferenceObjectKind::vertex);
+
     auto skin = mmd::PmxVertexSkin{};
     skin.bones[0] = boneHandle;
     auto vertexTransaction = session.document.transaction();
