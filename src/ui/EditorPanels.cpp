@@ -7,6 +7,7 @@
 #include "../editor/ReferenceInspector.hpp"
 #include "../editor/RecoveryController.hpp"
 #include "../editor/SaveController.hpp"
+#include "../editor/ValidationController.hpp"
 #include "../editor/tools/PhysicsTool.hpp"
 #include "../editor/tools/ModelMergeTool.hpp"
 #include "../editor/tools/SdefTool.hpp"
@@ -1165,8 +1166,8 @@ void drawDiagnosticsPanel(DocumentSession &session) {
     ImGui::Begin("診断");
     for (std::size_t index = 0; index < detailed.issues.size(); ++index) {
         const auto &issue = detailed.issues[index];
-        const char *level = issue.severity >= mmd::ValidationSeverity::error ? "ERROR" : "WARN";
-        ImGui::TextWrapped("[%s] %s: %s", level, issue.object.c_str(), issue.message.c_str());
+        const auto level = validationSeverityName(issue.severity);
+        ImGui::TextWrapped("[%s] %s: %s", level.c_str(), issue.object.c_str(), issue.message.c_str());
         const auto selectable = toSelectionKind(issue.location.kind);
         if (selectable && issue.location.id != 0) {
             ImGui::SameLine();
