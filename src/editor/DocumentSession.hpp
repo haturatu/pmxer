@@ -6,6 +6,7 @@
 #include <mmd/document.hpp>
 
 #include <filesystem>
+#include <chrono>
 #include <optional>
 #include <cstddef>
 #include <cstdint>
@@ -69,6 +70,7 @@ struct DocumentSession {
     bool previewPhysics{true};
     bool previewIk{true};
     std::uint64_t revision{};
+    std::chrono::steady_clock::time_point lastRecovery{};
     EditorUiState ui;
 
     DocumentSession() = default;

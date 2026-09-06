@@ -2,6 +2,7 @@
 
 #include "../platform/AtomicFile.hpp"
 #include "../platform/Log.hpp"
+#include "RecoveryController.hpp"
 
 #include <filesystem>
 
@@ -41,6 +42,7 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
         session.path = destination;
         session.modified = false;
         session.baseline = written;
+        (void)discardRecovery(destination);
         result.success = true;
         result.message = "保存しました";
         log::info(result.message.c_str());
@@ -54,4 +56,3 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
 }
 
 } // namespace pmxer
-

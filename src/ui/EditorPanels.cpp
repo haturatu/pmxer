@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <exception>
@@ -318,8 +319,12 @@ void drawModelPanel(DocumentSession &session) {
     if (ImGui::Button("保存"))
         session.ui.status = saveDocument(session).success ? "保存しました" : "保存に失敗しました";
     ImGui::SameLine();
-    if (ImGui::Button("回復保存"))
-        session.ui.status = writeRecovery(session).success ? "回復情報を保存しました" : "回復保存に失敗しました";
+    if (ImGui::Button("回復保存")) {
+        const auto saved = writeRecovery(session).success;
+        if (saved)
+            session.lastRecovery = std::chrono::steady_clock::now();
+        session.ui.status = saved ? "回復情報を保存しました" : "回復保存に失敗しました";
+    }
     inputString("追加するモデル", session.ui.mergePath);
     if (ImGui::Button("モデルを追加") && !session.ui.mergePath.empty()) {
         try {
@@ -1194,6 +1199,11 @@ void drawReferencePanel(DocumentSession &session) {
 } // namespace
 
 void drawEditorPanels(DocumentSession &session) {
+    if (session.modified && !session.path.empty()) {
+        const auto now = std::chrono::steady_clock::now();
+        if (now - session.lastRecovery >= std::chrono::seconds(30) && writeRecovery(session).success)
+            session.lastRecovery = now;
+    }
     auto &preview = updatePreview(session);
     drawViewportPanel(session, preview.frame ? &*preview.frame : nullptr);
     if (ImGui::BeginMainMenuBar()) {
