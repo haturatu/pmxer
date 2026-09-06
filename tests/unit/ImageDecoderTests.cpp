@@ -54,5 +54,21 @@ int main() {
     const auto truncated = pmxer::decodeImageBytes(bc3);
     assert(!truncated);
     assert(!truncated.error.empty());
+
+    auto rgba = dds(0, 4);
+    put32(rgba, 80, 0x41U);
+    put32(rgba, 88, 32);
+    put32(rgba, 92, 0x00ff0000U);
+    put32(rgba, 96, 0x0000ff00U);
+    put32(rgba, 100, 0x000000ffU);
+    put32(rgba, 104, 0xff000000U);
+    put32(rgba, 20, 16);
+    rgba.resize(128U + 64U);
+    rgba[128] = 30;
+    rgba[129] = 20;
+    rgba[130] = 10;
+    rgba[131] = 40;
+    const auto raw = pmxer::decodeImageBytes(rgba);
+    assert(raw && raw.rgba[0] == 10 && raw.rgba[1] == 20 && raw.rgba[2] == 30 && raw.rgba[3] == 40);
     return 0;
 }

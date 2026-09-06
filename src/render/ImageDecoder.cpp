@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <fstream>
 #include <limits>
 
@@ -90,9 +91,45 @@ DecodedImage decodeDds(const std::vector<std::uint8_t> &bytes) {
     const bool bc1 = format == fourCc('D', 'X', 'T', '1');
     const bool bc2 = format == fourCc('D', 'X', 'T', '3');
     const bool bc3 = format == fourCc('D', 'X', 'T', '5');
-    if (!bc1 && !bc2 && !bc3) {
+    const auto pixelFlags = read32(bytes, 80);
+    const auto bitsPerPixel = read32(bytes, 88);
+    const bool uncompressed = (pixelFlags & 0x40U) != 0U && (bitsPerPixel == 24U || bitsPerPixel == 32U);
+    if (!bc1 && !bc2 && !bc3 && !uncompressed) {
         image.error = "unsupported DDS pixel format";
         image.rgba.clear();
+        return image;
+    }
+    if (uncompressed) {
+        const auto bytesPerPixel = static_cast<std::size_t>(bitsPerPixel / 8U);
+        const auto minimumPitch = static_cast<std::size_t>(image.width) * bytesPerPixel;
+        const auto declaredPitch = static_cast<std::size_t>(read32(bytes, 20));
+        const auto rowPitch = declaredPitch >= minimumPitch ? declaredPitch : minimumPitch;
+        if (static_cast<std::uint64_t>(rowPitch) * image.height > bytes.size() - 128U) {
+            image.error = "truncated DDS image";
+            image.rgba.clear();
+            return image;
+        }
+        const std::array<std::uint32_t, 4> masks{
+            read32(bytes, 92), read32(bytes, 96), read32(bytes, 100), read32(bytes, 104)};
+        const auto channel = [](std::uint32_t value, std::uint32_t mask, std::uint8_t fallback) {
+            if (mask == 0)
+                return fallback;
+            const auto shift = std::countr_zero(mask);
+            const auto maximum = mask >> shift;
+            return static_cast<std::uint8_t>(((value & mask) >> shift) * 255U / maximum);
+        };
+        for (std::uint32_t y = 0; y < image.height; ++y) {
+            const auto *row = bytes.data() + 128U + static_cast<std::size_t>(y) * rowPitch;
+            for (std::uint32_t x = 0; x < image.width; ++x) {
+                std::uint32_t value{};
+                for (std::size_t byte = 0; byte < bytesPerPixel; ++byte)
+                    value |= static_cast<std::uint32_t>(row[static_cast<std::size_t>(x) * bytesPerPixel + byte])
+                             << (8U * byte);
+                writePixel(image, x, y,
+                           {channel(value, masks[0], 0), channel(value, masks[1], 0),
+                            channel(value, masks[2], 0), channel(value, masks[3], 255)});
+            }
+        }
         return image;
     }
     const std::size_t blockSize = bc1 ? 8U : 16U;
