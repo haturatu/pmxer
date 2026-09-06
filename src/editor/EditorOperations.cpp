@@ -9,16 +9,16 @@ namespace {
 
 class SnapshotCommand final : public EditorCommand {
   public:
-    SnapshotCommand(mmd::PmxModel before, mmd::PmxModel after, std::string description)
-        : before_(std::move(before)), after_(std::move(after)), description_(std::move(description)) {}
+    SnapshotCommand(mmd::PmxDocument before, mmd::PmxDocument after, std::uint64_t domain, std::string description)
+        : before_(std::move(before)), after_(std::move(after)), domain_(domain), description_(std::move(description)) {}
 
     bool apply(mmd::PmxDocument &document) override {
-        document = mmd::PmxDocument(after_);
+        document.restoreSnapshot(after_, domain_);
         return true;
     }
 
     bool undo(mmd::PmxDocument &document) override {
-        document = mmd::PmxDocument(before_);
+        document.restoreSnapshot(before_, domain_);
         return true;
     }
 
@@ -27,8 +27,9 @@ class SnapshotCommand final : public EditorCommand {
     }
 
   private:
-    mmd::PmxModel before_;
-    mmd::PmxModel after_;
+    mmd::PmxDocument before_;
+    mmd::PmxDocument after_;
+    std::uint64_t domain_{};
     std::string description_;
 };
 
@@ -137,15 +138,16 @@ OperationResult applyProperty(DocumentSession &session, Handle handle, const Val
 OperationResult applyTransaction(DocumentSession &session,
                                   const std::function<bool(mmd::PmxDocument::Transaction &)> &callback,
                                   std::string description) {
-    const auto before = session.document.model();
+    const mmd::PmxDocument before(session.document);
     auto transaction = session.document.transaction();
     if (!callback(transaction))
         return {false, "対象が見つかりません"};
     const auto committed = transaction.commit();
     if (!committed.committed)
         return {false, committed.errors.empty() ? "編集結果が検証に失敗しました" : committed.errors.front()};
-    const auto after = session.document.model();
-    session.commands.recordApplied(std::make_unique<SnapshotCommand>(before, after, std::move(description)));
+    const mmd::PmxDocument after(session.document);
+    session.commands.recordApplied(
+        std::make_unique<SnapshotCommand>(before, after, session.document.domain(), std::move(description)));
     session.modified = session.commands.isModified();
     ++session.revision;
     session.validation = committed.validation;
