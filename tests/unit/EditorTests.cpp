@@ -8,6 +8,7 @@
 
 #include <cassert>
 #include <filesystem>
+#include <utility>
 
 namespace {
 
@@ -52,6 +53,26 @@ int main() {
     assert(session.document.model().vertices[0].position[0] == 0.0F);
     assert(session.commands.redo(session.document));
     assert(session.document.model().vertices[0].position[0] == 2.0F);
+
+    pmxer::DocumentSession historySession(sampleModel());
+    const auto historyHandle = historySession.document.vertexHandle(0);
+    auto historyVertex = *historySession.document.resolve(historyHandle);
+    historyVertex.position[0] = 3.0F;
+    assert(pmxer::editVertex(historySession, historyHandle, historyVertex).success);
+    assert(pmxer::applyTransaction(
+               historySession,
+               [](auto &transaction) {
+                   mmd::PmxMorph morph;
+                   morph.name = "history_morph";
+                   morph.type = 1;
+                   return static_cast<bool>(transaction.addMorph(std::move(morph)));
+               },
+               "構造変更")
+               .success);
+    assert(historySession.undo());
+    assert(historySession.undo());
+    assert(historySession.document.resolve(historyHandle) != nullptr);
+    assert(historySession.document.resolve(historyHandle)->position[0] == 0.0F);
 
     const auto materialHandle = session.document.materialHandle(0);
     auto material = *session.document.resolve(materialHandle);
