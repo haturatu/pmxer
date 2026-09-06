@@ -127,7 +127,7 @@ int runApplication(const EditCommand &options) {
     const auto installedShaderDirectory = resourceDirectory.parent_path() / "shaders";
     if (!std::filesystem::is_directory(shaderDirectory) && std::filesystem::is_directory(installedShaderDirectory))
         shaderDirectory = installedShaderDirectory;
-    GpuModelRenderer gpuModelRenderer(device, shaderDirectory, gpuInfo.ColorTargetFormat);
+    GpuModelRenderer gpuModelRenderer(device, shaderDirectory, resourceDirectory, gpuInfo.ColorTargetFormat);
     if (!gpuModelRenderer.available())
         log::warn(gpuModelRenderer.error());
     std::array<char, 1024> newSessionPath{};

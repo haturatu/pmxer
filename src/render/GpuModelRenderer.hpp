@@ -21,7 +21,8 @@ namespace pmxer {
 
 class GpuModelRenderer {
   public:
-    GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path shaderDirectory, std::uint32_t colorFormat);
+    GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path shaderDirectory,
+                     std::filesystem::path resourceDirectory, std::uint32_t colorFormat);
     ~GpuModelRenderer();
 
     GpuModelRenderer(const GpuModelRenderer &) = delete;

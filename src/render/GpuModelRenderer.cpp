@@ -23,6 +23,7 @@ struct GpuVertex {
     float position[3];
     float normal[3];
     float uv[2];
+    float additionalUv1[2];
 };
 
 struct alignas(16) FrameUniforms {
@@ -54,7 +55,8 @@ std::vector<GpuVertex> makeVertices(const std::vector<mmd::PmxVertex> &vertices)
     for (const auto &vertex : vertices)
         result.push_back({{vertex.position[0], vertex.position[1], vertex.position[2]},
                           {vertex.normal[0], vertex.normal[1], vertex.normal[2]},
-                          {vertex.uv[0], vertex.uv[1]}});
+                          {vertex.uv[0], vertex.uv[1]},
+                          {vertex.additionalUv[0][0], vertex.additionalUv[0][1]}});
     return result;
 }
 
@@ -163,13 +165,16 @@ struct GpuModelRenderer::Impl {
     SDL_GPUShader *vertexShader{};
     SDL_GPUShader *fragmentShader{};
     SDL_GPUGraphicsPipeline *pipeline{};
+    SDL_GPUGraphicsPipeline *singleSidedPipeline{};
     SDL_GPUBuffer *vertexBuffer{};
     SDL_GPUBuffer *indexBuffer{};
     SDL_GPUSampler *textureSampler{};
     SDL_GPUTexture *defaultTexture{};
     std::vector<SDL_GPUTexture *> textures;
+    std::array<SDL_GPUTexture *, 10> sharedToons{};
     std::vector<SDL_GPUTransferBuffer *> transfers;
     std::filesystem::path shaderDirectory;
+    std::filesystem::path resourceDirectory;
     const mmd::PmxModel *model{};
     const mmd::AnimatedModelFrame *frame{};
     std::uint64_t revision{std::numeric_limits<std::uint64_t>::max()};
@@ -203,6 +208,11 @@ struct GpuModelRenderer::Impl {
         for (auto *texture : textures)
             SDL_ReleaseGPUTexture(device, texture);
         textures.clear();
+        for (auto *&texture : sharedToons) {
+            if (texture != nullptr)
+                SDL_ReleaseGPUTexture(device, texture);
+            texture = nullptr;
+        }
         if (defaultTexture != nullptr) {
             SDL_ReleaseGPUTexture(device, defaultTexture);
             defaultTexture = nullptr;
@@ -240,6 +250,27 @@ struct GpuModelRenderer::Impl {
             textures[index] = uploadTexture(device, commands, image.rgba.data(),
                                             static_cast<int>(image.width), static_cast<int>(image.height), transfers);
         }
+        for (std::size_t index = 0; index < sharedToons.size(); ++index) {
+            const auto number = index + 1U;
+            const auto filename = std::string{"toon"} + (number < 10U ? "0" : "") +
+                                  std::to_string(number) + ".bmp";
+            const auto image = decodeImage(resourceDirectory / "toon" / filename);
+            if (image)
+                sharedToons[index] = uploadTexture(device, commands, image.rgba.data(),
+                                                   static_cast<int>(image.width), static_cast<int>(image.height),
+                                                   transfers);
+            if (sharedToons[index] == nullptr) {
+                std::array<std::uint8_t, 64U * 4U> gradient{};
+                for (std::size_t row = 0; row < 64U; ++row) {
+                    const auto shade = static_cast<std::uint8_t>(48U + row * 207U / 63U);
+                    gradient[row * 4U] = shade;
+                    gradient[row * 4U + 1U] = shade;
+                    gradient[row * 4U + 2U] = shade;
+                    gradient[row * 4U + 3U] = 255;
+                }
+                sharedToons[index] = uploadTexture(device, commands, gradient.data(), 1, 64, transfers);
+            }
+        }
         return true;
     }
 
@@ -251,6 +282,8 @@ struct GpuModelRenderer::Impl {
             SDL_ReleaseGPUSampler(device, textureSampler);
         if (pipeline != nullptr)
             SDL_ReleaseGPUGraphicsPipeline(device, pipeline);
+        if (singleSidedPipeline != nullptr)
+            SDL_ReleaseGPUGraphicsPipeline(device, singleSidedPipeline);
         if (vertexShader != nullptr)
             SDL_ReleaseGPUShader(device, vertexShader);
         if (fragmentShader != nullptr)
@@ -259,10 +292,11 @@ struct GpuModelRenderer::Impl {
 };
 
 GpuModelRenderer::GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path shaderDirectory,
-                                   std::uint32_t colorFormat)
+                                   std::filesystem::path resourceDirectory, std::uint32_t colorFormat)
     : impl_(std::make_unique<Impl>()) {
     impl_->device = device;
     impl_->shaderDirectory = std::move(shaderDirectory);
+    impl_->resourceDirectory = std::move(resourceDirectory);
     const auto shaders = selectShaders(device, impl_->shaderDirectory);
     const auto vertexPath = shaders.vertex;
     const auto fragmentPath = shaders.fragment;
@@ -304,10 +338,11 @@ GpuModelRenderer::GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path 
 
     const std::array<SDL_GPUVertexBufferDescription, 1> buffers{{{0, sizeof(GpuVertex),
                                                                    SDL_GPU_VERTEXINPUTRATE_VERTEX, 0}}};
-    const std::array<SDL_GPUVertexAttribute, 3> attributes{{
+    const std::array<SDL_GPUVertexAttribute, 4> attributes{{
         {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuVertex, position)},
         {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuVertex, normal)},
         {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(GpuVertex, uv)},
+        {3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(GpuVertex, additionalUv1)},
     }};
     SDL_GPUColorTargetDescription target{};
     target.format = static_cast<SDL_GPUTextureFormat>(colorFormat);
@@ -321,7 +356,7 @@ GpuModelRenderer::GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path 
     SDL_GPUGraphicsPipelineCreateInfo pipelineInfo{};
     pipelineInfo.vertex_shader = impl_->vertexShader;
     pipelineInfo.fragment_shader = impl_->fragmentShader;
-    pipelineInfo.vertex_input_state = {buffers.data(), 1, attributes.data(), 3};
+    pipelineInfo.vertex_input_state = {buffers.data(), 1, attributes.data(), 4};
     pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
     pipelineInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
     pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
@@ -337,6 +372,12 @@ GpuModelRenderer::GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path 
     pipelineInfo.target_info.has_depth_stencil_target = true;
     impl_->pipeline = SDL_CreateGPUGraphicsPipeline(device, &pipelineInfo);
     if (impl_->pipeline == nullptr) {
+        impl_->errorMessage = SDL_GetError();
+        return;
+    }
+    pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_BACK;
+    impl_->singleSidedPipeline = SDL_CreateGPUGraphicsPipeline(device, &pipelineInfo);
+    if (impl_->singleSidedPipeline == nullptr) {
         impl_->errorMessage = SDL_GetError();
         return;
     }
@@ -435,7 +476,6 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
     SDL_SetGPUViewport(pass, &viewport);
     SDL_Rect scissor{static_cast<int>(x), static_cast<int>(y), static_cast<int>(width), static_cast<int>(height)};
     SDL_SetGPUScissor(pass, &scissor);
-    SDL_BindGPUGraphicsPipeline(pass, impl_->pipeline);
     const SDL_GPUBufferBinding vertexBinding{impl_->vertexBuffer, 0};
     const SDL_GPUBufferBinding indexBinding{impl_->indexBuffer, 0};
     SDL_BindGPUVertexBuffers(pass, 0, &vertexBinding, 1);
@@ -447,6 +487,9 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
         const auto count = std::min(available, static_cast<std::size_t>(material.indexCount));
         if (count == 0)
             continue;
+        SDL_BindGPUGraphicsPipeline(pass, (material.drawFlags & 0x01U) != 0U
+                                              ? impl_->pipeline
+                                              : impl_->singleSidedPipeline);
         const auto *animated = frame != nullptr && materialIndex < frame->materials.size()
                                    ? &frame->materials[materialIndex]
                                    : nullptr;
@@ -479,7 +522,10 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
         const std::array<SDL_GPUTextureSamplerBinding, 3> bindings{{
             {textureFor(material.textureIndex), impl_->textureSampler},
             {textureFor(material.sphereTextureIndex), impl_->textureSampler},
-            {material.toonMode == 0 ? textureFor(material.toonTextureIndex) : impl_->defaultTexture,
+            {material.toonMode == 0 ? textureFor(material.toonTextureIndex)
+                                    : (material.toonTextureIndex >= 0 && material.toonTextureIndex < 10
+                                           ? impl_->sharedToons[static_cast<std::size_t>(material.toonTextureIndex)]
+                                           : impl_->defaultTexture),
              impl_->textureSampler},
         }};
         SDL_BindGPUFragmentSamplers(pass, 0, bindings.data(), static_cast<Uint32>(bindings.size()));
@@ -487,6 +533,7 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
         indexBegin += count;
     }
     if (indexBegin < impl_->indexCount) {
+        SDL_BindGPUGraphicsPipeline(pass, impl_->pipeline);
         MaterialUniforms uniforms;
         uniforms.diffuse = {1.0F, 1.0F, 1.0F, 1.0F};
         SDL_PushGPUFragmentUniformData(commands, 0, &uniforms, sizeof(uniforms));
