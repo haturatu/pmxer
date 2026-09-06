@@ -3,8 +3,10 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
+#include <tuple>
 
 namespace pmxer {
 namespace {
@@ -22,6 +24,13 @@ ImVec2 project(const mmd::PmxVertex &vertex, const Bounds &bounds, ImVec2 origin
     const auto scale = std::min(size.x / width, size.y / height) * 0.8F;
     return {origin.x + size.x * 0.5F + (vertex.position[0] - (bounds.minX + bounds.maxX) * 0.5F) * scale,
             origin.y + size.y * 0.5F - (vertex.position[1] - (bounds.minY + bounds.maxY) * 0.5F) * scale};
+}
+
+ImU32 weightColor(float weight) {
+    const auto value = std::clamp(weight, 0.0F, 1.0F);
+    const auto red = static_cast<int>(255.0F * value);
+    const auto blue = static_cast<int>(255.0F * (1.0F - value));
+    return IM_COL32(red, 80, blue, 210);
 }
 
 } // namespace
@@ -72,8 +81,8 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         const auto point = project(vertices[i], bounds, origin, available);
         const auto handle = session.document.vertexHandle(i);
         const bool selected = session.selection.contains({SelectionKind::vertex, handle.id, handle.generation});
-        draw->AddCircleFilled(point, selected ? 4.0F : 2.0F, selected ? IM_COL32(255, 220, 80, 255)
-                                                                        : IM_COL32(210, 215, 225, 180));
+        const auto vertexColor = selected ? IM_COL32(255, 220, 80, 255) : weightColor(model.vertices[i].weights[0]);
+        draw->AddCircleFilled(point, selected ? 4.0F : 2.0F, vertexColor);
     }
     for (std::size_t i = 0; i < model.bones.size(); ++i) {
         const auto &bone = model.bones[i];
@@ -85,6 +94,63 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         to.position = model.bones[static_cast<std::size_t>(bone.parent)].position;
         draw->AddLine(project(from, bounds, origin, available), project(to, bounds, origin, available),
                       IM_COL32(245, 190, 80, 220), 2.0F);
+    }
+    for (const auto &body : model.rigidBodies) {
+        mmd::PmxVertex center;
+        center.position = body.position;
+        const auto point = project(center, bounds, origin, available);
+        const auto radius = std::max(3.0F, (std::abs(body.size[0]) + std::abs(body.size[1])) * 0.5F *
+                                               std::min(available.x, available.y) /
+                                               std::max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY));
+        if (body.shape == 1)
+            draw->AddRect({point.x - radius, point.y - radius}, {point.x + radius, point.y + radius},
+                          IM_COL32(180, 230, 255, 180));
+        else
+            draw->AddCircle(point, radius, IM_COL32(180, 230, 255, 180));
+    }
+    for (const auto &joint : model.joints) {
+        if (joint.bodyA < 0 || joint.bodyB < 0 || static_cast<std::size_t>(joint.bodyA) >= model.rigidBodies.size() ||
+            static_cast<std::size_t>(joint.bodyB) >= model.rigidBodies.size())
+            continue;
+        mmd::PmxVertex first;
+        mmd::PmxVertex second;
+        first.position = model.rigidBodies[static_cast<std::size_t>(joint.bodyA)].position;
+        second.position = model.rigidBodies[static_cast<std::size_t>(joint.bodyB)].position;
+        draw->AddLine(project(first, bounds, origin, available), project(second, bounds, origin, available),
+                      IM_COL32(180, 255, 180, 170), 1.0F);
+    }
+    if (!session.selection.items().empty() && session.selection.items().front().kind == SelectionKind::vertex) {
+        const auto selected = session.selection.items().front();
+        for (std::size_t i = 0; i < model.vertices.size(); ++i) {
+            const auto handle = session.document.vertexHandle(i);
+            if (handle.id != selected.id || handle.generation != selected.generation ||
+                model.vertices[i].weightType != mmd::PmxWeightType::sdef)
+                continue;
+            for (const auto &[value, color, radius] :
+                 std::array<std::tuple<mmd::Float3, ImU32, float>, 3>{{{model.vertices[i].sdefC, IM_COL32(255, 100, 100, 255), 5.0F},
+                                                                        {model.vertices[i].sdefR0, IM_COL32(100, 255, 100, 255), 4.0F},
+                                                                        {model.vertices[i].sdefR1, IM_COL32(100, 150, 255, 255), 4.0F}}}) {
+                mmd::PmxVertex marker;
+                marker.position = value;
+                draw->AddCircleFilled(project(marker, bounds, origin, available), radius, color);
+            }
+        }
+    }
+    if (!session.selection.items().empty() && session.selection.items().front().kind == SelectionKind::morph) {
+        const auto selected = session.selection.items().front();
+        for (std::size_t i = 0; i < model.morphs.size(); ++i) {
+            const auto handle = session.document.morphHandle(i);
+            if (handle.id != selected.id || handle.generation != selected.generation)
+                continue;
+            const auto &morph = model.morphs[i];
+            if (morph.type != 1 && (morph.type < 3 || morph.type > 7))
+                continue;
+            for (const auto &offset : morph.offsets)
+                if (offset.index >= 0 && static_cast<std::size_t>(offset.index) < model.vertices.size()) {
+                    draw->AddCircle(project(model.vertices[static_cast<std::size_t>(offset.index)], bounds, origin, available),
+                                    5.0F, IM_COL32(220, 100, 255, 240));
+                }
+        }
     }
     if (clicked && !vertices.empty()) {
         const auto mouse = ImGui::GetIO().MousePos;
