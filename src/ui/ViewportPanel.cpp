@@ -33,6 +33,14 @@ ImU32 weightColor(float weight) {
     return IM_COL32(red, 80, blue, 210);
 }
 
+ImU32 materialColor(const mmd::PmxMaterial &material) {
+    const auto color = ImVec4{std::clamp(material.diffuse[0], 0.0F, 1.0F),
+                              std::clamp(material.diffuse[1], 0.0F, 1.0F),
+                              std::clamp(material.diffuse[2], 0.0F, 1.0F),
+                              std::clamp(material.diffuse[3], 0.0F, 1.0F)};
+    return ImGui::ColorConvertFloat4ToU32(color);
+}
+
 } // namespace
 
 void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *frame) {
@@ -64,6 +72,22 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         return;
     }
 
+    std::size_t indexBegin = 0;
+    for (const auto &material : model.materials) {
+        const auto indexEnd = std::min(model.indices.size(), indexBegin + static_cast<std::size_t>(material.indexCount));
+        const auto color = materialColor(material);
+        for (std::size_t i = indexBegin; i + 2 < indexEnd; i += 3) {
+            const auto a = model.indices[i];
+            const auto b = model.indices[i + 1];
+            const auto c = model.indices[i + 2];
+            if (a >= model.vertices.size() || b >= model.vertices.size() || c >= model.vertices.size())
+                continue;
+            draw->AddTriangleFilled(project(vertices[a], bounds, origin, available),
+                                    project(vertices[b], bounds, origin, available),
+                                    project(vertices[c], bounds, origin, available), color);
+        }
+        indexBegin = indexEnd;
+    }
     for (std::size_t i = 0; i + 2 < model.indices.size(); i += 3) {
         const auto a = model.indices[i];
         const auto b = model.indices[i + 1];
