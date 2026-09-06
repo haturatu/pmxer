@@ -1,5 +1,6 @@
 #include "../../src/editor/DocumentSession.hpp"
 #include "../../src/editor/EditorOperations.hpp"
+#include "../../src/editor/RecoveryController.hpp"
 #include "../../src/editor/SaveController.hpp"
 #include "../../src/render/Picking.hpp"
 
@@ -117,6 +118,10 @@ int main() {
 
     const auto path = std::filesystem::temp_directory_path() / "pmxer-editor-test.pmx";
     session.path = path;
+    const auto recovery = pmxer::writeRecovery(session);
+    assert(recovery.success);
+    assert(pmxer::loadRecovery(path).has_value());
+    assert(pmxer::discardRecovery(path));
     const auto saved = pmxer::saveDocument(session);
     assert(saved.success);
     const auto reloaded = mmd::pmx::load(path);

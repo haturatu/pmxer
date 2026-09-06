@@ -1,6 +1,9 @@
 #include "Paths.hpp"
 
 #include <cstdlib>
+#include <cstdint>
+#include <iomanip>
+#include <sstream>
 
 namespace pmxer {
 namespace {
@@ -25,13 +28,21 @@ std::filesystem::path recoveryDirectory() {
     if (root.empty())
         root = environmentPath("HOME") / ".local" / "share";
 #endif
+    if (root.empty())
+        root = std::filesystem::temp_directory_path();
     return root / "pmxer" / "recovery";
 }
 
 std::filesystem::path recoveryPath(const std::filesystem::path &source) {
     const auto name = source.filename().empty() ? "untitled.pmx" : source.filename().string();
-    return recoveryDirectory() / (name + ".recovery.pmx");
+    std::uint64_t hash = 1469598103934665603ULL;
+    for (const auto value : source.lexically_normal().string()) {
+        hash ^= static_cast<unsigned char>(value);
+        hash *= 1099511628211ULL;
+    }
+    std::ostringstream suffix;
+    suffix << std::hex << std::setw(16) << std::setfill('0') << hash;
+    return recoveryDirectory() / (name + "-" + suffix.str() + ".recovery.pmx");
 }
 
 } // namespace pmxer
-

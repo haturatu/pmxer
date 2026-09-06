@@ -1,6 +1,7 @@
 #include "RecoveryController.hpp"
 
 #include "../platform/AtomicFile.hpp"
+#include "../platform/Log.hpp"
 #include "../platform/Paths.hpp"
 
 #include <mmd/pmx.hpp>
@@ -9,6 +10,20 @@
 #include <fstream>
 
 namespace pmxer {
+namespace {
+
+std::string escapeJson(std::string value) {
+    std::string escaped;
+    escaped.reserve(value.size());
+    for (const auto character : value) {
+        if (character == '\\' || character == '"')
+            escaped.push_back('\\');
+        escaped.push_back(character);
+    }
+    return escaped;
+}
+
+} // namespace
 
 RecoveryResult writeRecovery(const DocumentSession &session) {
     if (!session.modified)
@@ -26,10 +41,15 @@ RecoveryResult writeRecovery(const DocumentSession &session) {
             return {false, {}};
         }
         std::ofstream metadata(path.string() + ".json", std::ios::trunc);
-        metadata << "{\n  \"source\": \"" << session.path.string() << "\",\n  \"modified\": true\n}\n";
+        metadata << "{\n  \"source\": \"" << escapeJson(session.path.string()) << "\",\n  \"modified\": true\n}\n";
+        if (!metadata)
+            log::warn("回復メタデータの保存に失敗しました");
+        log::info("回復情報を保存しました");
         return {true, path};
     } catch (...) {
-        std::filesystem::remove(temporary);
+        std::error_code error;
+        std::filesystem::remove(temporary, error);
+        log::warn("回復情報の保存に失敗しました");
         return {false, {}};
     }
 }
@@ -53,4 +73,3 @@ bool discardRecovery(const std::filesystem::path &source) {
 }
 
 } // namespace pmxer
-
