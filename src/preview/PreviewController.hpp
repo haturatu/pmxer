@@ -1,0 +1,38 @@
+#pragma once
+
+#include <mmd/animation.hpp>
+#include <mmd/physics.hpp>
+
+#include <memory>
+
+namespace pmxer {
+
+class PreviewController {
+  public:
+    explicit PreviewController(const mmd::PmxModel &model);
+    ~PreviewController();
+    PreviewController(PreviewController &&) noexcept;
+    PreviewController &operator=(PreviewController &&) noexcept;
+    PreviewController(const PreviewController &) = delete;
+    PreviewController &operator=(const PreviewController &) = delete;
+
+    void setMotion(const mmd::VmdMotion *motion);
+    void setPose(const mmd::VpdPose *pose);
+    void setPhysicsEnabled(bool enabled);
+    void setIkEnabled(bool enabled);
+    void setFrame(float frame);
+    void reset();
+    [[nodiscard]] mmd::AnimatedModelFrame evaluate(float deltaSeconds = 0.0F);
+    [[nodiscard]] const mmd::PmxModel &model() const noexcept;
+
+  private:
+    const mmd::PmxModel *model_{};
+    std::unique_ptr<mmd::MmdAnimator> animator_;
+    std::unique_ptr<mmd::MmdPhysics> physics_;
+    float frame_{};
+    bool physicsEnabled_{true};
+    bool ikEnabled_{true};
+};
+
+} // namespace pmxer
+

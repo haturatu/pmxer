@@ -1,0 +1,86 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "linux-dev",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-dev",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "PMXER_BUILD_GUI": "ON",
+        "PMXER_FETCH_GUI_DEPENDENCIES": "ON",
+        "PMXER_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "linux-cli",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-cli",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "PMXER_BUILD_GUI": "OFF",
+        "PMXER_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "linux-release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PMXER_BUILD_GUI": "ON",
+        "PMXER_FETCH_GUI_DEPENDENCIES": "ON"
+      }
+    },
+    {
+      "name": "windows-release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/windows-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PMXER_BUILD_GUI": "ON",
+        "PMXER_FETCH_GUI_DEPENDENCIES": "ON"
+      }
+    },
+    {
+      "name": "macos-arm64-release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/macos-arm64-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "PMXER_BUILD_GUI": "ON",
+        "PMXER_FETCH_GUI_DEPENDENCIES": "ON"
+      }
+    },
+    {
+      "name": "macos-x86_64-release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/macos-x86_64-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_OSX_ARCHITECTURES": "x86_64",
+        "PMXER_BUILD_GUI": "ON",
+        "PMXER_FETCH_GUI_DEPENDENCIES": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "linux-dev", "configurePreset": "linux-dev" },
+    { "name": "linux-cli", "configurePreset": "linux-cli" },
+    { "name": "linux-release", "configurePreset": "linux-release" },
+    { "name": "windows-release", "configurePreset": "windows-release" },
+    { "name": "macos-arm64-release", "configurePreset": "macos-arm64-release" },
+    { "name": "macos-x86_64-release", "configurePreset": "macos-x86_64-release" }
+  ],
+  "testPresets": [
+    { "name": "linux-dev", "configurePreset": "linux-dev", "output": { "outputOnFailure": true } },
+    { "name": "linux-cli", "configurePreset": "linux-cli", "output": { "outputOnFailure": true } },
+    { "name": "linux-release", "configurePreset": "linux-release", "output": { "outputOnFailure": true } }
+  ]
+}

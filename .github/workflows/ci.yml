@@ -1,0 +1,59 @@
+name: ci
+
+on:
+  push:
+    branches: [main, 'feat/**', 'fix/**', 'chore/**', 'refactor/**', 'tests/**']
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            preset: linux-release
+          - os: windows-2025
+            preset: windows-release
+          - os: macos-15
+            preset: macos-arm64-release
+          - os: macos-15-intel
+            preset: macos-x86_64-release
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libsdl3-dev
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}
+
+  linux-quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libsdl3-dev clang clang-tidy clang-format
+      - name: GCC debug
+        run: |
+          cmake --preset linux-cli -DCMAKE_CXX_COMPILER=g++
+          cmake --build --preset linux-cli
+          ctest --preset linux-cli
+      - name: Clang debug
+        run: |
+          cmake --preset linux-cli -DCMAKE_CXX_COMPILER=clang++ -DPMXER_ENABLE_SANITIZERS=ON
+          cmake --build --preset linux-cli
+          ctest --preset linux-cli
+

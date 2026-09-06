@@ -1,0 +1,70 @@
+name: release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            preset: linux-release
+            artifact: linux-x86_64
+          - os: windows-2025
+            preset: windows-release
+            artifact: windows-x86_64
+          - os: macos-15
+            preset: macos-arm64-release
+            artifact: macos-arm64
+          - os: macos-15-intel
+            preset: macos-x86_64-release
+            artifact: macos-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libsdl3-dev zstd
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}
+      - name: Install
+        run: cmake --install build/${{ matrix.preset }} --prefix package
+      - name: Package Linux
+        if: runner.os == 'Linux'
+        run: scripts/package-linux.sh build/${{ matrix.preset }} package "${GITHUB_REF_NAME#v}"
+      - name: Package macOS
+        if: runner.os == 'macOS'
+        run: scripts/package-macos.sh build/${{ matrix.preset }} "${GITHUB_REF_NAME#v}" "${{ matrix.artifact }}" package
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path package/* -DestinationPath pmxer-${{ github.ref_name }}-${{ matrix.artifact }}.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pmxer-${{ matrix.artifact }}
+          path: pmxer-*
+
+  publish:
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
