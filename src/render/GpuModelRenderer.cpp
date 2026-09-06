@@ -25,14 +25,14 @@ struct GpuVertex {
 };
 
 struct alignas(16) FrameUniforms {
-    float viewProjection[16];
+    std::array<float, 16> viewProjection{};
 };
 
 FrameUniforms makeUniforms(const EditorUiState &ui, float aspect) {
     const CameraState camera{ui.cameraTarget, ui.cameraYaw, ui.cameraPitch, ui.cameraDistance};
     const auto matrices = makeCameraMatrices(camera, aspect);
     FrameUniforms result{};
-    std::copy(matrices.viewProjection.begin(), matrices.viewProjection.end(), result.viewProjection);
+    result.viewProjection = matrices.viewProjection;
     return result;
 }
 
