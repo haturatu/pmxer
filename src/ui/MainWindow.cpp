@@ -294,7 +294,8 @@ int runApplication(const EditCommand &options) {
             if (!sessions.empty() && activeSession < sessions.size()) {
                 auto &session = *sessions[activeSession];
                 (void)gpuModelRenderer.prepare(commands, session.document.model(), session.ui.previewFrame,
-                                               session.revision, session.changes, session.ui.previewPlaying);
+                                               session.revision, session.preview.frameRevision, session.changes,
+                                               session.ui.previewPlaying);
             }
             SDL_GPUColorTargetInfo target{};
             target.texture = swapchain;

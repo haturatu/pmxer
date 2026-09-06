@@ -110,6 +110,7 @@ struct GpuModelRenderer::Impl {
     const mmd::PmxModel *model{};
     const mmd::AnimatedModelFrame *frame{};
     std::uint64_t revision{std::numeric_limits<std::uint64_t>::max()};
+    std::uint64_t frameRevision{std::numeric_limits<std::uint64_t>::max()};
     std::size_t vertexCapacity{};
     std::size_t indexCapacity{};
     std::size_t indexCount{};
@@ -243,19 +244,22 @@ const char *GpuModelRenderer::error() const noexcept {
 
 bool GpuModelRenderer::prepare(SDL_GPUCommandBuffer *commands, const mmd::PmxModel &model,
                                const mmd::AnimatedModelFrame *frame, std::uint64_t revision,
-                               const mmd::PmxChangeSet &changes, bool dynamic) {
+                               std::uint64_t frameRevision, const mmd::PmxChangeSet &changes, bool dynamic) {
     if (!available() || commands == nullptr || model.indices.empty())
         return false;
     const auto &source = frame != nullptr && !frame->vertices.empty() ? frame->vertices : model.vertices;
-    const auto vertices = makeVertices(source);
-    if (vertices.empty())
+    if (source.empty())
         return false;
     const auto modelChanged = impl_->model != &model;
-    const auto topologyChanged = modelChanged || changes.topologyChanged || impl_->indexBuffer == nullptr ||
+    const auto documentChanged = impl_->revision != revision;
+    const auto frameChanged = impl_->frameRevision != frameRevision;
+    const auto topologyChanged = modelChanged || (documentChanged && changes.topologyChanged) ||
+                                 impl_->indexBuffer == nullptr ||
                                  impl_->indexCount != model.indices.size();
-    const auto verticesChanged = modelChanged || dynamic || frame != impl_->frame || changes.topologyChanged ||
-                                 !changes.vertices.empty() || impl_->vertexBuffer == nullptr;
-    const auto vertexBytes = vertices.size() * sizeof(GpuVertex);
+    const auto verticesChanged = modelChanged || dynamic || frameChanged ||
+                                 (documentChanged && (changes.topologyChanged || !changes.vertices.empty())) ||
+                                 impl_->vertexBuffer == nullptr;
+    const auto vertexBytes = source.size() * sizeof(GpuVertex);
     const auto indexBytes = model.indices.size() * sizeof(std::uint32_t);
     impl_->clearTransfers();
     const auto ensureBuffer = [&](SDL_GPUBuffer *&buffer, std::size_t &capacity, SDL_GPUBufferUsageFlags usage,
@@ -278,15 +282,18 @@ bool GpuModelRenderer::prepare(SDL_GPUCommandBuffer *commands, const mmd::PmxMod
         impl_->clearBuffers();
         return false;
     }
-    if (verticesChanged &&
-        !uploadBuffer(impl_->device, commands, impl_->vertexBuffer, vertices.data(), vertexBytes, impl_->transfers))
-        return false;
+    if (verticesChanged) {
+        const auto vertices = makeVertices(source);
+        if (!uploadBuffer(impl_->device, commands, impl_->vertexBuffer, vertices.data(), vertexBytes, impl_->transfers))
+            return false;
+    }
     if (topologyChanged &&
         !uploadBuffer(impl_->device, commands, impl_->indexBuffer, model.indices.data(), indexBytes, impl_->transfers))
         return false;
     impl_->model = &model;
     impl_->frame = frame;
     impl_->revision = revision;
+    impl_->frameRevision = frameRevision;
     impl_->indexCount = model.indices.size();
     return true;
 }
