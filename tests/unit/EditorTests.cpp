@@ -66,12 +66,13 @@ int main() {
 
     auto invalid = sampleModel();
     invalid.metadata.version = 2.0F;
-    invalid.vertices[0].weightType = mmd::PmxWeightType::qdef;
+    invalid.vertices[2].weightType = mmd::PmxWeightType::qdef;
     const mmd::PmxDocument invalidDocument(invalid);
     const auto invalidValidation = invalidDocument.validate();
     assert(!invalidValidation.valid());
     assert(!invalidValidation.issues.empty());
     assert(invalidValidation.issues.front().location.kind == mmd::ReferenceObjectKind::vertex);
+    assert(invalidValidation.issues.front().location.id == invalidDocument.vertexHandle(2).id);
 
     auto skin = mmd::PmxVertexSkin{};
     skin.bones[0] = boneHandle;
