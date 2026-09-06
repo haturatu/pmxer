@@ -70,6 +70,7 @@ int main() {
                "構造変更")
                .success);
     assert(historySession.undo());
+    assert(historySession.document.resolve(historyHandle) != nullptr);
     assert(historySession.undo());
     assert(historySession.document.resolve(historyHandle) != nullptr);
     assert(historySession.document.resolve(historyHandle)->position[0] == 0.0F);
