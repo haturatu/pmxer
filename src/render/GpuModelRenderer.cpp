@@ -138,6 +138,26 @@ bool uploadBuffer(SDL_GPUDevice *device, SDL_GPUCommandBuffer *commands, SDL_GPU
     return true;
 }
 
+struct ShaderSelection {
+    std::filesystem::path vertex;
+    std::filesystem::path fragment;
+    SDL_GPUShaderFormat format{SDL_GPU_SHADERFORMAT_SPIRV};
+};
+
+ShaderSelection selectShaders(SDL_GPUDevice *device, const std::filesystem::path &directory) {
+    const auto *driver = SDL_GetGPUDeviceDriver(device);
+    std::string extension = "spv";
+    auto format = SDL_GPU_SHADERFORMAT_SPIRV;
+    if (driver != nullptr && std::strcmp(driver, "direct3d12") == 0) {
+        extension = "dxil";
+        format = SDL_GPU_SHADERFORMAT_DXIL;
+    } else if (driver != nullptr && std::strcmp(driver, "metal") == 0) {
+        extension = "msl";
+        format = SDL_GPU_SHADERFORMAT_MSL;
+    }
+    return {directory / ("model.vert." + extension), directory / ("model.frag." + extension), format};
+}
+
 } // namespace
 
 struct GpuModelRenderer::Impl {
@@ -190,8 +210,9 @@ GpuModelRenderer::GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path 
     : impl_(std::make_unique<Impl>()) {
     impl_->device = device;
     impl_->shaderDirectory = std::move(shaderDirectory);
-    const auto vertexPath = impl_->shaderDirectory / "model.vert.spv";
-    const auto fragmentPath = impl_->shaderDirectory / "model.frag.spv";
+    const auto shaders = selectShaders(device, impl_->shaderDirectory);
+    const auto vertexPath = shaders.vertex;
+    const auto fragmentPath = shaders.fragment;
     size_t vertexSize = 0;
     size_t fragmentSize = 0;
     auto *vertexCode = static_cast<Uint8 *>(SDL_LoadFile(vertexPath.string().c_str(), &vertexSize));
@@ -208,14 +229,14 @@ GpuModelRenderer::GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path 
     vertexInfo.code_size = vertexSize;
     vertexInfo.code = vertexCode;
     vertexInfo.entrypoint = "mainVS";
-    vertexInfo.format = SDL_GPU_SHADERFORMAT_SPIRV;
+    vertexInfo.format = shaders.format;
     vertexInfo.stage = SDL_GPU_SHADERSTAGE_VERTEX;
     vertexInfo.num_uniform_buffers = 1;
     SDL_GPUShaderCreateInfo fragmentInfo{};
     fragmentInfo.code_size = fragmentSize;
     fragmentInfo.code = fragmentCode;
     fragmentInfo.entrypoint = "mainPS";
-    fragmentInfo.format = SDL_GPU_SHADERFORMAT_SPIRV;
+    fragmentInfo.format = shaders.format;
     fragmentInfo.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
     fragmentInfo.num_uniform_buffers = 1;
     impl_->vertexShader = SDL_CreateGPUShader(device, &vertexInfo);

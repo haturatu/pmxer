@@ -95,8 +95,15 @@ set(PMXER_SHADER_OUTPUTS
   "${PMXER_SHADER_OUTPUT_DIR}/model.vert.spv"
   "${PMXER_SHADER_OUTPUT_DIR}/model.frag.spv"
 )
+set(PMXER_SHADER_OUTPUTS_CROSS
+  "${PMXER_SHADER_OUTPUT_DIR}/model.vert.dxil"
+  "${PMXER_SHADER_OUTPUT_DIR}/model.frag.dxil"
+  "${PMXER_SHADER_OUTPUT_DIR}/model.vert.msl"
+  "${PMXER_SHADER_OUTPUT_DIR}/model.frag.msl"
+)
 set(PMXER_SHADER_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/model.hlsl")
 if(PMXER_SHADERCROSS)
+  list(APPEND PMXER_SHADER_OUTPUTS ${PMXER_SHADER_OUTPUTS_CROSS})
   add_custom_command(
     OUTPUT "${PMXER_SHADER_OUTPUT_DIR}/model.vert.spv"
     COMMAND "${PMXER_SHADERCROSS}" "${PMXER_SHADER_SOURCE}"
@@ -110,6 +117,38 @@ if(PMXER_SHADERCROSS)
     COMMAND "${PMXER_SHADERCROSS}" "${PMXER_SHADER_SOURCE}"
             -s HLSL -d SPIRV -t fragment -e mainPS
             -o "${PMXER_SHADER_OUTPUT_DIR}/model.frag.spv"
+    DEPENDS "${PMXER_SHADER_SOURCE}"
+    VERBATIM
+  )
+  add_custom_command(
+    OUTPUT "${PMXER_SHADER_OUTPUT_DIR}/model.vert.dxil"
+    COMMAND "${PMXER_SHADERCROSS}" "${PMXER_SHADER_SOURCE}"
+            -s HLSL -d DXIL -t vertex -e mainVS
+            -o "${PMXER_SHADER_OUTPUT_DIR}/model.vert.dxil"
+    DEPENDS "${PMXER_SHADER_SOURCE}"
+    VERBATIM
+  )
+  add_custom_command(
+    OUTPUT "${PMXER_SHADER_OUTPUT_DIR}/model.frag.dxil"
+    COMMAND "${PMXER_SHADERCROSS}" "${PMXER_SHADER_SOURCE}"
+            -s HLSL -d DXIL -t fragment -e mainPS
+            -o "${PMXER_SHADER_OUTPUT_DIR}/model.frag.dxil"
+    DEPENDS "${PMXER_SHADER_SOURCE}"
+    VERBATIM
+  )
+  add_custom_command(
+    OUTPUT "${PMXER_SHADER_OUTPUT_DIR}/model.vert.msl"
+    COMMAND "${PMXER_SHADERCROSS}" "${PMXER_SHADER_SOURCE}"
+            -s HLSL -d MSL -t vertex -e mainVS
+            -o "${PMXER_SHADER_OUTPUT_DIR}/model.vert.msl"
+    DEPENDS "${PMXER_SHADER_SOURCE}"
+    VERBATIM
+  )
+  add_custom_command(
+    OUTPUT "${PMXER_SHADER_OUTPUT_DIR}/model.frag.msl"
+    COMMAND "${PMXER_SHADERCROSS}" "${PMXER_SHADER_SOURCE}"
+            -s HLSL -d MSL -t fragment -e mainPS
+            -o "${PMXER_SHADER_OUTPUT_DIR}/model.frag.msl"
     DEPENDS "${PMXER_SHADER_SOURCE}"
     VERBATIM
   )
