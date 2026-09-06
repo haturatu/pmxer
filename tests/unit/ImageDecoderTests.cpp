@@ -70,5 +70,13 @@ int main() {
     rgba[131] = 40;
     const auto raw = pmxer::decodeImageBytes(rgba);
     assert(raw && raw.rgba[0] == 10 && raw.rgba[1] == 20 && raw.rgba[2] == 30 && raw.rgba[3] == 40);
+
+    auto extended = dds(0x30315844U, 28);
+    extended.resize(156U);
+    put32(extended, 128, 71U);
+    extended[148] = 0x00;
+    extended[149] = 0xf8;
+    const auto extendedRed = pmxer::decodeImageBytes(extended);
+    assert(extendedRed && extendedRed.rgba[0] == 255 && extendedRed.rgba[3] == 255);
     return 0;
 }

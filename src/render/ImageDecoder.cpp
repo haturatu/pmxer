@@ -89,9 +89,22 @@ DecodedImage decodeDds(const std::vector<std::uint8_t> &bytes) {
     }
     image.rgba.resize(static_cast<std::size_t>(image.width) * image.height * 4U);
     const auto format = read32(bytes, 84);
-    const bool bc1 = format == fourCc('D', 'X', 'T', '1');
-    const bool bc2 = format == fourCc('D', 'X', 'T', '3');
-    const bool bc3 = format == fourCc('D', 'X', 'T', '5');
+    bool bc1 = format == fourCc('D', 'X', 'T', '1');
+    bool bc2 = format == fourCc('D', 'X', 'T', '3');
+    bool bc3 = format == fourCc('D', 'X', 'T', '5');
+    std::size_t dataOffset = 128U;
+    if (format == fourCc('D', 'X', '1', '0')) {
+        if (bytes.size() < 148U) {
+            image.error = "truncated DDS extended header";
+            image.rgba.clear();
+            return image;
+        }
+        const auto extendedFormat = read32(bytes, 128);
+        bc1 = extendedFormat == 71U || extendedFormat == 72U;
+        bc2 = extendedFormat == 74U || extendedFormat == 75U;
+        bc3 = extendedFormat == 77U || extendedFormat == 78U;
+        dataOffset = 148U;
+    }
     const auto pixelFlags = read32(bytes, 80);
     const auto bitsPerPixel = read32(bytes, 88);
     const bool uncompressed = (pixelFlags & 0x40U) != 0U && (bitsPerPixel == 24U || bitsPerPixel == 32U);
@@ -105,7 +118,7 @@ DecodedImage decodeDds(const std::vector<std::uint8_t> &bytes) {
         const auto minimumPitch = static_cast<std::size_t>(image.width) * bytesPerPixel;
         const auto declaredPitch = static_cast<std::size_t>(read32(bytes, 20));
         const auto rowPitch = declaredPitch >= minimumPitch ? declaredPitch : minimumPitch;
-        if (static_cast<std::uint64_t>(rowPitch) * image.height > bytes.size() - 128U) {
+        if (static_cast<std::uint64_t>(rowPitch) * image.height > bytes.size() - dataOffset) {
             image.error = "truncated DDS image";
             image.rgba.clear();
             return image;
@@ -120,7 +133,7 @@ DecodedImage decodeDds(const std::vector<std::uint8_t> &bytes) {
             return static_cast<std::uint8_t>(((value & mask) >> shift) * 255U / maximum);
         };
         for (std::uint32_t y = 0; y < image.height; ++y) {
-            const auto *row = bytes.data() + 128U + static_cast<std::size_t>(y) * rowPitch;
+            const auto *row = bytes.data() + dataOffset + static_cast<std::size_t>(y) * rowPitch;
             for (std::uint32_t x = 0; x < image.width; ++x) {
                 std::uint32_t value{};
                 for (std::size_t byte = 0; byte < bytesPerPixel; ++byte)
@@ -137,12 +150,12 @@ DecodedImage decodeDds(const std::vector<std::uint8_t> &bytes) {
     const auto blocksWide = (image.width + 3U) / 4U;
     const auto blocksHigh = (image.height + 3U) / 4U;
     const auto blockCount = static_cast<std::uint64_t>(blocksWide) * blocksHigh;
-    if (blockCount > (bytes.size() - 128U) / blockSize) {
+    if (blockCount > (bytes.size() - dataOffset) / blockSize) {
         image.error = "truncated DDS image";
         image.rgba.clear();
         return image;
     }
-    const std::uint8_t *block = bytes.data() + 128U;
+    const std::uint8_t *block = bytes.data() + dataOffset;
     for (std::uint32_t by = 0; by < blocksHigh; ++by) {
         for (std::uint32_t bx = 0; bx < blocksWide; ++bx, block += blockSize) {
             const auto *colorBlock = block + (bc1 ? 0U : 8U);
