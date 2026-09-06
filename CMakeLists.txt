@@ -188,6 +188,9 @@ elseif(PMXER_OFFLINE_SHADER_COMPILER)
     VERBATIM
   )
 elseif(PMXER_GLSLANG_VALIDATOR)
+  if(WIN32 OR APPLE)
+    message(FATAL_ERROR "This platform requires precompiled shaders or shadercross")
+  endif()
   add_custom_command(
     OUTPUT "${PMXER_SHADER_OUTPUT_DIR}/model.vert.spv"
     COMMAND "${PMXER_GLSLANG_VALIDATOR}" -D -V -S vert -e mainVS
