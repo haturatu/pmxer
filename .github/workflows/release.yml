@@ -32,6 +32,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build libsdl3-dev zstd
+          curl --fail --location --retry 3 \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+            --output /tmp/appimagetool
+          chmod +x /tmp/appimagetool
+          sudo install /tmp/appimagetool /usr/local/bin/appimagetool
       - name: Configure
         run: cmake --preset ${{ matrix.preset }}
       - name: Build
@@ -42,6 +47,8 @@ jobs:
         run: cmake --install build/${{ matrix.preset }} --prefix package
       - name: Package Linux
         if: runner.os == 'Linux'
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
         run: scripts/package-linux.sh build/${{ matrix.preset }} package "${GITHUB_REF_NAME#v}"
       - name: Package macOS
         if: runner.os == 'macOS'

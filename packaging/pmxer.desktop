@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=pmxer
+Comment=PMX model editor
+Exec=pmxer %F
+Icon=pmxer
+Terminal=false
+Categories=Graphics;3DGraphics;
+MimeType=application/x-pmx;
