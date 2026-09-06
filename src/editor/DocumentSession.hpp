@@ -19,6 +19,7 @@ struct EditorUiState {
     std::size_t textureIndex{};
     std::size_t boneIndex{};
     std::size_t morphIndex{};
+    std::size_t morphOffsetIndex{};
     std::size_t displayFrameIndex{};
     std::size_t rigidBodyIndex{};
     std::size_t jointIndex{};
@@ -37,6 +38,7 @@ struct EditorUiState {
     std::string posePath;
     std::string status;
     bool previewPlaying{};
+    bool morphOffsetDirty{};
 
     void clearDrafts() {
         vertexDraft.reset();
@@ -44,6 +46,7 @@ struct EditorUiState {
         materialDraft.reset();
         boneDraft.reset();
         morphDraft.reset();
+        morphOffsetDirty = false;
         displayFrameDraft.reset();
         rigidBodyDraft.reset();
         jointDraft.reset();

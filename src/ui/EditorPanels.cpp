@@ -172,6 +172,86 @@ bool chooseTexture(const char *label, const mmd::PmxModel &model, std::int32_t &
     return changed;
 }
 
+bool chooseMorph(const char *label, const mmd::PmxModel &model, std::int32_t &index) {
+    const std::string current = index >= 0 && static_cast<std::size_t>(index) < model.morphs.size()
+                                    ? model.morphs[static_cast<std::size_t>(index)].name
+                                    : "なし";
+    bool changed = false;
+    if (ImGui::BeginCombo(label, current.c_str())) {
+        if (ImGui::Selectable("なし", index < 0)) {
+            index = -1;
+            changed = true;
+        }
+        for (std::size_t i = 0; i < model.morphs.size(); ++i) {
+            const bool selected = index == static_cast<std::int32_t>(i);
+            const auto name = model.morphs[i].name.empty() ? "(無名)" : model.morphs[i].name.c_str();
+            if (ImGui::Selectable(name, selected)) {
+                index = static_cast<std::int32_t>(i);
+                changed = true;
+            }
+            if (selected)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    return changed;
+}
+
+bool chooseMaterial(const char *label, const mmd::PmxModel &model, std::int32_t &index) {
+    const std::string current = index >= 0 && static_cast<std::size_t>(index) < model.materials.size()
+                                    ? model.materials[static_cast<std::size_t>(index)].name
+                                    : "全材質 / なし";
+    bool changed = false;
+    if (ImGui::BeginCombo(label, current.c_str())) {
+        if (ImGui::Selectable("全材質", index == -1)) {
+            index = -1;
+            changed = true;
+        }
+        for (std::size_t i = 0; i < model.materials.size(); ++i) {
+            const bool selected = index == static_cast<std::int32_t>(i);
+            if (ImGui::Selectable(model.materials[i].name.c_str(), selected)) {
+                index = static_cast<std::int32_t>(i);
+                changed = true;
+            }
+            if (selected)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    return changed;
+}
+
+bool chooseRigidBody(const char *label, const mmd::PmxModel &model, std::int32_t &index) {
+    const std::string current = index >= 0 && static_cast<std::size_t>(index) < model.rigidBodies.size()
+                                    ? model.rigidBodies[static_cast<std::size_t>(index)].name
+                                    : "なし";
+    bool changed = false;
+    if (ImGui::BeginCombo(label, current.c_str())) {
+        for (std::size_t i = 0; i < model.rigidBodies.size(); ++i) {
+            const bool selected = index == static_cast<std::int32_t>(i);
+            if (ImGui::Selectable(model.rigidBodies[i].name.c_str(), selected)) {
+                index = static_cast<std::int32_t>(i);
+                changed = true;
+            }
+            if (selected)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    return changed;
+}
+
+bool chooseIndex(const char *label, std::size_t count, std::int32_t &index) {
+    if (count == 0)
+        return false;
+    const auto old = index;
+    int value = index;
+    ImGui::InputInt(label, &value);
+    value = std::clamp(value, 0, static_cast<int>(count - 1));
+    index = value;
+    return old != index;
+}
+
 void drawModelPanel(DocumentSession &session) {
     const auto &model = session.document.model();
     ImGui::Begin("モデル");
@@ -477,8 +557,11 @@ void drawBonePanel(DocumentSession &session) {
 void drawMorphPanel(DocumentSession &session) {
     const auto &model = session.document.model();
     ImGui::Begin("モーフ");
-    if (selectIndex("番号", model.morphs.size(), session.ui.morphIndex))
+    if (selectIndex("番号", model.morphs.size(), session.ui.morphIndex)) {
         session.ui.morphDraft.reset();
+        session.ui.morphOffsetIndex = 0;
+        session.ui.morphOffsetDirty = false;
+    }
     if (model.morphs.empty()) {
         ImGui::End();
         return;
@@ -496,9 +579,155 @@ void drawMorphPanel(DocumentSession &session) {
     draft.panel = static_cast<std::uint8_t>(std::clamp(panel, 0, 4));
     draft.type = static_cast<std::uint8_t>(std::clamp(type, 0, 10));
     ImGui::Text("オフセット: %zu", draft.offsets.size());
+    bool offsetDirty = false;
+    if (!draft.offsets.empty()) {
+        if (selectIndex("オフセット番号", draft.offsets.size(), session.ui.morphOffsetIndex))
+            offsetDirty = true;
+        auto &offset = draft.offsets[session.ui.morphOffsetIndex];
+        switch (draft.type) {
+        case 0:
+            offsetDirty = chooseMorph("対象モーフ", model, offset.index) || offsetDirty;
+            offsetDirty = ImGui::InputFloat("重み", &offset.scalar) || offsetDirty;
+            break;
+        case 1:
+            offsetDirty = chooseIndex("対象頂点", model.vertices.size(), offset.index) || offsetDirty;
+            offsetDirty = ImGui::InputFloat3("移動", offset.vector3.data()) || offsetDirty;
+            break;
+        case 2:
+            offsetDirty = chooseBone("対象ボーン", model, offset.index, false) || offsetDirty;
+            offsetDirty = ImGui::InputFloat3("移動", offset.vector3.data()) || offsetDirty;
+            offsetDirty = ImGui::InputFloat4("回転", offset.vector4.data()) || offsetDirty;
+            break;
+        case 3:
+        case 4:
+        case 5:
+        case 6:
+        case 7:
+            offsetDirty = chooseIndex("対象頂点", model.vertices.size(), offset.index) || offsetDirty;
+            offsetDirty = ImGui::InputFloat4("UV移動", offset.vector4.data()) || offsetDirty;
+            break;
+        case 8: {
+            offsetDirty = chooseMaterial("対象材質", model, offset.index) || offsetDirty;
+            int operation = offset.operation;
+            offsetDirty = ImGui::InputInt("演算", &operation) || offsetDirty;
+            offset.operation = static_cast<std::uint8_t>(std::clamp(operation, 0, 1));
+            offsetDirty = ImGui::InputFloat4("拡散色", offset.materialVectors[0].data()) || offsetDirty;
+            offsetDirty = ImGui::InputFloat4("鏡面色", offset.materialVectors[1].data()) || offsetDirty;
+            offsetDirty = ImGui::InputFloat4("環境・輪郭", offset.materialVectors[2].data()) || offsetDirty;
+            offsetDirty = ImGui::InputFloat4("輪郭色", offset.materialVectors[3].data()) || offsetDirty;
+            offsetDirty = ImGui::InputFloat4("テクスチャ色", offset.materialVectors[4].data()) || offsetDirty;
+            offsetDirty = ImGui::InputFloat4("球色", offset.materialVectors[5].data()) || offsetDirty;
+            offsetDirty = ImGui::InputFloat4("トゥーン色", offset.materialVectors[6].data()) || offsetDirty;
+            break;
+        }
+        case 9:
+            offsetDirty = chooseMorph("対象モーフ", model, offset.index) || offsetDirty;
+            offsetDirty = ImGui::InputFloat("重み", &offset.scalar) || offsetDirty;
+            break;
+        case 10:
+            offsetDirty = chooseRigidBody("対象剛体", model, offset.index) || offsetDirty;
+            offsetDirty = ImGui::InputFloat3("速度", offset.vector3.data()) || offsetDirty;
+            offsetDirty = ImGui::InputFloat3("トルク", offset.tertiaryVector3.data()) || offsetDirty;
+            offsetDirty = ImGui::Checkbox("ローカル", &offset.local) || offsetDirty;
+            break;
+        default:
+            break;
+        }
+    }
+    session.ui.morphOffsetDirty = session.ui.morphOffsetDirty || offsetDirty;
     if (ImGui::Button("適用")) {
-        session.ui.status = editMorph(session, handle, draft).success ? "モーフを更新しました" : "モーフ更新に失敗しました";
+        OperationResult result;
+        if (session.ui.morphOffsetDirty && !draft.offsets.empty()) {
+            const auto &offset = draft.offsets[session.ui.morphOffsetIndex];
+            result = applyTransaction(session, [&](auto &transaction) {
+                if (!transaction.setMorphName(handle, draft.name) || !transaction.setMorphEnglishName(handle, draft.englishName) ||
+                    !transaction.setMorphPanel(handle, draft.panel) || !transaction.setMorphType(handle, draft.type))
+                    return false;
+                switch (draft.type) {
+                case 0:
+                    return offset.index >= 0 && static_cast<std::size_t>(offset.index) < model.morphs.size() &&
+                           transaction.setGroupMorphOffset(handle, session.ui.morphOffsetIndex,
+                                                           session.document.morphHandle(static_cast<std::size_t>(offset.index)), offset.scalar);
+                case 1:
+                    return offset.index >= 0 && static_cast<std::size_t>(offset.index) < model.vertices.size() &&
+                           transaction.setVertexMorphOffset(handle, session.ui.morphOffsetIndex,
+                                                            session.document.vertexHandle(static_cast<std::size_t>(offset.index)), offset.vector3);
+                case 2:
+                    return offset.index >= 0 && static_cast<std::size_t>(offset.index) < model.bones.size() &&
+                           transaction.setBoneMorphOffset(handle, session.ui.morphOffsetIndex,
+                                                          session.document.boneHandle(static_cast<std::size_t>(offset.index)), offset.vector3,
+                                                          offset.vector4);
+                case 3:
+                case 4:
+                case 5:
+                case 6:
+                case 7:
+                    return offset.index >= 0 && static_cast<std::size_t>(offset.index) < model.vertices.size() &&
+                           transaction.setUvMorphOffset(handle, session.ui.morphOffsetIndex,
+                                                        session.document.vertexHandle(static_cast<std::size_t>(offset.index)),
+                                                        static_cast<std::uint32_t>(draft.type - 3), offset.vector4);
+                case 8:
+                    return transaction.setMaterialMorphOffset(handle, session.ui.morphOffsetIndex,
+                                                               offset.index >= 0 && static_cast<std::size_t>(offset.index) < model.materials.size()
+                                                                   ? std::optional{session.document.materialHandle(static_cast<std::size_t>(offset.index))}
+                                                                   : std::nullopt,
+                                                               offset.operation, offset.materialVectors);
+                case 9:
+                    return offset.index >= 0 && static_cast<std::size_t>(offset.index) < model.morphs.size() &&
+                           transaction.setFlipMorphOffset(handle, session.ui.morphOffsetIndex,
+                                                          session.document.morphHandle(static_cast<std::size_t>(offset.index)), offset.scalar);
+                case 10:
+                    return offset.index >= 0 && static_cast<std::size_t>(offset.index) < model.rigidBodies.size() &&
+                           transaction.setImpulseMorphOffset(handle, session.ui.morphOffsetIndex,
+                                                             session.document.rigidBodyHandle(static_cast<std::size_t>(offset.index)),
+                                                             offset.vector3, offset.tertiaryVector3, offset.local);
+                default:
+                    return false;
+                }
+            }, "モーフオフセットを更新");
+        } else {
+            result = editMorph(session, handle, draft);
+        }
+        session.ui.status = result.success ? "モーフを更新しました" : (result.message.empty() ? "モーフ更新に失敗しました" : result.message);
         session.ui.morphDraft.reset();
+        session.ui.morphOffsetDirty = false;
+        ImGui::End();
+        return;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("オフセット削除") && !draft.offsets.empty()) {
+        const auto result = applyTransaction(session, [&](auto &transaction) {
+            return transaction.eraseMorphOffset(handle, session.ui.morphOffsetIndex);
+        }, "モーフオフセットを削除");
+        if (result.success) {
+            session.ui.morphOffsetIndex = 0;
+            session.ui.morphDraft.reset();
+            session.ui.morphOffsetDirty = false;
+            ImGui::End();
+            return;
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("オフセットを前へ") && session.ui.morphOffsetIndex > 0) {
+        if (applyTransaction(session, [&](auto &transaction) {
+                return transaction.moveMorphOffset(handle, session.ui.morphOffsetIndex, session.ui.morphOffsetIndex - 1);
+            }, "モーフオフセットを前へ移動").success)
+            --session.ui.morphOffsetIndex;
+        session.ui.morphDraft.reset();
+        session.ui.morphOffsetDirty = false;
+        ImGui::End();
+        return;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("オフセットを後へ") && !draft.offsets.empty() && session.ui.morphOffsetIndex + 1 < draft.offsets.size()) {
+        if (applyTransaction(session, [&](auto &transaction) {
+                return transaction.moveMorphOffset(handle, session.ui.morphOffsetIndex, session.ui.morphOffsetIndex + 1);
+            }, "モーフオフセットを後へ移動").success)
+            ++session.ui.morphOffsetIndex;
+        session.ui.morphDraft.reset();
+        session.ui.morphOffsetDirty = false;
+        ImGui::End();
+        return;
     }
     ImGui::SameLine();
     if (ImGui::Button("←") && session.ui.morphIndex > 0) {
