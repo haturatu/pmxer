@@ -16,15 +16,15 @@ jobs:
           - os: windows-2025
             preset: windows-release
             artifact: windows-x86_64
-            shadercross_artifact: '9904151698'
+            offline_artifact: '9904151698'
           - os: macos-15
             preset: macos-arm64-release
             artifact: macos-arm64
-            shadercross_artifact: '9905337785'
+            offline_artifact: '9905337785'
           - os: macos-15-intel
             preset: macos-x86_64-release
             artifact: macos-x86_64
-            shadercross_artifact: '9905337785'
+            offline_artifact: '9905337785'
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -44,16 +44,16 @@ jobs:
         if: runner.os != 'Linux'
         shell: bash
         env:
-          SHADERCROSS_ARTIFACT_ID: ${{ matrix.shadercross_artifact }}
+          OFFLINE_ARTIFACT_ID: ${{ matrix.offline_artifact }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          archive="$RUNNER_TEMP/shadercross.zip"
-          destination="$RUNNER_TEMP/shadercross"
+          archive="$RUNNER_TEMP/offline-compiler.zip"
+          destination="$RUNNER_TEMP/offline-compiler"
           mkdir -p "$destination"
           curl --fail --location --retry 3 \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/libsdl-org/SDL_shadercross/actions/artifacts/$SHADERCROSS_ARTIFACT_ID/zip" \
+            "https://api.github.com/repos/libsdl-org/SDL_shadercross/actions/artifacts/$OFFLINE_ARTIFACT_ID/zip" \
             --output "$archive"
           python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$archive" "$destination" \
             || python -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$archive" "$destination"

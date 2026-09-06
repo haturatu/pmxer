@@ -113,7 +113,7 @@ add_library(pmxer_render
 target_include_directories(pmxer_render PUBLIC src)
 target_link_libraries(pmxer_render PUBLIC pmxer_editor pmxer_preview)
 
-find_program(PMXER_SHADERCROSS shadercross)
+find_program(PMXER_OFFLINE_SHADER_COMPILER shadercross)
 find_program(PMXER_GLSLANG_VALIDATOR glslangValidator)
 set(PMXER_SHADER_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 file(MAKE_DIRECTORY "${PMXER_SHADER_OUTPUT_DIR}")
@@ -128,11 +128,11 @@ set(PMXER_SHADER_OUTPUTS_CROSS
   "${PMXER_SHADER_OUTPUT_DIR}/model.frag.msl"
 )
 set(PMXER_SHADER_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/model.hlsl")
-if(PMXER_SHADERCROSS)
+if(PMXER_OFFLINE_SHADER_COMPILER)
   list(APPEND PMXER_SHADER_OUTPUTS ${PMXER_SHADER_OUTPUTS_CROSS})
   add_custom_command(
     OUTPUT "${PMXER_SHADER_OUTPUT_DIR}/model.vert.spv"
-    COMMAND "${PMXER_SHADERCROSS}" "${PMXER_SHADER_SOURCE}"
+    COMMAND "${PMXER_OFFLINE_SHADER_COMPILER}" "${PMXER_SHADER_SOURCE}"
             -s HLSL -d SPIRV -t vertex -e mainVS
             -o "${PMXER_SHADER_OUTPUT_DIR}/model.vert.spv"
     DEPENDS "${PMXER_SHADER_SOURCE}"
@@ -140,7 +140,7 @@ if(PMXER_SHADERCROSS)
   )
   add_custom_command(
     OUTPUT "${PMXER_SHADER_OUTPUT_DIR}/model.frag.spv"
-    COMMAND "${PMXER_SHADERCROSS}" "${PMXER_SHADER_SOURCE}"
+    COMMAND "${PMXER_OFFLINE_SHADER_COMPILER}" "${PMXER_SHADER_SOURCE}"
             -s HLSL -d SPIRV -t fragment -e mainPS
             -o "${PMXER_SHADER_OUTPUT_DIR}/model.frag.spv"
     DEPENDS "${PMXER_SHADER_SOURCE}"
@@ -148,7 +148,7 @@ if(PMXER_SHADERCROSS)
   )
   add_custom_command(
     OUTPUT "${PMXER_SHADER_OUTPUT_DIR}/model.vert.dxil"
-    COMMAND "${PMXER_SHADERCROSS}" "${PMXER_SHADER_SOURCE}"
+    COMMAND "${PMXER_OFFLINE_SHADER_COMPILER}" "${PMXER_SHADER_SOURCE}"
             -s HLSL -d DXIL -t vertex -e mainVS
             -o "${PMXER_SHADER_OUTPUT_DIR}/model.vert.dxil"
     DEPENDS "${PMXER_SHADER_SOURCE}"
@@ -156,7 +156,7 @@ if(PMXER_SHADERCROSS)
   )
   add_custom_command(
     OUTPUT "${PMXER_SHADER_OUTPUT_DIR}/model.frag.dxil"
-    COMMAND "${PMXER_SHADERCROSS}" "${PMXER_SHADER_SOURCE}"
+    COMMAND "${PMXER_OFFLINE_SHADER_COMPILER}" "${PMXER_SHADER_SOURCE}"
             -s HLSL -d DXIL -t fragment -e mainPS
             -o "${PMXER_SHADER_OUTPUT_DIR}/model.frag.dxil"
     DEPENDS "${PMXER_SHADER_SOURCE}"
@@ -164,7 +164,7 @@ if(PMXER_SHADERCROSS)
   )
   add_custom_command(
     OUTPUT "${PMXER_SHADER_OUTPUT_DIR}/model.vert.msl"
-    COMMAND "${PMXER_SHADERCROSS}" "${PMXER_SHADER_SOURCE}"
+    COMMAND "${PMXER_OFFLINE_SHADER_COMPILER}" "${PMXER_SHADER_SOURCE}"
             -s HLSL -d MSL -t vertex -e mainVS
             -o "${PMXER_SHADER_OUTPUT_DIR}/model.vert.msl"
     DEPENDS "${PMXER_SHADER_SOURCE}"
@@ -172,7 +172,7 @@ if(PMXER_SHADERCROSS)
   )
   add_custom_command(
     OUTPUT "${PMXER_SHADER_OUTPUT_DIR}/model.frag.msl"
-    COMMAND "${PMXER_SHADERCROSS}" "${PMXER_SHADER_SOURCE}"
+    COMMAND "${PMXER_OFFLINE_SHADER_COMPILER}" "${PMXER_SHADER_SOURCE}"
             -s HLSL -d MSL -t fragment -e mainPS
             -o "${PMXER_SHADER_OUTPUT_DIR}/model.frag.msl"
     DEPENDS "${PMXER_SHADER_SOURCE}"
@@ -196,7 +196,7 @@ elseif(PMXER_GLSLANG_VALIDATOR)
 else()
   set(PMXER_SHADER_OUTPUTS)
   if(PMXER_BUILD_GUI)
-    message(FATAL_ERROR "PMXER_BUILD_GUI requires shadercross or glslangValidator")
+    message(FATAL_ERROR "PMXER_BUILD_GUI requires an offline shader compiler or glslangValidator")
   endif()
   message(STATUS "No offline shader compiler found; GUI shader generation is disabled")
 endif()
