@@ -146,6 +146,7 @@ if(PMXER_BUILD_GUI)
     src/ui/MainWindow.cpp
     src/ui/EditorPanels.cpp
     src/ui/ViewportPanel.cpp
+    src/platform/FileDialog.cpp
   )
   target_include_directories(pmxer_ui PUBLIC src)
   target_link_libraries(pmxer_ui PUBLIC pmxer_render pmxer_imgui SDL3::SDL3)

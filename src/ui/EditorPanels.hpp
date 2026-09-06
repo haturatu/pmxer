@@ -3,7 +3,7 @@
 namespace pmxer {
 
 class DocumentSession;
-void drawEditorPanels(DocumentSession &session);
+class FileDialog;
+void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog);
 
 } // namespace pmxer
-

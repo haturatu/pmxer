@@ -14,6 +14,7 @@
 
 #if PMXER_HAS_GUI
 #include "EditorPanels.hpp"
+#include "../platform/FileDialog.hpp"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
@@ -66,6 +67,7 @@ int runApplication(const std::filesystem::path *initialPath) {
     gpuInfo.ColorTargetFormat = SDL_GetGPUSwapchainTextureFormat(device, window);
     ImGui_ImplSDLGPU3_Init(&gpuInfo);
     std::array<char, 1024> newSessionPath{};
+    FileDialog fileDialog(window);
     bool running = true;
     while (running) {
         SDL_Event event;
@@ -74,6 +76,23 @@ int runApplication(const std::filesystem::path *initialPath) {
             if (event.type == SDL_EVENT_QUIT)
                 running = false;
         }
+        if (const auto result = fileDialog.takeResult()) {
+            try {
+                if (result->save) {
+                    if (!sessions.empty() && activeSession < sessions.size())
+                        sessions[activeSession]->ui.status = saveDocument(*sessions[activeSession], result->path).success
+                                                                  ? "保存しました"
+                                                                  : "保存に失敗しました";
+                } else {
+                    sessions.push_back(std::make_unique<DocumentSession>(mmd::pmx::load(result->path), result->path));
+                    activeSession = sessions.size() - 1;
+                }
+            } catch (const std::exception &error) {
+                log::error(error.what());
+            }
+        }
+        if (const auto error = fileDialog.takeError())
+            log::error(error->c_str());
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
         ImGui::DockSpaceOverViewport();
@@ -91,6 +110,9 @@ int runApplication(const std::filesystem::path *initialPath) {
             ImGui::EndTabBar();
         }
         ImGui::InputText("新しいPMX", newSessionPath.data(), newSessionPath.size());
+        ImGui::SameLine();
+        if (ImGui::Button("ファイルを選択") && !fileDialog.busy())
+            (void)fileDialog.open();
         if (ImGui::Button("タブで開く") && newSessionPath[0] != '\0') {
             try {
                 const std::filesystem::path path(newSessionPath.data());
@@ -103,7 +125,7 @@ int runApplication(const std::filesystem::path *initialPath) {
         }
         ImGui::End();
         if (!sessions.empty() && activeSession < sessions.size())
-            drawEditorPanels(*sessions[activeSession]);
+            drawEditorPanels(*sessions[activeSession], fileDialog);
         else {
             ImGui::Begin("pmxer");
             ImGui::TextUnformatted("PMX ファイルを開いてください");

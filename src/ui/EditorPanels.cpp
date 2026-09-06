@@ -12,6 +12,7 @@
 #include "../editor/tools/SdefTool.hpp"
 #include "../editor/tools/StandardBoneTool.hpp"
 #include "../editor/tools/TextureTool.hpp"
+#include "../platform/FileDialog.hpp"
 #include "../preview/PreviewController.hpp"
 #include "ViewportPanel.hpp"
 
@@ -280,7 +281,7 @@ std::optional<SelectionKind> toSelectionKind(mmd::ReferenceObjectKind kind) {
     return std::nullopt;
 }
 
-void drawModelPanel(DocumentSession &session) {
+void drawModelPanel(DocumentSession &session, FileDialog &fileDialog) {
     const auto &model = session.document.model();
     ImGui::Begin("モデル");
     ImGui::Text("頂点 %zu / 面 %zu", model.vertices.size(), model.indices.size() / 3);
@@ -302,6 +303,8 @@ void drawModelPanel(DocumentSession &session) {
     }
     ImGui::Separator();
     inputString("開くパス", session.ui.openPath);
+    if (ImGui::Button("ファイルを選択") && !fileDialog.busy())
+        (void)fileDialog.open(session.path.empty() ? std::filesystem::path{} : session.path.parent_path());
     if (ImGui::Button("開く") && !session.ui.openPath.empty()) {
         try {
             const auto path = std::filesystem::path(session.ui.openPath);
@@ -318,6 +321,9 @@ void drawModelPanel(DocumentSession &session) {
     ImGui::SameLine();
     if (ImGui::Button("保存"))
         session.ui.status = saveDocument(session).success ? "保存しました" : "保存に失敗しました";
+    ImGui::SameLine();
+    if (ImGui::Button("名前を付けて保存") && !fileDialog.busy())
+        (void)fileDialog.save(session.path);
     ImGui::SameLine();
     if (ImGui::Button("回復保存")) {
         const auto saved = writeRecovery(session).success;
@@ -1198,7 +1204,7 @@ void drawReferencePanel(DocumentSession &session) {
 
 } // namespace
 
-void drawEditorPanels(DocumentSession &session) {
+void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog) {
     if (session.modified && !session.path.empty()) {
         const auto now = std::chrono::steady_clock::now();
         if (now - session.lastRecovery >= std::chrono::seconds(30) && writeRecovery(session).success)
@@ -1221,7 +1227,7 @@ void drawEditorPanels(DocumentSession &session) {
         }
         ImGui::EndMainMenuBar();
     }
-    drawModelPanel(session);
+    drawModelPanel(session, fileDialog);
     drawVertexPanel(session);
     drawMaterialPanel(session);
     drawTexturePanel(session);
