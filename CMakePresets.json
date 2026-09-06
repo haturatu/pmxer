@@ -55,8 +55,7 @@
     },
     {
       "name": "windows-release",
-      "generator": "Visual Studio 17 2022",
-      "architecture": "x64",
+      "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/windows-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
@@ -95,7 +94,7 @@
     { "name": "linux-cli", "configurePreset": "linux-cli" },
     { "name": "linux-clang", "configurePreset": "linux-clang" },
     { "name": "linux-release", "configurePreset": "linux-release" },
-    { "name": "windows-release", "configurePreset": "windows-release", "configuration": "Release" },
+    { "name": "windows-release", "configurePreset": "windows-release" },
     { "name": "macos-arm64-release", "configurePreset": "macos-arm64-release" },
     { "name": "macos-x86_64-release", "configurePreset": "macos-x86_64-release" }
   ],
