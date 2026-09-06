@@ -252,6 +252,32 @@ bool chooseIndex(const char *label, std::size_t count, std::int32_t &index) {
     return old != index;
 }
 
+std::optional<SelectionKind> toSelectionKind(mmd::ReferenceObjectKind kind) {
+    switch (kind) {
+    case mmd::ReferenceObjectKind::vertex:
+        return SelectionKind::vertex;
+    case mmd::ReferenceObjectKind::material:
+        return SelectionKind::material;
+    case mmd::ReferenceObjectKind::bone:
+        return SelectionKind::bone;
+    case mmd::ReferenceObjectKind::morph:
+        return SelectionKind::morph;
+    case mmd::ReferenceObjectKind::displayFrame:
+        return SelectionKind::displayFrame;
+    case mmd::ReferenceObjectKind::rigidBody:
+        return SelectionKind::rigidBody;
+    case mmd::ReferenceObjectKind::joint:
+        return SelectionKind::joint;
+    case mmd::ReferenceObjectKind::softBody:
+        return SelectionKind::softBody;
+    case mmd::ReferenceObjectKind::face:
+        return SelectionKind::face;
+    case mmd::ReferenceObjectKind::model:
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
 void drawModelPanel(DocumentSession &session) {
     const auto &model = session.document.model();
     ImGui::Begin("モデル");
@@ -325,6 +351,13 @@ void drawModelPanel(DocumentSession &session) {
                 session.commands.undoCount(), session.commands.redoCount());
     const auto differences = compareWithBaseline(session);
     ImGui::Text("基準との差分: %zu", differences.differences.size());
+    if (ImGui::Begin("差分")) {
+        for (const auto &line : formatDifferences(differences))
+            ImGui::TextWrapped("%s", line.c_str());
+        if (differences.differences.empty())
+            ImGui::TextUnformatted("差分はありません");
+    }
+    ImGui::End();
     const auto recipes = inspectStandardBones(model);
     ImGui::Text("準標準骨格: %zu / 不足 %zu", recipes.available, recipes.missing);
     if (ImGui::Button("不足骨格を追加") && recipes.missing != 0) {
@@ -995,9 +1028,17 @@ void drawPhysicsPanel(DocumentSession &session) {
 void drawDiagnosticsPanel(DocumentSession &session) {
     const auto detailed = validateForEditing(session.document.model());
     ImGui::Begin("診断");
-    for (const auto &issue : detailed.issues) {
+    for (std::size_t index = 0; index < detailed.issues.size(); ++index) {
+        const auto &issue = detailed.issues[index];
         const char *level = issue.severity >= mmd::ValidationSeverity::error ? "ERROR" : "WARN";
         ImGui::TextWrapped("[%s] %s: %s", level, issue.object.c_str(), issue.message.c_str());
+        const auto selectable = toSelectionKind(issue.location.kind);
+        if (selectable && issue.location.id != 0) {
+            ImGui::SameLine();
+            const auto button = "選択##診断" + std::to_string(index);
+            if (ImGui::SmallButton(button.c_str()))
+                session.selection.set({*selectable, issue.location.id, issue.location.generation});
+        }
     }
     if (detailed.issues.empty())
         ImGui::TextUnformatted("問題はありません");
