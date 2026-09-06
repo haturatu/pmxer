@@ -26,7 +26,7 @@ std::string escapeJson(std::string value) {
 
 } // namespace
 
-RecoveryResult writeRecovery(const DocumentSession &session) {
+RecoveryResult writeRecovery(DocumentSession &session) {
     if (!session.modified)
         return {false, {}};
     const auto path = session.path.empty() ? recoveryPath(session.path, session.recoveryId) : recoveryPath(session.path);
@@ -45,6 +45,9 @@ RecoveryResult writeRecovery(const DocumentSession &session) {
         metadata << "{\n  \"source\": \"" << escapeJson(session.path.string()) << "\",\n  \"modified\": true\n}\n";
         if (!metadata)
             log::warn("回復メタデータの保存に失敗しました");
+        if (session.recoveryFile && *session.recoveryFile != path)
+            (void)discardRecoveryFile(*session.recoveryFile);
+        session.recoveryFile = path;
         log::info("回復情報を保存しました");
         return {true, path};
     } catch (...) {

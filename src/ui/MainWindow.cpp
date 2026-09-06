@@ -4,6 +4,7 @@
 #include "../editor/RecoveryController.hpp"
 #include "../editor/SaveController.hpp"
 #include "../platform/Log.hpp"
+#include "../platform/Paths.hpp"
 #include "../platform/ResourceLocator.hpp"
 
 #include <mmd/pmx.hpp>
@@ -69,8 +70,10 @@ int runApplication(const EditCommand &options) {
     const auto loadSession = [&](const std::filesystem::path &path) {
         try {
             auto session = std::make_unique<DocumentSession>(mmd::pmx::load(path), path);
-            if (auto recovery = loadRecovery(path))
+            if (auto recovery = loadRecovery(path)) {
                 session->recoveryModel = std::move(*recovery);
+                session->recoveryFile = recoveryPath(path);
+            }
             sessions.push_back(std::move(session));
             sessions.back()->ui.openPath = path.string();
             sessions.back()->previewPhysics = options.physics;
@@ -208,13 +211,14 @@ int runApplication(const EditCommand &options) {
                 ImGui::Text("%s", untitledRecoveries[index].path.filename().string().c_str());
                 ImGui::SameLine();
                 if (ImGui::Button("復元")) {
+                    untitledRecoveries[index].model.sourcePath.clear();
                     auto session = std::make_unique<DocumentSession>(std::move(untitledRecoveries[index].model));
                     session->commands.markDirty();
                     session->modified = true;
+                    session->recoveryFile = untitledRecoveries[index].path;
                     session->previewPhysics = options.physics;
                     session->previewIk = !options.safeMode;
                     sessions.push_back(std::move(session));
-                    discardRecoveryFile(untitledRecoveries[index].path);
                     untitledRecoveries.erase(untitledRecoveries.begin() + static_cast<std::ptrdiff_t>(index));
                     ImGui::PopID();
                     break;

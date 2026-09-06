@@ -18,7 +18,7 @@ struct RecoveryEntry {
     mmd::PmxModel model;
 };
 
-[[nodiscard]] RecoveryResult writeRecovery(const DocumentSession &session);
+[[nodiscard]] RecoveryResult writeRecovery(DocumentSession &session);
 [[nodiscard]] std::optional<mmd::PmxModel> loadRecovery(const std::filesystem::path &source);
 [[nodiscard]] bool discardRecovery(const std::filesystem::path &source);
 [[nodiscard]] std::vector<RecoveryEntry> findUntitledRecoveries();

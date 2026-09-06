@@ -19,8 +19,8 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
         return {false, "検証エラーがあるため保存できません", {}, {}};
 
     const auto temporary = temporarySibling(destination);
-    const auto oldRecovery = session.path.empty() ? recoveryPath({}, session.recoveryId)
-                                                : recoveryPath(session.path);
+    const auto oldRecovery = session.recoveryFile.value_or(
+        session.path.empty() ? recoveryPath({}, session.recoveryId) : recoveryPath(session.path));
     SaveResult result;
     try {
         mmd::PmxSaveOptions options;
@@ -47,6 +47,7 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
         session.modified = session.commands.isModified();
         session.baseline = written;
         (void)discardRecoveryFile(oldRecovery);
+        session.recoveryFile.reset();
         (void)discardRecovery(destination);
         result.success = true;
         result.message = "保存しました";

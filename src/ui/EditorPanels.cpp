@@ -320,6 +320,7 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog) {
         ImGui::BeginPopupModal("回復情報##model", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted("前回の回復情報が見つかりました。");
         if (ImGui::Button("復元")) {
+            session.recoveryModel->sourcePath = session.path;
             session.document = mmd::PmxDocument(std::move(*session.recoveryModel));
             session.recoveryModel.reset();
             session.commands.clear();
@@ -331,7 +332,6 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog) {
             session.changes.topologyChanged = true;
             session.changes.physicsChanged = true;
             session.changes.texturesChanged = true;
-            (void)discardRecovery(session.path);
             session.ui.status = "回復情報を復元しました";
             ImGui::CloseCurrentPopup();
             ImGui::End();

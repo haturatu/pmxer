@@ -116,6 +116,7 @@ struct DocumentSession {
     mmd::PmxChangeSet changes;
     std::optional<mmd::PmxModel> baseline;
     std::optional<mmd::PmxModel> recoveryModel;
+    std::optional<std::filesystem::path> recoveryFile;
     bool recoveryPromptOpened{};
     bool modified{};
     bool previewPhysics{true};
