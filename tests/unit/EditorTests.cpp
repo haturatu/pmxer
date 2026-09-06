@@ -84,7 +84,7 @@ int main() {
     assert(pmxer::editVertex(historySession, historyHandle, historyVertex).success);
     assert(pmxer::applyTransaction(
                historySession,
-               [](auto &transaction) {
+               [&historyMorph](auto &transaction) {
                    mmd::PmxMorph morph;
                    morph.name = "history_morph";
                    morph.type = 1;
