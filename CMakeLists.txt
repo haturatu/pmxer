@@ -125,8 +125,7 @@ if(PMXER_BUILD_GUI)
     FetchContent_Declare(
       imgui
       GIT_REPOSITORY https://github.com/ocornut/imgui.git
-      GIT_TAG docking
-      GIT_SHALLOW TRUE
+      GIT_TAG 7e1b65d26d52e9dd199d889c148c72184de647b4
     )
     FetchContent_GetProperties(imgui)
     if(NOT imgui_POPULATED)

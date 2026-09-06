@@ -35,9 +35,13 @@ int runApplication(const std::filesystem::path *initialPath) {
         SDL_Quit();
         return 1;
     }
+    bool enableGpuDebug = false;
+#if !defined(NDEBUG)
+    enableGpuDebug = true;
+#endif
     auto *device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL |
                                            SDL_GPU_SHADERFORMAT_MSL,
-                                       false, nullptr);
+                                       enableGpuDebug, nullptr);
     if (device == nullptr || !SDL_ClaimWindowForGPUDevice(device, window)) {
         log::error(SDL_GetError());
         if (device != nullptr)
@@ -46,6 +50,13 @@ int runApplication(const std::filesystem::path *initialPath) {
         SDL_Quit();
         return 1;
     }
+
+    const auto releaseWindow = [&]() {
+        SDL_ReleaseWindowFromGPUDevice(device, window);
+        SDL_DestroyGPUDevice(device);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+    };
 
     std::vector<std::unique_ptr<DocumentSession>> sessions;
     std::size_t activeSession{};
@@ -61,11 +72,25 @@ int runApplication(const std::filesystem::path *initialPath) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    ImGui_ImplSDL3_InitForSDLGPU(window);
+    if (!ImGui_ImplSDL3_InitForSDLGPU(window)) {
+        log::error("GUI platform backend initialization failed");
+        ImGui::DestroyContext();
+        releaseWindow();
+        return 1;
+    }
     ImGui_ImplSDLGPU3_InitInfo gpuInfo{};
     gpuInfo.Device = device;
     gpuInfo.ColorTargetFormat = SDL_GetGPUSwapchainTextureFormat(device, window);
-    ImGui_ImplSDLGPU3_Init(&gpuInfo);
+    gpuInfo.MSAASamples = SDL_GPU_SAMPLECOUNT_1;
+    gpuInfo.SwapchainComposition = SDL_GPU_SWAPCHAINCOMPOSITION_SDR;
+    gpuInfo.PresentMode = SDL_GPU_PRESENTMODE_VSYNC;
+    if (!ImGui_ImplSDLGPU3_Init(&gpuInfo)) {
+        log::error("GUI GPU backend initialization failed");
+        ImGui_ImplSDL3_Shutdown();
+        ImGui::DestroyContext();
+        releaseWindow();
+        return 1;
+    }
     std::array<char, 1024> newSessionPath{};
     FileDialog fileDialog(window);
     bool running = true;
@@ -93,6 +118,7 @@ int runApplication(const std::filesystem::path *initialPath) {
         }
         if (const auto error = fileDialog.takeError())
             log::error(error->c_str());
+        ImGui_ImplSDLGPU3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
         ImGui::DockSpaceOverViewport();
@@ -137,8 +163,11 @@ int runApplication(const std::filesystem::path *initialPath) {
         SDL_GPUTexture *swapchain = nullptr;
         Uint32 width = 0;
         Uint32 height = 0;
-        if (commands != nullptr && SDL_AcquireGPUSwapchainTexture(commands, window, &swapchain, &width, &height) &&
-            swapchain != nullptr) {
+        if (commands == nullptr) {
+            log::warn(SDL_GetError());
+        } else if (!SDL_AcquireGPUSwapchainTexture(commands, window, &swapchain, &width, &height)) {
+            log::warn(SDL_GetError());
+        } else if (swapchain != nullptr) {
             ImGui_ImplSDLGPU3_PrepareDrawData(ImGui::GetDrawData(), commands);
             SDL_GPUColorTargetInfo target{};
             target.texture = swapchain;
@@ -146,19 +175,20 @@ int runApplication(const std::filesystem::path *initialPath) {
             target.load_op = SDL_GPU_LOADOP_CLEAR;
             target.store_op = SDL_GPU_STOREOP_STORE;
             auto *pass = SDL_BeginGPURenderPass(commands, &target, 1, nullptr);
-            ImGui_ImplSDLGPU3_RenderDrawData(ImGui::GetDrawData(), commands, pass);
-            SDL_EndGPURenderPass(pass);
+            if (pass == nullptr) {
+                log::warn(SDL_GetError());
+            } else {
+                ImGui_ImplSDLGPU3_RenderDrawData(ImGui::GetDrawData(), commands, pass);
+                SDL_EndGPURenderPass(pass);
+            }
         }
-        if (commands != nullptr)
-            SDL_SubmitGPUCommandBuffer(commands);
+        if (commands != nullptr && !SDL_SubmitGPUCommandBuffer(commands))
+            log::error(SDL_GetError());
     }
     ImGui_ImplSDLGPU3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
-    SDL_ReleaseWindowFromGPUDevice(device, window);
-    SDL_DestroyGPUDevice(device);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
+    releaseWindow();
     return 0;
 }
 
