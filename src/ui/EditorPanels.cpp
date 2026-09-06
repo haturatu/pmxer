@@ -293,7 +293,52 @@ std::optional<SelectionKind> toSelectionKind(mmd::ReferenceObjectKind kind) {
 
 void drawModelPanel(DocumentSession &session, FileDialog &fileDialog) {
     const auto &model = session.document.model();
+    const auto replaceDocument = [&](const std::filesystem::path &path) {
+        try {
+            auto loaded = mmd::pmx::load(path);
+            session = DocumentSession(std::move(loaded), path);
+            session.ui.openPath = path.string();
+            session.ui.status = "読み込みました";
+            return true;
+        } catch (const std::exception &error) {
+            session.ui.status = error.what();
+            return false;
+        }
+    };
     ImGui::Begin("モデル");
+    if (session.recoveryModel && !session.recoveryPromptOpened) {
+        ImGui::OpenPopup("回復情報##model");
+        session.recoveryPromptOpened = true;
+    }
+    if (session.recoveryPromptOpened && session.recoveryModel &&
+        ImGui::BeginPopupModal("回復情報##model", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("前回の回復情報が見つかりました。");
+        if (ImGui::Button("復元")) {
+            session.document = mmd::PmxDocument(std::move(*session.recoveryModel));
+            session.recoveryModel.reset();
+            session.commands.clear();
+            session.selection.clear();
+            session.modified = true;
+            ++session.revision;
+            session.validation = session.document.validate();
+            session.changes.topologyChanged = true;
+            session.changes.physicsChanged = true;
+            session.changes.texturesChanged = true;
+            (void)discardRecovery(session.path);
+            session.ui.status = "回復情報を復元しました";
+            ImGui::CloseCurrentPopup();
+            ImGui::End();
+            return;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("破棄")) {
+            session.recoveryModel.reset();
+            (void)discardRecovery(session.path);
+            session.ui.status = "回復情報を破棄しました";
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
     ImGui::Text("頂点 %zu / 面 %zu", model.vertices.size(), model.indices.size() / 3);
     ImGui::Text("材質 %zu / テクスチャ %zu", model.materials.size(), model.textures.size());
     ImGui::Text("ボーン %zu / モーフ %zu", model.bones.size(), model.morphs.size());
@@ -318,15 +363,51 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog) {
     if (ImGui::Button("開く") && !session.ui.openPath.empty()) {
         try {
             const auto path = std::filesystem::path(session.ui.openPath);
-            auto loaded = mmd::pmx::load(path);
-            session = DocumentSession(std::move(loaded), path);
-            session.ui.openPath = path.string();
-            session.ui.status = "読み込みました";
-            ImGui::End();
-            return;
+            if (session.modified) {
+                session.ui.pendingOpenPath = path.string();
+                ImGui::OpenPopup("未保存の変更##replace-document");
+            } else if (replaceDocument(path)) {
+                ImGui::End();
+                return;
+            }
         } catch (const std::exception &error) {
             session.ui.status = error.what();
         }
+    }
+    if (ImGui::BeginPopupModal("未保存の変更##replace-document", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("現在の編集内容は保存されていません。");
+        ImGui::TextUnformatted("別のモデルを開く前に処理を選択してください。");
+        if (ImGui::Button("保存して開く")) {
+            if (session.path.empty()) {
+                session.ui.status = "先に保存先を指定してください";
+            } else if (saveDocument(session).success) {
+                const auto path = std::filesystem::path(session.ui.pendingOpenPath);
+                session.ui.pendingOpenPath.clear();
+                ImGui::CloseCurrentPopup();
+                if (replaceDocument(path)) {
+                    ImGui::End();
+                    return;
+                }
+            } else {
+                session.ui.status = "保存に失敗しました";
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("破棄して開く")) {
+            const auto path = std::filesystem::path(session.ui.pendingOpenPath);
+            session.ui.pendingOpenPath.clear();
+            ImGui::CloseCurrentPopup();
+            if (replaceDocument(path)) {
+                ImGui::End();
+                return;
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("キャンセル")) {
+            session.ui.pendingOpenPath.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
     ImGui::SameLine();
     if (ImGui::Button("保存"))

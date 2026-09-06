@@ -42,6 +42,7 @@ struct EditorUiState {
     std::optional<mmd::PmxJoint> jointDraft;
     std::optional<mmd::PmxSoftBody> softBodyDraft;
     std::string openPath;
+    std::string pendingOpenPath;
     std::string mergePath;
     std::string motionPath;
     std::string posePath;
@@ -93,6 +94,8 @@ struct DocumentSession {
     mmd::ValidationResult validation;
     mmd::PmxChangeSet changes;
     std::optional<mmd::PmxModel> baseline;
+    std::optional<mmd::PmxModel> recoveryModel;
+    bool recoveryPromptOpened{};
     bool modified{};
     bool previewPhysics{true};
     bool previewIk{true};

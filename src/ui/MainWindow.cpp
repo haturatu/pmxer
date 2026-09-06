@@ -1,6 +1,7 @@
 #include "MainWindow.hpp"
 
 #include "../editor/DocumentSession.hpp"
+#include "../editor/RecoveryController.hpp"
 #include "../editor/SaveController.hpp"
 #include "../platform/Log.hpp"
 #include "../platform/ResourceLocator.hpp"
@@ -66,7 +67,10 @@ int runApplication(const EditCommand &options) {
     std::size_t activeSession{};
     const auto loadSession = [&](const std::filesystem::path &path) {
         try {
-            sessions.push_back(std::make_unique<DocumentSession>(mmd::pmx::load(path), path));
+            auto session = std::make_unique<DocumentSession>(mmd::pmx::load(path), path);
+            if (auto recovery = loadRecovery(path))
+                session->recoveryModel = std::move(*recovery);
+            sessions.push_back(std::move(session));
             sessions.back()->ui.openPath = path.string();
             sessions.back()->previewPhysics = options.physics;
             sessions.back()->previewIk = !options.safeMode;
@@ -127,6 +131,9 @@ int runApplication(const EditCommand &options) {
     std::array<char, 1024> newSessionPath{};
     FileDialog fileDialog(window);
     bool running = true;
+    bool quitRequested = false;
+    bool quitPromptOpened = false;
+    std::size_t quitSessionIndex = 0;
     SDL_GPUTexture *depthTexture = nullptr;
     Uint32 depthWidth = 0;
     Uint32 depthHeight = 0;
@@ -160,8 +167,11 @@ int runApplication(const EditCommand &options) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             ImGui_ImplSDL3_ProcessEvent(&event);
-            if (event.type == SDL_EVENT_QUIT)
-                running = false;
+            if (event.type == SDL_EVENT_QUIT) {
+                quitRequested = true;
+                quitPromptOpened = false;
+                quitSessionIndex = 0;
+            }
         }
         if (const auto result = fileDialog.takeResult()) {
             try {
@@ -184,6 +194,54 @@ int runApplication(const EditCommand &options) {
         ImGui_ImplSDLGPU3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
+        if (quitRequested && !quitPromptOpened) {
+            while (quitSessionIndex < sessions.size() && !sessions[quitSessionIndex]->modified)
+                ++quitSessionIndex;
+            if (quitSessionIndex >= sessions.size()) {
+                quitRequested = false;
+                running = false;
+            } else {
+                ImGui::OpenPopup("未保存の変更##quit");
+                quitPromptOpened = true;
+            }
+        }
+        if (quitPromptOpened && quitSessionIndex < sessions.size() &&
+            ImGui::BeginPopupModal("未保存の変更##quit", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            auto &session = *sessions[quitSessionIndex];
+            const auto title = session.path.empty() ? std::string{"無題"} : session.path.filename().string();
+            ImGui::Text("%s に未保存の変更があります。", title.c_str());
+            if (ImGui::Button("保存して終了")) {
+                if (session.path.empty()) {
+                    session.ui.status = "保存先を指定してください。終了はキャンセルされました";
+                    quitRequested = false;
+                    quitPromptOpened = false;
+                    ImGui::CloseCurrentPopup();
+                } else if (saveDocument(session).success) {
+                    ++quitSessionIndex;
+                    quitPromptOpened = false;
+                    ImGui::CloseCurrentPopup();
+                } else {
+                    session.ui.status = "保存に失敗しました。終了はキャンセルされました";
+                    quitRequested = false;
+                    quitPromptOpened = false;
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("破棄して終了")) {
+                session.modified = false;
+                ++quitSessionIndex;
+                quitPromptOpened = false;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("キャンセル")) {
+                quitRequested = false;
+                quitPromptOpened = false;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
         ImGui::DockSpaceOverViewport();
         ImGui::Begin("ドキュメント");
         if (ImGui::BeginTabBar("document-tabs")) {
