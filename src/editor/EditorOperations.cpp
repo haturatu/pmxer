@@ -113,6 +113,7 @@ OperationResult applyProperty(DocumentSession &session, Handle handle, const Val
     const auto *current = resolver(session.document, handle);
     if (current == nullptr)
         return {false, "対象が見つかりません"};
+    const auto before = *current;
 
     auto transaction = session.document.transaction();
     if (!setter(transaction, handle, value))
@@ -122,7 +123,7 @@ OperationResult applyProperty(DocumentSession &session, Handle handle, const Val
         return {false, committed.errors.empty() ? "編集結果が検証に失敗しました" : committed.errors.front()};
 
     session.commands.recordApplied(
-        std::make_unique<PropertyCommand<Handle, Value>>(handle, *current, value, setter, std::move(description)));
+        std::make_unique<PropertyCommand<Handle, Value>>(handle, before, value, setter, std::move(description)));
     session.modified = true;
     ++session.revision;
     session.validation = committed.validation;
