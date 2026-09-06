@@ -15,10 +15,13 @@ jobs:
             preset: linux-release
           - os: windows-2025
             preset: windows-release
+            shadercross_artifact: '9904151698'
           - os: macos-15
             preset: macos-arm64-release
+            shadercross_artifact: '9905337785'
           - os: macos-15-intel
             preset: macos-x86_64-release
+            shadercross_artifact: '9905337785'
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +32,26 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build xvfb mesa-vulkan-drivers glslang-tools libx11-dev libxext-dev libxrandr-dev libxrender-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev libwayland-dev libxkbcommon-dev libdecor-0-dev
+      - name: Install offline shader compiler
+        if: runner.os != 'Linux'
+        shell: bash
+        env:
+          SHADERCROSS_ARTIFACT_ID: ${{ matrix.shadercross_artifact }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          archive="$RUNNER_TEMP/shadercross.zip"
+          destination="$RUNNER_TEMP/shadercross"
+          mkdir -p "$destination"
+          curl --fail --location --retry 3 \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/libsdl-org/SDL_shadercross/actions/artifacts/$SHADERCROSS_ARTIFACT_ID/zip" \
+            --output "$archive"
+          unzip -q "$archive" -d "$destination"
+          compiler=$(find "$destination" -type f \( -name shadercross -o -name shadercross.exe \) -print -quit)
+          test -n "$compiler"
+          chmod +x "$compiler" || true
+          dirname "$compiler" >> "$GITHUB_PATH"
       - name: Configure
         run: cmake --preset ${{ matrix.preset }}
       - name: Build
