@@ -115,6 +115,7 @@ target_link_libraries(pmxer_render PUBLIC pmxer_editor pmxer_preview)
 
 find_program(PMXER_OFFLINE_SHADER_COMPILER shadercross)
 find_program(PMXER_GLSLANG_VALIDATOR glslangValidator)
+set(PMXER_PRECOMPILED_SHADER_DIR "" CACHE PATH "Directory containing verified precompiled shaders")
 set(PMXER_SHADER_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 file(MAKE_DIRECTORY "${PMXER_SHADER_OUTPUT_DIR}")
 set(PMXER_SHADER_OUTPUTS
@@ -128,7 +129,15 @@ set(PMXER_SHADER_OUTPUTS_CROSS
   "${PMXER_SHADER_OUTPUT_DIR}/model.frag.msl"
 )
 set(PMXER_SHADER_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/model.hlsl")
-if(PMXER_OFFLINE_SHADER_COMPILER)
+if(PMXER_PRECOMPILED_SHADER_DIR)
+  list(APPEND PMXER_SHADER_OUTPUTS ${PMXER_SHADER_OUTPUTS_CROSS})
+  foreach(shader IN ITEMS model.vert.spv model.frag.spv model.vert.dxil model.frag.dxil model.vert.msl model.frag.msl)
+    if(NOT EXISTS "${PMXER_PRECOMPILED_SHADER_DIR}/${shader}")
+      message(FATAL_ERROR "Missing precompiled shader: ${PMXER_PRECOMPILED_SHADER_DIR}/${shader}")
+    endif()
+    configure_file("${PMXER_PRECOMPILED_SHADER_DIR}/${shader}" "${PMXER_SHADER_OUTPUT_DIR}/${shader}" COPYONLY)
+  endforeach()
+elseif(PMXER_OFFLINE_SHADER_COMPILER)
   list(APPEND PMXER_SHADER_OUTPUTS ${PMXER_SHADER_OUTPUTS_CROSS})
   add_custom_command(
     OUTPUT "${PMXER_SHADER_OUTPUT_DIR}/model.vert.spv"
