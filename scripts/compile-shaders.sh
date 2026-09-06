@@ -23,7 +23,8 @@ clone_at https://github.com/libsdl-org/SDL.git \
   f6864924f76e1a0b4abaefc76ae2ed22b1a8916e "$work_dir/window"
 cmake -S "$work_dir/window" -B "$work_dir/window-build" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix_dir" \
-  -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
+  -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF \
+  -DSDL_UNIX_CONSOLE_BUILD=ON
 cmake --build "$work_dir/window-build" --target install
 
 clone_at https://github.com/KhronosGroup/SPIRV-Cross.git \
