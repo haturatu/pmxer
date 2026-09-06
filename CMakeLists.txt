@@ -40,6 +40,7 @@ endif()
 add_library(pmxer_platform
   src/platform/AtomicFile.cpp
   src/platform/Paths.cpp
+  src/platform/ResourceLocator.cpp
 )
 target_include_directories(pmxer_platform PUBLIC src)
 target_link_libraries(pmxer_platform PRIVATE mmd::core)
@@ -162,6 +163,7 @@ else()
 endif()
 
 add_executable(pmxer src/app/main.cpp)
+target_sources(pmxer PRIVATE src/app/CommandLine.cpp)
 target_link_libraries(pmxer PRIVATE pmxer_ui)
 
 add_executable(pmxer-cli src/cli/main.cpp)

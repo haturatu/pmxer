@@ -3,6 +3,7 @@
 #include "../editor/DocumentSession.hpp"
 #include "../editor/SaveController.hpp"
 #include "../platform/Log.hpp"
+#include "../platform/ResourceLocator.hpp"
 
 #include <mmd/pmx.hpp>
 
@@ -24,12 +25,12 @@
 
 namespace pmxer {
 
-int runApplication(const std::filesystem::path *initialPath) {
+int runApplication(const StartupOptions &options) {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         log::error(SDL_GetError());
         return 1;
     }
-    SDL_Window *window = SDL_CreateWindow("pmxer", 1280, 720, SDL_WINDOW_RESIZABLE);
+    SDL_Window *window = SDL_CreateWindow("pmxer", 1280, 720, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (window == nullptr) {
         log::error(SDL_GetError());
         SDL_Quit();
@@ -39,9 +40,10 @@ int runApplication(const std::filesystem::path *initialPath) {
 #if !defined(NDEBUG)
     enableGpuDebug = true;
 #endif
+    const char *rendererName = options.renderer == "auto" ? nullptr : options.renderer.c_str();
     auto *device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL |
                                            SDL_GPU_SHADERFORMAT_MSL,
-                                       enableGpuDebug, nullptr);
+                                       enableGpuDebug || options.gpuDebug, rendererName);
     if (device == nullptr || !SDL_ClaimWindowForGPUDevice(device, window)) {
         log::error(SDL_GetError());
         if (device != nullptr)
@@ -60,18 +62,40 @@ int runApplication(const std::filesystem::path *initialPath) {
 
     std::vector<std::unique_ptr<DocumentSession>> sessions;
     std::size_t activeSession{};
-    if (initialPath != nullptr && !initialPath->empty()) {
+    const auto loadSession = [&](const std::filesystem::path &path) {
         try {
-            sessions.push_back(std::make_unique<DocumentSession>(mmd::pmx::load(*initialPath), *initialPath));
-            sessions.back()->ui.openPath = initialPath->string();
+            sessions.push_back(std::make_unique<DocumentSession>(mmd::pmx::load(path), path));
+            sessions.back()->ui.openPath = path.string();
+            sessions.back()->previewPhysics = options.physics;
+            sessions.back()->previewIk = !options.safeMode;
         } catch (const std::exception &error) {
             log::error(error.what());
         }
-    }
+    };
+    for (const auto &path : options.documents)
+        loadSession(path);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    auto &io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    io.ConfigDpiScaleFonts = true;
+    io.ConfigDpiScaleViewports = true;
+    const auto basePath = SDL_GetBasePath();
+    const auto resourceDirectory = resolveResourceDirectory(
+        options.resourceDirectory,
+        basePath == nullptr ? std::filesystem::path{} : std::filesystem::path(basePath));
+    const auto fontPath = resolveUiFont(options.font, resourceDirectory);
+    if (fontPath.empty()) {
+        log::warn("UI font was not found; Japanese text may be unavailable");
+        io.Fonts->AddFontDefault();
+    } else {
+        const auto fontName = fontPath.string();
+        if (io.Fonts->AddFontFromFileTTF(fontName.c_str(), options.fontSize) == nullptr)
+            log::warn("UI font could not be loaded");
+        else
+            log::info(("Loaded UI font: " + fontName).c_str());
+    }
     if (!ImGui_ImplSDL3_InitForSDLGPU(window)) {
         log::error("GUI platform backend initialization failed");
         ImGui::DestroyContext();
@@ -109,8 +133,9 @@ int runApplication(const std::filesystem::path *initialPath) {
                                                                   ? "保存しました"
                                                                   : "保存に失敗しました";
                 } else {
-                    sessions.push_back(std::make_unique<DocumentSession>(mmd::pmx::load(result->path), result->path));
-                    activeSession = sessions.size() - 1;
+                    loadSession(result->path);
+                    if (!sessions.empty())
+                        activeSession = sessions.size() - 1;
                 }
             } catch (const std::exception &error) {
                 log::error(error.what());
@@ -142,8 +167,9 @@ int runApplication(const std::filesystem::path *initialPath) {
         if (ImGui::Button("タブで開く") && newSessionPath[0] != '\0') {
             try {
                 const std::filesystem::path path(newSessionPath.data());
-                sessions.push_back(std::make_unique<DocumentSession>(mmd::pmx::load(path), path));
-                activeSession = sessions.size() - 1;
+                loadSession(path);
+                if (!sessions.empty())
+                    activeSession = sessions.size() - 1;
                 newSessionPath.fill('\0');
             } catch (const std::exception &error) {
                 log::error(error.what());
@@ -197,7 +223,7 @@ int runApplication(const std::filesystem::path *initialPath) {
 
 namespace pmxer {
 
-int runApplication(const std::filesystem::path *) {
+int runApplication(const StartupOptions &) {
     return 0;
 }
 
