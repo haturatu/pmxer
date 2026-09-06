@@ -7,6 +7,10 @@
 #include <mmd/pmx.hpp>
 
 #include <exception>
+#include <array>
+#include <memory>
+#include <string>
+#include <vector>
 
 #if PMXER_HAS_GUI
 #include "EditorPanels.hpp"
@@ -38,11 +42,12 @@ int runApplication(const std::filesystem::path *initialPath) {
         return 1;
     }
 
-    std::optional<DocumentSession> session;
+    std::vector<std::unique_ptr<DocumentSession>> sessions;
+    std::size_t activeSession{};
     if (initialPath != nullptr && !initialPath->empty()) {
         try {
-            session.emplace(mmd::pmx::load(*initialPath), *initialPath);
-            session->ui.openPath = initialPath->string();
+            sessions.push_back(std::make_unique<DocumentSession>(mmd::pmx::load(*initialPath), *initialPath));
+            sessions.back()->ui.openPath = initialPath->string();
         } catch (const std::exception &error) {
             log::error(error.what());
         }
@@ -56,6 +61,7 @@ int runApplication(const std::filesystem::path *initialPath) {
     gpuInfo.Device = device;
     gpuInfo.ColorTargetFormat = SDL_GetGPUSwapchainTextureFormat(device, window);
     ImGui_ImplSDLGPU3_Init(&gpuInfo);
+    std::array<char, 1024> newSessionPath{};
     bool running = true;
     while (running) {
         SDL_Event event;
@@ -67,8 +73,33 @@ int runApplication(const std::filesystem::path *initialPath) {
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
         ImGui::DockSpaceOverViewport();
-        if (session)
-            drawEditorPanels(*session);
+        ImGui::Begin("ドキュメント");
+        if (ImGui::BeginTabBar("document-tabs")) {
+            for (std::size_t i = 0; i < sessions.size(); ++i) {
+                const auto &path = sessions[i]->path;
+                const auto title = path.empty() ? "無題" : path.filename().string();
+                const auto label = title + "##document" + std::to_string(i);
+                if (ImGui::BeginTabItem(label.c_str())) {
+                    activeSession = i;
+                    ImGui::EndTabItem();
+                }
+            }
+            ImGui::EndTabBar();
+        }
+        ImGui::InputText("新しいPMX", newSessionPath.data(), newSessionPath.size());
+        if (ImGui::Button("タブで開く") && newSessionPath[0] != '\0') {
+            try {
+                const std::filesystem::path path(newSessionPath.data());
+                sessions.push_back(std::make_unique<DocumentSession>(mmd::pmx::load(path), path));
+                activeSession = sessions.size() - 1;
+                newSessionPath.fill('\0');
+            } catch (const std::exception &error) {
+                log::error(error.what());
+            }
+        }
+        ImGui::End();
+        if (!sessions.empty() && activeSession < sessions.size())
+            drawEditorPanels(*sessions[activeSession]);
         else {
             ImGui::Begin("pmxer");
             ImGui::TextUnformatted("PMX ファイルを開いてください");
