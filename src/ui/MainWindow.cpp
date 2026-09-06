@@ -24,10 +24,13 @@
 namespace pmxer {
 
 int runApplication(const std::filesystem::path *initialPath) {
-    if (!SDL_Init(SDL_INIT_VIDEO))
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
+        log::error(SDL_GetError());
         return 1;
+    }
     SDL_Window *window = SDL_CreateWindow("pmxer", 1280, 720, SDL_WINDOW_RESIZABLE);
     if (window == nullptr) {
+        log::error(SDL_GetError());
         SDL_Quit();
         return 1;
     }
@@ -35,6 +38,7 @@ int runApplication(const std::filesystem::path *initialPath) {
                                            SDL_GPU_SHADERFORMAT_MSL,
                                        false, nullptr);
     if (device == nullptr || !SDL_ClaimWindowForGPUDevice(device, window)) {
+        log::error(SDL_GetError());
         if (device != nullptr)
             SDL_DestroyGPUDevice(device);
         SDL_DestroyWindow(window);
