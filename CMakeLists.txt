@@ -88,19 +88,51 @@ target_include_directories(pmxer_render PUBLIC src)
 target_link_libraries(pmxer_render PUBLIC pmxer_editor pmxer_preview)
 
 find_program(PMXER_SHADERCROSS shadercross)
+find_program(PMXER_GLSLANG_VALIDATOR glslangValidator)
 set(PMXER_SHADER_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 file(MAKE_DIRECTORY "${PMXER_SHADER_OUTPUT_DIR}")
+set(PMXER_SHADER_OUTPUTS
+  "${PMXER_SHADER_OUTPUT_DIR}/model.vert.spv"
+  "${PMXER_SHADER_OUTPUT_DIR}/model.frag.spv"
+)
+set(PMXER_SHADER_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/model.hlsl")
 if(PMXER_SHADERCROSS)
   add_custom_command(
-    OUTPUT "${PMXER_SHADER_OUTPUT_DIR}/model.spv"
-    COMMAND "${PMXER_SHADERCROSS}" -s assets/shaders/model.hlsl -d "${PMXER_SHADER_OUTPUT_DIR}/model.spv"
-    DEPENDS assets/shaders/model.hlsl
+    OUTPUT "${PMXER_SHADER_OUTPUT_DIR}/model.vert.spv"
+    COMMAND "${PMXER_SHADERCROSS}" "${PMXER_SHADER_SOURCE}"
+            -s HLSL -d SPIRV -t vertex -e mainVS
+            -o "${PMXER_SHADER_OUTPUT_DIR}/model.vert.spv"
+    DEPENDS "${PMXER_SHADER_SOURCE}"
     VERBATIM
   )
-  add_custom_target(pmxer_shaders DEPENDS "${PMXER_SHADER_OUTPUT_DIR}/model.spv")
+  add_custom_command(
+    OUTPUT "${PMXER_SHADER_OUTPUT_DIR}/model.frag.spv"
+    COMMAND "${PMXER_SHADERCROSS}" "${PMXER_SHADER_SOURCE}"
+            -s HLSL -d SPIRV -t fragment -e mainPS
+            -o "${PMXER_SHADER_OUTPUT_DIR}/model.frag.spv"
+    DEPENDS "${PMXER_SHADER_SOURCE}"
+    VERBATIM
+  )
+elseif(PMXER_GLSLANG_VALIDATOR)
+  add_custom_command(
+    OUTPUT "${PMXER_SHADER_OUTPUT_DIR}/model.vert.spv"
+    COMMAND "${PMXER_GLSLANG_VALIDATOR}" -D -V -S vert -e mainVS
+            -o "${PMXER_SHADER_OUTPUT_DIR}/model.vert.spv" "${PMXER_SHADER_SOURCE}"
+    DEPENDS "${PMXER_SHADER_SOURCE}"
+    VERBATIM
+  )
+  add_custom_command(
+    OUTPUT "${PMXER_SHADER_OUTPUT_DIR}/model.frag.spv"
+    COMMAND "${PMXER_GLSLANG_VALIDATOR}" -D -V -S frag -e mainPS
+            -o "${PMXER_SHADER_OUTPUT_DIR}/model.frag.spv" "${PMXER_SHADER_SOURCE}"
+    DEPENDS "${PMXER_SHADER_SOURCE}"
+    VERBATIM
+  )
 else()
-  add_custom_target(pmxer_shaders SOURCES assets/shaders/model.hlsl)
+  set(PMXER_SHADER_OUTPUTS)
+  message(WARNING "No offline shader compiler found; GPU model shaders will not be generated")
 endif()
+add_custom_target(pmxer_shaders DEPENDS ${PMXER_SHADER_OUTPUTS})
 add_dependencies(pmxer_render pmxer_shaders)
 
 if(PMXER_BUILD_GUI)
@@ -154,7 +186,7 @@ if(PMXER_BUILD_GUI)
   )
   target_include_directories(pmxer_ui PUBLIC src)
   target_link_libraries(pmxer_ui PUBLIC pmxer_render pmxer_imgui SDL3::SDL3)
-  target_compile_definitions(pmxer_ui PRIVATE PMXER_HAS_GUI=1)
+  target_compile_definitions(pmxer_ui PRIVATE PMXER_HAS_GUI=1 PMXER_SHADER_DIRECTORY="${PMXER_SHADER_OUTPUT_DIR}")
 else()
   add_library(pmxer_ui src/ui/MainWindow.cpp)
   target_include_directories(pmxer_ui PUBLIC src)
@@ -192,4 +224,7 @@ endif()
 
 install(TARGETS pmxer pmxer-cli RUNTIME DESTINATION bin)
 install(DIRECTORY assets/ DESTINATION share/pmxer/assets)
+if(PMXER_SHADER_OUTPUTS)
+  install(FILES ${PMXER_SHADER_OUTPUTS} DESTINATION share/pmxer/shaders)
+endif()
 install(FILES LICENSE THIRD_PARTY_NOTICES.md DESTINATION .)

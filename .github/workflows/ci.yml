@@ -28,7 +28,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build xvfb mesa-vulkan-drivers libx11-dev libxext-dev libxrandr-dev libxrender-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev libwayland-dev libxkbcommon-dev libdecor-0-dev
+          sudo apt-get install -y ninja-build xvfb mesa-vulkan-drivers glslang-tools libx11-dev libxext-dev libxrandr-dev libxrender-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev libwayland-dev libxkbcommon-dev libdecor-0-dev
       - name: Configure
         run: cmake --preset ${{ matrix.preset }}
       - name: Build

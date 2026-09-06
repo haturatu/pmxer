@@ -9,7 +9,7 @@ struct VertexOutput {
     float2 uv : TEXCOORD0;
 };
 
-cbuffer FrameData : register(b0) {
+cbuffer FrameData : register(b0, space1) {
     float4x4 viewProjection;
 };
 
@@ -23,4 +23,3 @@ VertexOutput mainVS(VertexInput input) {
 float4 mainPS(VertexOutput input) : SV_Target0 {
     return float4(1.0, 1.0, 1.0, 1.0);
 }
-
