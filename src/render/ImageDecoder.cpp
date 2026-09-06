@@ -1,6 +1,7 @@
 #include "ImageDecoder.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
+#define STBI_MAX_DIMENSIONS 16384
 #include <stb_image.h>
 
 #include <algorithm>
@@ -80,7 +81,7 @@ DecodedImage decodeDds(const std::vector<std::uint8_t> &bytes) {
     }
     image.height = read32(bytes, 12);
     image.width = read32(bytes, 16);
-    if (image.width == 0 || image.height == 0 || image.width > 32768 || image.height > 32768 ||
+    if (image.width == 0 || image.height == 0 || image.width > 16384 || image.height > 16384 ||
         static_cast<std::uint64_t>(image.width) * image.height >
             std::numeric_limits<std::size_t>::max() / 4U) {
         image.error = "invalid DDS dimensions";
@@ -183,7 +184,7 @@ DecodedImage decodeImageBytes(const std::vector<std::uint8_t> &bytes) {
     auto *pixels = stbi_load_from_memory(bytes.data(), static_cast<int>(bytes.size()), &width, &height, &channels, 4);
     if (pixels == nullptr || width <= 0 || height <= 0)
         return {{}, {}, {}, stbi_failure_reason() != nullptr ? stbi_failure_reason() : "image decode failed"};
-    if (width > 32768 || height > 32768 ||
+    if (width > 16384 || height > 16384 ||
         static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height) >
             std::numeric_limits<std::size_t>::max() / 4U) {
         stbi_image_free(pixels);
