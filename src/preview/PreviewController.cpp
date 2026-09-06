@@ -28,7 +28,7 @@ void PreviewController::setPhysicsEnabled(bool enabled) {
 
 void PreviewController::setIkEnabled(bool enabled) {
     ikEnabled_ = enabled;
-    (void)ikEnabled_;
+    animator_->setIkEnabled(enabled);
 }
 
 void PreviewController::setFrame(float frame) {
@@ -54,4 +54,3 @@ const mmd::PmxModel &PreviewController::model() const noexcept {
 }
 
 } // namespace pmxer
-
