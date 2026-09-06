@@ -17,14 +17,12 @@ PhysicsPreviewStatus physicsPreviewStatus(const mmd::PmxModel &model) {
 }
 
 bool setJointType(DocumentSession &session, mmd::JointHandle handle, std::uint8_t type) {
-    return applyTransaction(session, [&](auto &transaction) {
-        const auto *joint = session.document.resolve(handle);
-        if (joint == nullptr)
-            return false;
-        auto value = *joint;
-        value.type = type;
-        return transaction.setJoint(handle, value);
-    }, "ジョイント種別を変更").success;
+    const auto *joint = session.document.resolve(handle);
+    if (joint == nullptr)
+        return false;
+    auto edited = *joint;
+    edited.type = type;
+    return editJoint(session, handle, edited).success;
 }
 
 bool generateRigidBodyChain(DocumentSession &session, const std::vector<mmd::BoneHandle> &bones, std::uint8_t shape) {

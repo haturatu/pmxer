@@ -33,7 +33,7 @@ class SnapshotCommand final : public EditorCommand {
 };
 
 template <typename Handle, typename Value>
-using PropertySetter = bool (*)(mmd::PmxDocument::Transaction &, Handle, const Value &);
+using PropertySetter = mmd::PmxTransactionResult (*)(mmd::PmxDocument &, Handle, const Value &);
 
 template <typename Handle, typename Value>
 class PropertyCommand final : public EditorCommand {
@@ -44,17 +44,11 @@ class PropertyCommand final : public EditorCommand {
           description_(std::move(description)) {}
 
     bool apply(mmd::PmxDocument &document) override {
-        auto transaction = document.transaction();
-        if (!setter_(transaction, handle_, after_))
-            return false;
-        return transaction.commit().committed;
+        return setter_(document, handle_, after_).committed;
     }
 
     bool undo(mmd::PmxDocument &document) override {
-        auto transaction = document.transaction();
-        if (!setter_(transaction, handle_, before_))
-            return false;
-        return transaction.commit().committed;
+        return setter_(document, handle_, before_).committed;
     }
 
     const std::string &description() const noexcept override {
@@ -69,42 +63,52 @@ class PropertyCommand final : public EditorCommand {
     std::string description_;
 };
 
-bool setVertexValue(mmd::PmxDocument::Transaction &transaction, mmd::VertexHandle handle,
-                    const mmd::PmxVertex &value) {
-    return transaction.setVertex(handle, value);
+mmd::PmxTransactionResult setVertexValue(mmd::PmxDocument &document, mmd::VertexHandle handle,
+                                         const mmd::PmxVertex &value) {
+    return document.replaceVertex(handle, value);
 }
 
-bool setMaterialValue(mmd::PmxDocument::Transaction &transaction, mmd::MaterialHandle handle,
-                      const mmd::PmxMaterial &value) {
-    return transaction.setMaterial(handle, value);
+mmd::PmxTransactionResult setTextureValue(mmd::PmxDocument &document, mmd::TextureHandle handle,
+                                          const mmd::PmxTexture &value) {
+    return document.replaceTexture(handle, value);
 }
 
-bool setBoneValue(mmd::PmxDocument::Transaction &transaction, mmd::BoneHandle handle, const mmd::PmxBone &value) {
-    return transaction.setBone(handle, value);
+mmd::PmxTransactionResult setMaterialValue(mmd::PmxDocument &document, mmd::MaterialHandle handle,
+                                           const mmd::PmxMaterial &value) {
+    return document.replaceMaterial(handle, value);
 }
 
-bool setMorphValue(mmd::PmxDocument::Transaction &transaction, mmd::MorphHandle handle,
-                   const mmd::PmxMorph &value) {
-    return transaction.setMorph(handle, value);
+mmd::PmxTransactionResult setBoneValue(mmd::PmxDocument &document, mmd::BoneHandle handle, const mmd::PmxBone &value) {
+    return document.replaceBone(handle, value);
 }
 
-bool setDisplayFrameValue(mmd::PmxDocument::Transaction &transaction, mmd::DisplayFrameHandle handle,
-                          const mmd::PmxDisplayFrame &value) {
-    return transaction.setDisplayFrame(handle, value);
+mmd::PmxTransactionResult setMorphValue(mmd::PmxDocument &document, mmd::MorphHandle handle,
+                                        const mmd::PmxMorph &value) {
+    return document.replaceMorph(handle, value);
 }
 
-bool setRigidBodyValue(mmd::PmxDocument::Transaction &transaction, mmd::RigidBodyHandle handle,
-                       const mmd::PmxRigidBody &value) {
-    return transaction.setRigidBody(handle, value);
+mmd::PmxTransactionResult setDisplayFrameValue(mmd::PmxDocument &document, mmd::DisplayFrameHandle handle,
+                                               const mmd::PmxDisplayFrame &value) {
+    return document.replaceDisplayFrame(handle, value);
 }
 
-bool setJointValue(mmd::PmxDocument::Transaction &transaction, mmd::JointHandle handle, const mmd::PmxJoint &value) {
-    return transaction.setJoint(handle, value);
+mmd::PmxTransactionResult setRigidBodyValue(mmd::PmxDocument &document, mmd::RigidBodyHandle handle,
+                                            const mmd::PmxRigidBody &value) {
+    return document.replaceRigidBody(handle, value);
 }
 
-bool setSoftBodyValue(mmd::PmxDocument::Transaction &transaction, mmd::SoftBodyHandle handle,
-                      const mmd::PmxSoftBody &value) {
-    return transaction.setSoftBody(handle, value);
+mmd::PmxTransactionResult setJointValue(mmd::PmxDocument &document, mmd::JointHandle handle,
+                                        const mmd::PmxJoint &value) {
+    return document.replaceJoint(handle, value);
+}
+
+mmd::PmxTransactionResult setSoftBodyValue(mmd::PmxDocument &document, mmd::SoftBodyHandle handle,
+                                           const mmd::PmxSoftBody &value) {
+    return document.replaceSoftBody(handle, value);
+}
+
+mmd::PmxTransactionResult setMetadataValue(mmd::PmxDocument &document, mmd::PmxMetadata, const mmd::PmxMetadata &value) {
+    return document.replaceMetadata(value);
 }
 
 template <typename Handle, typename Value, typename Resolver>
@@ -115,10 +119,7 @@ OperationResult applyProperty(DocumentSession &session, Handle handle, const Val
         return {false, "対象が見つかりません"};
     const auto before = *current;
 
-    auto transaction = session.document.transaction();
-    if (!setter(transaction, handle, value))
-        return {false, "対象が見つかりません"};
-    const auto committed = transaction.commit();
+    const auto committed = setter(session.document, handle, value);
     if (!committed.committed)
         return {false, committed.errors.empty() ? "編集結果が検証に失敗しました" : committed.errors.front()};
 
@@ -160,8 +161,24 @@ OperationResult editVertex(DocumentSession &session, mmd::VertexHandle handle, c
                          setVertexValue, "頂点を編集");
 }
 
+OperationResult editTexture(DocumentSession &session, mmd::TextureHandle handle, const mmd::PmxTexture &value) {
+    return applyProperty(session, handle, value,
+                         [](const mmd::PmxDocument &document, mmd::TextureHandle valueHandle) {
+                             return document.resolve(valueHandle);
+                         },
+                         setTextureValue, "テクスチャを編集");
+}
+
 OperationResult editMetadata(DocumentSession &session, const mmd::PmxMetadata &value) {
-    return applyTransaction(session, [&](auto &transaction) { return transaction.setMetadata(value); }, "モデル情報を編集");
+    const auto committed = setMetadataValue(session.document, {}, value);
+    if (!committed.committed)
+        return {false, committed.errors.empty() ? "編集結果が検証に失敗しました" : committed.errors.front()};
+    session.commands.markDirty();
+    session.modified = session.commands.isModified();
+    ++session.revision;
+    session.validation = committed.validation;
+    session.changes = committed.changes;
+    return {true, {}};
 }
 
 OperationResult editMaterial(DocumentSession &session, mmd::MaterialHandle handle, const mmd::PmxMaterial &value) {

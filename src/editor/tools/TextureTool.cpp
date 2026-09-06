@@ -7,9 +7,12 @@
 namespace pmxer {
 
 bool relinkTexture(DocumentSession &session, mmd::TextureHandle handle, std::string storedPath) {
-    return applyTransaction(session, [&](auto &transaction) {
-        return transaction.setTexturePath(handle, std::move(storedPath));
-    }, "テクスチャを再リンク").success;
+    const auto *source = session.document.resolve(handle);
+    if (source == nullptr)
+        return false;
+    auto edited = *source;
+    edited.storedPath = std::move(storedPath);
+    return editTexture(session, handle, edited).success;
 }
 
 std::vector<std::size_t> missingTextures(const mmd::PmxModel &model) {
@@ -36,4 +39,3 @@ bool convertAbsoluteTextures(DocumentSession &session, const std::filesystem::pa
 }
 
 } // namespace pmxer
-
