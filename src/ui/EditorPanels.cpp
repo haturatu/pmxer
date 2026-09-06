@@ -36,34 +36,13 @@
 namespace pmxer {
 namespace {
 
-struct PreviewUi {
-    const mmd::PmxDocument *document{};
-    std::filesystem::path source;
-    std::uint64_t revision{std::numeric_limits<std::uint64_t>::max()};
-    std::unique_ptr<PreviewController> controller;
-    std::optional<mmd::VmdMotion> motion;
-    std::optional<mmd::VpdPose> pose;
-    std::optional<mmd::AnimatedModelFrame> frame;
-};
-
-PreviewUi &previewUi() {
-    static PreviewUi state;
-    return state;
-}
-
-PreviewUi &updatePreview(DocumentSession &session) {
-    auto &state = previewUi();
-    if (state.source != session.path) {
-        state.motion.reset();
-        state.pose.reset();
-        state.frame.reset();
-    }
-    if (!state.controller || state.document != &session.document || state.source != session.path ||
-        state.revision != session.revision) {
-        state.controller = std::make_unique<PreviewController>(session.document.model());
-        state.document = &session.document;
-        state.source = session.path;
+PreviewSession &updatePreview(DocumentSession &session) {
+    auto &state = session.preview;
+    if (!state.controller || state.revision != session.revision) {
+        state.controller = std::make_shared<PreviewController>(session.document.model());
         state.revision = session.revision;
+        state.accumulator = 0.0;
+        state.clockInitialized = false;
         if (state.motion)
             state.controller->setMotion(&*state.motion);
         if (state.pose)
@@ -75,8 +54,23 @@ PreviewUi &updatePreview(DocumentSession &session) {
         state.controller->setPhysicsEnabled(session.previewPhysics);
         state.controller->setIkEnabled(session.previewIk);
     }
-    if (session.ui.previewPlaying)
-        state.frame = state.controller->evaluate(1.0F / 60.0F);
+    const auto now = std::chrono::steady_clock::now();
+    if (!state.clockInitialized) {
+        state.lastTick = now;
+        state.clockInitialized = true;
+    }
+    if (session.ui.previewPlaying) {
+        const auto elapsed = std::chrono::duration<double>(now - state.lastTick).count();
+        state.lastTick = now;
+        state.accumulator += std::clamp(elapsed, 0.0, 0.1);
+        constexpr double fixedStep = 1.0 / 60.0;
+        while (state.accumulator >= fixedStep) {
+            state.frame = state.controller->evaluate(static_cast<float>(fixedStep));
+            state.accumulator -= fixedStep;
+        }
+    } else {
+        state.lastTick = now;
+    }
     session.ui.previewFrame = state.frame ? &*state.frame : nullptr;
     return state;
 }
@@ -366,7 +360,7 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog) {
         return;
     }
     ImGui::Separator();
-    auto &preview = previewUi();
+    auto &preview = session.preview;
     ImGui::Checkbox("再生", &session.ui.previewPlaying);
     inputString("モーション", session.ui.motionPath);
     if (ImGui::Button("モーション読込") && !session.ui.motionPath.empty()) {
@@ -374,6 +368,9 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog) {
             preview.motion = mmd::vmd::load(session.ui.motionPath);
             preview.pose.reset();
             preview.controller->setMotion(&*preview.motion);
+            preview.accumulator = 0.0;
+            preview.clockInitialized = false;
+            preview.frame = preview.controller->evaluate();
             session.ui.status = "モーションを読み込みました";
         } catch (const std::exception &error) {
             session.ui.status = error.what();
@@ -386,6 +383,9 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog) {
             preview.pose = mmd::vpd::load(session.ui.posePath);
             preview.motion.reset();
             preview.controller->setPose(&*preview.pose);
+            preview.accumulator = 0.0;
+            preview.clockInitialized = false;
+            preview.frame = preview.controller->evaluate();
             session.ui.status = "ポーズを読み込みました";
         } catch (const std::exception &error) {
             session.ui.status = error.what();

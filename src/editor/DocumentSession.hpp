@@ -11,9 +11,13 @@
 #include <optional>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
+#include <memory>
 #include <utility>
 
 namespace pmxer {
+
+class PreviewController;
 
 struct EditorUiState {
     std::size_t vertexIndex{};
@@ -70,6 +74,17 @@ struct EditorUiState {
     }
 };
 
+struct PreviewSession {
+    std::shared_ptr<PreviewController> controller;
+    std::optional<mmd::VmdMotion> motion;
+    std::optional<mmd::VpdPose> pose;
+    std::optional<mmd::AnimatedModelFrame> frame;
+    std::uint64_t revision{std::numeric_limits<std::uint64_t>::max()};
+    double accumulator{};
+    std::chrono::steady_clock::time_point lastTick{};
+    bool clockInitialized{};
+};
+
 struct DocumentSession {
     std::filesystem::path path;
     mmd::PmxDocument document;
@@ -83,6 +98,7 @@ struct DocumentSession {
     bool previewIk{true};
     std::uint64_t revision{};
     std::chrono::steady_clock::time_point lastRecovery{};
+    PreviewSession preview;
     EditorUiState ui;
 
     DocumentSession() = default;

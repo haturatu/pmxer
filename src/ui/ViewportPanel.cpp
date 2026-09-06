@@ -1,5 +1,7 @@
 #include "ViewportPanel.hpp"
 
+#include "../render/Camera.hpp"
+
 #include <imgui.h>
 
 #include <algorithm>
@@ -20,24 +22,10 @@ struct Bounds {
     float maxZ{std::numeric_limits<float>::lowest()};
 };
 
-ImVec2 project(const mmd::Float3 &position, const Bounds &bounds, ImVec2 origin, ImVec2 size,
-               const EditorUiState &ui) {
-    const auto radius = std::max({bounds.maxX - bounds.minX, bounds.maxY - bounds.minY, bounds.maxZ - bounds.minZ, 0.001F});
-    const auto scale = std::min(size.x / radius, size.y / radius) * 0.8F;
-    const auto dx = position[0] - ui.cameraTarget[0];
-    const auto dy = position[1] - ui.cameraTarget[1];
-    const auto dz = position[2] - ui.cameraTarget[2];
-    const auto cosYaw = std::cos(ui.cameraYaw);
-    const auto sinYaw = std::sin(ui.cameraYaw);
-    const auto yawX = cosYaw * dx + sinYaw * dz;
-    const auto yawZ = -sinYaw * dx + cosYaw * dz;
-    const auto cosPitch = std::cos(ui.cameraPitch);
-    const auto sinPitch = std::sin(ui.cameraPitch);
-    const auto viewY = cosPitch * dy - sinPitch * yawZ;
-    const auto viewZ = sinPitch * dy + cosPitch * yawZ;
-    const auto perspective = ui.cameraDistance / std::max(ui.cameraDistance + viewZ, 0.1F);
-    return {origin.x + size.x * 0.5F + yawX * scale * perspective,
-            origin.y + size.y * 0.5F - viewY * scale * perspective};
+ImVec2 project(const mmd::Float3 &position, const Bounds &, ImVec2 origin, ImVec2 size, const EditorUiState &ui) {
+    const CameraState camera{ui.cameraTarget, ui.cameraYaw, ui.cameraPitch, ui.cameraDistance};
+    const auto point = projectWorldToScreen(camera, position, origin.x, origin.y, size.x, size.y);
+    return {point.x, point.y};
 }
 
 ImVec2 project(const mmd::PmxVertex &vertex, const Bounds &bounds, ImVec2 origin, ImVec2 size,

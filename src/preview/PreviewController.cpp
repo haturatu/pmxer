@@ -42,8 +42,6 @@ void PreviewController::reset() {
 }
 
 mmd::AnimatedModelFrame PreviewController::evaluate(float deltaSeconds, bool gpuSkinning) {
-    if (physicsEnabled_ && physics_ && deltaSeconds > 0.0F)
-        physics_->step(deltaSeconds);
     const auto result = animator_->evaluate(frame_, deltaSeconds, gpuSkinning);
     frame_ += deltaSeconds * 30.0F;
     return result;
