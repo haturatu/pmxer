@@ -10,7 +10,7 @@ struct VertexOutput {
 };
 
 cbuffer FrameData : register(b0, space1) {
-    float4x4 viewProjection;
+    row_major float4x4 viewProjection;
 };
 
 VertexOutput mainVS(VertexInput input) {

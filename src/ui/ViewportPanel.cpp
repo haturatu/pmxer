@@ -45,36 +45,26 @@ ImVec2 project(const mmd::PmxVertex &vertex, const Bounds &bounds, ImVec2 origin
     return project(vertex.position, bounds, origin, size, ui);
 }
 
-ImU32 weightColor(float weight) {
-    const auto value = std::clamp(weight, 0.0F, 1.0F);
-    const auto red = static_cast<int>(255.0F * value);
-    const auto blue = static_cast<int>(255.0F * (1.0F - value));
-    return IM_COL32(red, 80, blue, 210);
-}
-
-ImU32 materialColor(const mmd::PmxMaterial &material) {
-    const auto color = ImVec4{std::clamp(material.diffuse[0], 0.0F, 1.0F),
-                              std::clamp(material.diffuse[1], 0.0F, 1.0F),
-                              std::clamp(material.diffuse[2], 0.0F, 1.0F),
-                              std::clamp(material.diffuse[3], 0.0F, 1.0F)};
-    return ImGui::ColorConvertFloat4ToU32(color);
-}
-
 } // namespace
 
 void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *frame) {
-    ImGui::Begin("ビューポート");
+    session.ui.viewportVisible = false;
+    ImGui::Begin("ビューポート", nullptr, ImGuiWindowFlags_NoBackground);
     const auto available = ImGui::GetContentRegionAvail();
     if (available.x < 10.0F || available.y < 10.0F) {
         ImGui::End();
         return;
     }
     const auto origin = ImGui::GetCursorScreenPos();
+    session.ui.viewportX = origin.x;
+    session.ui.viewportY = origin.y;
+    session.ui.viewportWidth = available.x;
+    session.ui.viewportHeight = available.y;
+    session.ui.viewportVisible = true;
     ImGui::InvisibleButton("viewport-canvas", available);
     const auto hovered = ImGui::IsItemHovered();
     const auto clicked = hovered && ImGui::IsItemClicked(ImGuiMouseButton_Left);
     auto *draw = ImGui::GetWindowDrawList();
-    draw->AddRectFilled(origin, {origin.x + available.x, origin.y + available.y}, IM_COL32(16, 19, 25, 255));
 
     const auto &model = session.document.model();
     const auto &vertices = frame != nullptr && !frame->vertices.empty() ? frame->vertices : model.vertices;
@@ -109,42 +99,6 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                                                    std::exp(-ImGui::GetIO().MouseWheel * 0.1F),
                                                0.01F, 100000.0F);
 
-    std::size_t indexBegin = 0;
-    for (const auto &material : model.materials) {
-        const auto indexEnd = std::min(model.indices.size(), indexBegin + static_cast<std::size_t>(material.indexCount));
-        const auto color = materialColor(material);
-        for (std::size_t i = indexBegin; i + 2 < indexEnd; i += 3) {
-            const auto a = model.indices[i];
-            const auto b = model.indices[i + 1];
-            const auto c = model.indices[i + 2];
-            if (a >= model.vertices.size() || b >= model.vertices.size() || c >= model.vertices.size())
-                continue;
-            draw->AddTriangleFilled(project(vertices[a], bounds, origin, available, session.ui),
-                                    project(vertices[b], bounds, origin, available, session.ui),
-                                    project(vertices[c], bounds, origin, available, session.ui), color);
-        }
-        indexBegin = indexEnd;
-    }
-    for (std::size_t i = 0; i + 2 < model.indices.size(); i += 3) {
-        const auto a = model.indices[i];
-        const auto b = model.indices[i + 1];
-        const auto c = model.indices[i + 2];
-        if (a >= model.vertices.size() || b >= model.vertices.size() || c >= model.vertices.size())
-            continue;
-        const auto pa = project(vertices[a], bounds, origin, available, session.ui);
-        const auto pb = project(vertices[b], bounds, origin, available, session.ui);
-        const auto pc = project(vertices[c], bounds, origin, available, session.ui);
-        draw->AddLine(pa, pb, IM_COL32(115, 145, 190, 180));
-        draw->AddLine(pb, pc, IM_COL32(115, 145, 190, 180));
-        draw->AddLine(pc, pa, IM_COL32(115, 145, 190, 180));
-    }
-    for (std::size_t i = 0; i < vertices.size() && i < 10000; ++i) {
-        const auto point = project(vertices[i], bounds, origin, available, session.ui);
-        const auto handle = session.document.vertexHandle(i);
-        const bool selected = session.selection.contains({SelectionKind::vertex, handle.id, handle.generation});
-        const auto vertexColor = selected ? IM_COL32(255, 220, 80, 255) : weightColor(model.vertices[i].weights[0]);
-        draw->AddCircleFilled(point, selected ? 4.0F : 2.0F, vertexColor);
-    }
     for (std::size_t i = 0; i < model.bones.size(); ++i) {
         const auto &bone = model.bones[i];
         if (bone.parent < 0 || static_cast<std::size_t>(bone.parent) >= model.bones.size())

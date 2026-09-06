@@ -77,6 +77,7 @@ PreviewUi &updatePreview(DocumentSession &session) {
     }
     if (session.ui.previewPlaying)
         state.frame = state.controller->evaluate(1.0F / 60.0F);
+    session.ui.previewFrame = state.frame ? &*state.frame : nullptr;
     return state;
 }
 

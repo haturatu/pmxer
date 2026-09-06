@@ -9,6 +9,7 @@
 
 #include <exception>
 #include <array>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -16,6 +17,7 @@
 #if PMXER_HAS_GUI
 #include "EditorPanels.hpp"
 #include "../platform/FileDialog.hpp"
+#include "../render/GpuModelRenderer.hpp"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
@@ -115,6 +117,13 @@ int runApplication(const StartupOptions &options) {
         releaseWindow();
         return 1;
     }
+    std::filesystem::path shaderDirectory = std::filesystem::path(PMXER_SHADER_DIRECTORY);
+    const auto installedShaderDirectory = resourceDirectory.parent_path() / "shaders";
+    if (!std::filesystem::is_directory(shaderDirectory) && std::filesystem::is_directory(installedShaderDirectory))
+        shaderDirectory = installedShaderDirectory;
+    GpuModelRenderer gpuModelRenderer(device, shaderDirectory, gpuInfo.ColorTargetFormat);
+    if (!gpuModelRenderer.available())
+        log::warn(gpuModelRenderer.error());
     std::array<char, 1024> newSessionPath{};
     FileDialog fileDialog(window);
     bool running = true;
@@ -195,6 +204,11 @@ int runApplication(const StartupOptions &options) {
             log::warn(SDL_GetError());
         } else if (swapchain != nullptr) {
             ImGui_ImplSDLGPU3_PrepareDrawData(ImGui::GetDrawData(), commands);
+            if (!sessions.empty() && activeSession < sessions.size()) {
+                auto &session = *sessions[activeSession];
+                (void)gpuModelRenderer.prepare(commands, session.document.model(), session.ui.previewFrame,
+                                               session.revision, session.ui.previewPlaying);
+            }
             SDL_GPUColorTargetInfo target{};
             target.texture = swapchain;
             target.clear_color = {0.055F, 0.065F, 0.08F, 1.0F};
@@ -204,6 +218,11 @@ int runApplication(const StartupOptions &options) {
             if (pass == nullptr) {
                 log::warn(SDL_GetError());
             } else {
+                const auto scale = ImGui::GetDrawData()->FramebufferScale.x;
+                if (!sessions.empty() && activeSession < sessions.size()) {
+                    auto &session = *sessions[activeSession];
+                    gpuModelRenderer.render(commands, pass, session.document.model(), session.ui, scale, width, height);
+                }
                 ImGui_ImplSDLGPU3_RenderDrawData(ImGui::GetDrawData(), commands, pass);
                 SDL_EndGPURenderPass(pass);
             }

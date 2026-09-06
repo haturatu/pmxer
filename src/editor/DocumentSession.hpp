@@ -4,6 +4,7 @@
 #include "Selection.hpp"
 
 #include <mmd/document.hpp>
+#include <mmd/animation.hpp>
 
 #include <filesystem>
 #include <chrono>
@@ -48,6 +49,12 @@ struct EditorUiState {
     float cameraDistance{3.0F};
     mmd::Float3 cameraTarget{};
     bool cameraInitialized{};
+    float viewportX{};
+    float viewportY{};
+    float viewportWidth{};
+    float viewportHeight{};
+    bool viewportVisible{};
+    const mmd::AnimatedModelFrame *previewFrame{};
 
     void clearDrafts() {
         vertexDraft.reset();

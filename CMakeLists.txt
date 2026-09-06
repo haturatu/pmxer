@@ -182,6 +182,7 @@ if(PMXER_BUILD_GUI)
     src/ui/MainWindow.cpp
     src/ui/EditorPanels.cpp
     src/ui/ViewportPanel.cpp
+    src/render/GpuModelRenderer.cpp
     src/platform/FileDialog.cpp
   )
   target_include_directories(pmxer_ui PUBLIC src)
