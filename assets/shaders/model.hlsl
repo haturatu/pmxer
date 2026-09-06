@@ -14,7 +14,7 @@ cbuffer FrameData : register(b0, space1) {
     row_major float4x4 viewProjection;
 };
 
-cbuffer MaterialData : register(b0, space2) {
+cbuffer MaterialData : register(b0, space3) {
     float4 diffuse;
     float4 textureMultiply;
     float4 textureAdd;
