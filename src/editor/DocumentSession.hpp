@@ -63,6 +63,9 @@ struct EditorUiState {
     float cameraDistance{3.0F};
     mmd::Float3 cameraTarget{};
     bool cameraInitialized{};
+    std::uint64_t viewportBoundsRevision{std::numeric_limits<std::uint64_t>::max()};
+    mmd::Float3 viewportBoundsMin{};
+    mmd::Float3 viewportBoundsMax{};
     float viewportX{};
     float viewportY{};
     float viewportWidth{};

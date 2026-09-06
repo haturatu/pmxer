@@ -357,7 +357,7 @@ const char *GpuModelRenderer::error() const noexcept {
 
 bool GpuModelRenderer::prepare(SDL_GPUCommandBuffer *commands, const mmd::PmxModel &model,
                                const mmd::AnimatedModelFrame *frame, std::uint64_t revision,
-                               std::uint64_t frameRevision, const mmd::PmxChangeSet &changes, bool dynamic) {
+                               std::uint64_t frameRevision, const mmd::PmxChangeSet &changes) {
     if (!available() || commands == nullptr || model.indices.empty())
         return false;
     const auto &source = frame != nullptr && !frame->vertices.empty() ? frame->vertices : model.vertices;
@@ -369,7 +369,7 @@ bool GpuModelRenderer::prepare(SDL_GPUCommandBuffer *commands, const mmd::PmxMod
     const auto topologyChanged = modelChanged || (documentChanged && changes.topologyChanged) ||
                                  impl_->indexBuffer == nullptr ||
                                  impl_->indexCount != model.indices.size();
-    const auto verticesChanged = modelChanged || dynamic || frameChanged ||
+    const auto verticesChanged = modelChanged || frameChanged ||
                                  (documentChanged && (changes.topologyChanged || !changes.vertices.empty())) ||
                                  impl_->vertexBuffer == nullptr;
     const auto texturesChanged = modelChanged || (documentChanged && changes.texturesChanged) ||

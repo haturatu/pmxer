@@ -56,20 +56,28 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
 
     const auto &model = session.document.model();
     const auto &vertices = frame != nullptr && !frame->vertices.empty() ? frame->vertices : model.vertices;
-    Bounds bounds;
-    for (const auto &vertex : vertices) {
-        bounds.minX = std::min(bounds.minX, vertex.position[0]);
-        bounds.maxX = std::max(bounds.maxX, vertex.position[0]);
-        bounds.minY = std::min(bounds.minY, vertex.position[1]);
-        bounds.maxY = std::max(bounds.maxY, vertex.position[1]);
-        bounds.minZ = std::min(bounds.minZ, vertex.position[2]);
-        bounds.maxZ = std::max(bounds.maxZ, vertex.position[2]);
-    }
     if (vertices.empty()) {
         draw->AddText({origin.x + 16.0F, origin.y + 16.0F}, IM_COL32_WHITE, "頂点がありません");
         ImGui::End();
         return;
     }
+    if (session.ui.viewportBoundsRevision != session.revision) {
+        Bounds updated;
+        for (const auto &vertex : model.vertices) {
+            updated.minX = std::min(updated.minX, vertex.position[0]);
+            updated.maxX = std::max(updated.maxX, vertex.position[0]);
+            updated.minY = std::min(updated.minY, vertex.position[1]);
+            updated.maxY = std::max(updated.maxY, vertex.position[1]);
+            updated.minZ = std::min(updated.minZ, vertex.position[2]);
+            updated.maxZ = std::max(updated.maxZ, vertex.position[2]);
+        }
+        session.ui.viewportBoundsMin = {updated.minX, updated.minY, updated.minZ};
+        session.ui.viewportBoundsMax = {updated.maxX, updated.maxY, updated.maxZ};
+        session.ui.viewportBoundsRevision = session.revision;
+    }
+    const Bounds bounds{session.ui.viewportBoundsMin[0], session.ui.viewportBoundsMax[0],
+                        session.ui.viewportBoundsMin[1], session.ui.viewportBoundsMax[1],
+                        session.ui.viewportBoundsMin[2], session.ui.viewportBoundsMax[2]};
     if (!session.ui.cameraInitialized) {
         session.ui.cameraTarget = {(bounds.minX + bounds.maxX) * 0.5F, (bounds.minY + bounds.maxY) * 0.5F,
                                    (bounds.minZ + bounds.maxZ) * 0.5F};
