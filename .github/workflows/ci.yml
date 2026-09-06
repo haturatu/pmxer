@@ -47,7 +47,8 @@ jobs:
             -H "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/libsdl-org/SDL_shadercross/actions/artifacts/$SHADERCROSS_ARTIFACT_ID/zip" \
             --output "$archive"
-          unzip -q "$archive" -d "$destination"
+          python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$archive" "$destination" \
+            || python -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$archive" "$destination"
           compiler=$(find "$destination" -type f \( -name shadercross -o -name shadercross.exe \) -print -quit)
           test -n "$compiler"
           chmod +x "$compiler" || true
