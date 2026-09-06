@@ -45,7 +45,7 @@ jobs:
             exit "$status"
           fi
       - name: Test
-        run: ctest --preset ${{ matrix.preset }}
+        run: ctest --test-dir build/${{ matrix.preset }} --output-on-failure
 
   linux-quality:
     runs-on: ubuntu-24.04
