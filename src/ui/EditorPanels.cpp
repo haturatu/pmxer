@@ -751,8 +751,10 @@ void drawMorphPanel(DocumentSession &session) {
 void drawDisplayFramePanel(DocumentSession &session) {
     const auto &model = session.document.model();
     ImGui::Begin("表示枠");
-    if (selectIndex("番号", model.displayFrames.size(), session.ui.displayFrameIndex))
+    if (selectIndex("番号", model.displayFrames.size(), session.ui.displayFrameIndex)) {
         session.ui.displayFrameDraft.reset();
+        session.ui.displayItemIndex = 0;
+    }
     if (model.displayFrames.empty()) {
         ImGui::End();
         return;
@@ -764,11 +766,90 @@ void drawDisplayFramePanel(DocumentSession &session) {
     inputString("名前", draft.name);
     inputString("英語名", draft.englishName);
     ImGui::Text("項目: %zu", draft.items.size());
-    for (const auto &item : draft.items)
-        ImGui::BulletText("%s %d", item.bone ? "ボーン" : "モーフ", item.index);
+    bool itemChanged = false;
+    if (!draft.items.empty()) {
+        if (selectIndex("項目番号", draft.items.size(), session.ui.displayItemIndex))
+            itemChanged = true;
+        auto &item = draft.items[session.ui.displayItemIndex];
+        if (item.bone)
+            itemChanged = chooseBone("対象ボーン", model, item.index, false) || itemChanged;
+        else
+            itemChanged = chooseMorph("対象モーフ", model, item.index) || itemChanged;
+    }
     if (ImGui::Button("適用")) {
-        session.ui.status = editDisplayFrame(session, handle, draft).success ? "表示枠を更新しました" : "表示枠更新に失敗しました";
+        const auto result = applyTransaction(session, [&](auto &transaction) {
+            if (!transaction.setDisplayFrameName(handle, draft.name) ||
+                !transaction.setDisplayFrameEnglishName(handle, draft.englishName))
+                return false;
+            if (!itemChanged || draft.items.empty())
+                return true;
+            const auto &item = draft.items[session.ui.displayItemIndex];
+            if (item.index < 0)
+                return false;
+            if (item.bone && static_cast<std::size_t>(item.index) < model.bones.size())
+                return transaction.setDisplayFrameItem(handle, session.ui.displayItemIndex,
+                                                       session.document.boneHandle(static_cast<std::size_t>(item.index)));
+            if (!item.bone && static_cast<std::size_t>(item.index) < model.morphs.size())
+                return transaction.setDisplayFrameItem(handle, session.ui.displayItemIndex,
+                                                       session.document.morphHandle(static_cast<std::size_t>(item.index)));
+            return false;
+        }, "表示枠を更新");
+        session.ui.status = result.success ? "表示枠を更新しました" : result.message;
         session.ui.displayFrameDraft.reset();
+        ImGui::End();
+        return;
+    }
+    if (ImGui::Button("項目削除") && !draft.items.empty()) {
+        const auto result = applyTransaction(session, [&](auto &transaction) {
+            return transaction.eraseDisplayFrameItem(handle, session.ui.displayItemIndex);
+        }, "表示枠項目を削除");
+        session.ui.status = result.success ? "表示枠項目を削除しました" : result.message;
+        session.ui.displayItemIndex = 0;
+        session.ui.displayFrameDraft.reset();
+        ImGui::End();
+        return;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("項目を前へ") && session.ui.displayItemIndex > 0) {
+        const auto result = applyTransaction(session, [&](auto &transaction) {
+            return transaction.moveDisplayFrameItem(handle, session.ui.displayItemIndex, session.ui.displayItemIndex - 1);
+        }, "表示枠項目を前へ移動");
+        session.ui.status = result.success ? "表示枠項目を移動しました" : result.message;
+        --session.ui.displayItemIndex;
+        session.ui.displayFrameDraft.reset();
+        ImGui::End();
+        return;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("項目を後へ") && !draft.items.empty() && session.ui.displayItemIndex + 1 < draft.items.size()) {
+        const auto result = applyTransaction(session, [&](auto &transaction) {
+            return transaction.moveDisplayFrameItem(handle, session.ui.displayItemIndex, session.ui.displayItemIndex + 1);
+        }, "表示枠項目を後へ移動");
+        session.ui.status = result.success ? "表示枠項目を移動しました" : result.message;
+        ++session.ui.displayItemIndex;
+        session.ui.displayFrameDraft.reset();
+        ImGui::End();
+        return;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("ボーン項目追加") && !model.bones.empty()) {
+        const auto result = applyTransaction(session, [&](auto &transaction) {
+            return transaction.addDisplayFrameItem(handle, session.document.boneHandle(0));
+        }, "表示枠にボーンを追加");
+        session.ui.status = result.success ? "表示枠項目を追加しました" : result.message;
+        session.ui.displayFrameDraft.reset();
+        ImGui::End();
+        return;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("モーフ項目追加") && !model.morphs.empty()) {
+        const auto result = applyTransaction(session, [&](auto &transaction) {
+            return transaction.addDisplayFrameItem(handle, session.document.morphHandle(0));
+        }, "表示枠にモーフを追加");
+        session.ui.status = result.success ? "表示枠項目を追加しました" : result.message;
+        session.ui.displayFrameDraft.reset();
+        ImGui::End();
+        return;
     }
     ImGui::SameLine();
     if (ImGui::Button("←") && session.ui.displayFrameIndex > 0) {

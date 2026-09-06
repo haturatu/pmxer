@@ -21,6 +21,7 @@ struct EditorUiState {
     std::size_t morphIndex{};
     std::size_t morphOffsetIndex{};
     std::size_t displayFrameIndex{};
+    std::size_t displayItemIndex{};
     std::size_t rigidBodyIndex{};
     std::size_t jointIndex{};
     std::size_t softBodyIndex{};

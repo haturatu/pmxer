@@ -88,9 +88,12 @@ int main() {
     const auto morphHandle = structure.addMorph(morph);
     assert(morphHandle);
     assert(structure.addVertexMorphOffset(morphHandle, handle, {0.1F, 0.0F, 0.0F}));
+    assert(structure.setVertexMorphOffset(morphHandle, 0, handle, {0.2F, 0.0F, 0.0F}));
+    assert(structure.moveMorphOffset(morphHandle, 0, 0));
     const auto frameHandle = structure.addDisplayFrame({});
     assert(frameHandle);
     assert(structure.addDisplayFrameItem(frameHandle, boneHandle));
+    assert(structure.setDisplayFrameItem(frameHandle, 0, boneHandle));
     mmd::PmxRigidBody bodyA;
     bodyA.name = "body_a";
     mmd::PmxRigidBody bodyB;
