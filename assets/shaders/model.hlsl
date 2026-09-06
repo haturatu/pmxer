@@ -13,6 +13,10 @@ cbuffer FrameData : register(b0, space1) {
     row_major float4x4 viewProjection;
 };
 
+cbuffer MaterialData : register(b0, space3) {
+    float4 diffuse;
+};
+
 VertexOutput mainVS(VertexInput input) {
     VertexOutput output;
     output.position = mul(viewProjection, float4(input.position, 1.0));
@@ -21,5 +25,5 @@ VertexOutput mainVS(VertexInput input) {
 }
 
 float4 mainPS(VertexOutput input) : SV_Target0 {
-    return float4(1.0, 1.0, 1.0, 1.0);
+    return diffuse;
 }

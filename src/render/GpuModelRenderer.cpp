@@ -217,6 +217,7 @@ GpuModelRenderer::GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path 
     fragmentInfo.entrypoint = "mainPS";
     fragmentInfo.format = SDL_GPU_SHADERFORMAT_SPIRV;
     fragmentInfo.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
+    fragmentInfo.num_uniform_buffers = 1;
     impl_->vertexShader = SDL_CreateGPUShader(device, &vertexInfo);
     impl_->fragmentShader = SDL_CreateGPUShader(device, &fragmentInfo);
     SDL_free(vertexCode);
@@ -322,7 +323,24 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
     const SDL_GPUBufferBinding indexBinding{impl_->indexBuffer, 0};
     SDL_BindGPUVertexBuffers(pass, 0, &vertexBinding, 1);
     SDL_BindGPUIndexBuffer(pass, &indexBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
-    SDL_DrawGPUIndexedPrimitives(pass, static_cast<Uint32>(impl_->indexCount), 1, 0, 0, 0);
+    std::size_t indexBegin = 0;
+    for (const auto &material : model.materials) {
+        const auto available = impl_->indexCount - std::min(indexBegin, impl_->indexCount);
+        const auto count = std::min(available, static_cast<std::size_t>(material.indexCount));
+        if (count == 0)
+            continue;
+        const auto color = std::array<float, 4>{material.diffuse[0], material.diffuse[1], material.diffuse[2],
+                                                material.diffuse[3]};
+        SDL_PushGPUFragmentUniformData(commands, 0, color.data(), sizeof(color));
+        SDL_DrawGPUIndexedPrimitives(pass, static_cast<Uint32>(count), 1, static_cast<Uint32>(indexBegin), 0, 0);
+        indexBegin += count;
+    }
+    if (indexBegin < impl_->indexCount) {
+        const auto color = std::array<float, 4>{1.0F, 1.0F, 1.0F, 1.0F};
+        SDL_PushGPUFragmentUniformData(commands, 0, color.data(), sizeof(color));
+        SDL_DrawGPUIndexedPrimitives(pass, static_cast<Uint32>(impl_->indexCount - indexBegin), 1,
+                                     static_cast<Uint32>(indexBegin), 0, 0);
+    }
     (void)model;
 }
 
