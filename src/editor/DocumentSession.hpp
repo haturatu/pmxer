@@ -35,6 +35,7 @@ struct EditorUiState {
     std::optional<mmd::PmxJoint> jointDraft;
     std::optional<mmd::PmxSoftBody> softBodyDraft;
     std::string openPath;
+    std::string mergePath;
     std::string motionPath;
     std::string posePath;
     std::string status;

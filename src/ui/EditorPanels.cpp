@@ -8,6 +8,7 @@
 #include "../editor/RecoveryController.hpp"
 #include "../editor/SaveController.hpp"
 #include "../editor/tools/PhysicsTool.hpp"
+#include "../editor/tools/ModelMergeTool.hpp"
 #include "../editor/tools/SdefTool.hpp"
 #include "../editor/tools/StandardBoneTool.hpp"
 #include "../editor/tools/TextureTool.hpp"
@@ -319,6 +320,24 @@ void drawModelPanel(DocumentSession &session) {
     ImGui::SameLine();
     if (ImGui::Button("回復保存"))
         session.ui.status = writeRecovery(session).success ? "回復情報を保存しました" : "回復保存に失敗しました";
+    inputString("追加するモデル", session.ui.mergePath);
+    if (ImGui::Button("モデルを追加") && !session.ui.mergePath.empty()) {
+        try {
+            const auto other = mmd::pmx::load(session.ui.mergePath);
+            MergeReport report;
+            if (mergeAppend(session, other, &report)) {
+                session.ui.status = "モデルを追加しました";
+                if (!report.conflicts.empty())
+                    session.ui.status += "（名前の衝突 " + std::to_string(report.conflicts.size()) + "件）";
+            } else {
+                session.ui.status = "モデル追加に失敗しました";
+            }
+        } catch (const std::exception &error) {
+            session.ui.status = error.what();
+        }
+        ImGui::End();
+        return;
+    }
     ImGui::Separator();
     auto &preview = previewUi();
     ImGui::Checkbox("再生", &session.ui.previewPlaying);
