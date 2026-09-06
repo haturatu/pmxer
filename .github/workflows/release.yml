@@ -61,7 +61,9 @@ jobs:
       - name: Package Windows
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path package/* -DestinationPath pmxer-${{ github.ref_name }}-${{ matrix.artifact }}.zip
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          Compress-Archive -Path package/* -DestinationPath "pmxer-$version-${{ matrix.artifact }}.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: pmxer-${{ matrix.artifact }}
