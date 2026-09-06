@@ -40,6 +40,8 @@ int main() {
     pmxer::DocumentSession session(sampleModel());
     assert(session.document.validate().valid());
     const auto handle = session.document.vertexHandle(0);
+    pmxer::DocumentSession otherSession(sampleModel());
+    assert(session.document.resolve(otherSession.document.vertexHandle(0)) == nullptr);
     auto changed = *session.document.resolve(handle);
     changed.position[0] = 2.0F;
     assert(pmxer::editVertex(session, handle, changed).success);
