@@ -2,6 +2,7 @@
 
 #include "../platform/AtomicFile.hpp"
 #include "../platform/Log.hpp"
+#include "../platform/Paths.hpp"
 #include "RecoveryController.hpp"
 
 #include <filesystem>
@@ -18,6 +19,8 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
         return {false, "検証エラーがあるため保存できません", {}, {}};
 
     const auto temporary = temporarySibling(destination);
+    const auto oldRecovery = session.path.empty() ? recoveryPath({}, session.recoveryId)
+                                                : recoveryPath(session.path);
     SaveResult result;
     try {
         mmd::PmxSaveOptions options;
@@ -43,6 +46,7 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
         session.commands.markClean();
         session.modified = session.commands.isModified();
         session.baseline = written;
+        (void)discardRecoveryFile(oldRecovery);
         (void)discardRecovery(destination);
         result.success = true;
         result.message = "保存しました";

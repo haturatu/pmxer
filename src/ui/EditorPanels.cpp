@@ -1321,7 +1321,7 @@ void drawReferencePanel(DocumentSession &session) {
 } // namespace
 
 void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog) {
-    if (session.modified && !session.path.empty()) {
+    if (session.modified) {
         const auto now = std::chrono::steady_clock::now();
         if (now - session.lastRecovery >= std::chrono::seconds(30) && writeRecovery(session).success)
             session.lastRecovery = now;
