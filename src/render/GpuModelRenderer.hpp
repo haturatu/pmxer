@@ -34,7 +34,8 @@ class GpuModelRenderer {
                  const mmd::AnimatedModelFrame *frame, std::uint64_t revision, const mmd::PmxChangeSet &changes,
                  bool dynamic);
     void render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass *pass, const mmd::PmxModel &model,
-                const EditorUiState &ui, float framebufferScale, std::uint32_t framebufferWidth,
+                const mmd::AnimatedModelFrame *frame, const EditorUiState &ui, float framebufferScale,
+                std::uint32_t framebufferWidth,
                 std::uint32_t framebufferHeight);
 
   private:

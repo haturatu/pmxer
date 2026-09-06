@@ -285,8 +285,9 @@ bool GpuModelRenderer::prepare(SDL_GPUCommandBuffer *commands, const mmd::PmxMod
 }
 
 void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass *pass,
-                              const mmd::PmxModel &model, const EditorUiState &ui, float framebufferScale,
-                              std::uint32_t framebufferWidth, std::uint32_t framebufferHeight) {
+                              const mmd::PmxModel &model, const mmd::AnimatedModelFrame *frame,
+                              const EditorUiState &ui, float framebufferScale, std::uint32_t framebufferWidth,
+                              std::uint32_t framebufferHeight) {
     if (!available() || commands == nullptr || pass == nullptr || impl_->vertexBuffer == nullptr ||
         impl_->indexBuffer == nullptr || impl_->indexCount == 0 || !ui.viewportVisible)
         return;
@@ -311,13 +312,17 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
     SDL_BindGPUVertexBuffers(pass, 0, &vertexBinding, 1);
     SDL_BindGPUIndexBuffer(pass, &indexBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
     std::size_t indexBegin = 0;
-    for (const auto &material : model.materials) {
+    for (std::size_t materialIndex = 0; materialIndex < model.materials.size(); ++materialIndex) {
+        const auto &material = model.materials[materialIndex];
         const auto available = impl_->indexCount - std::min(indexBegin, impl_->indexCount);
         const auto count = std::min(available, static_cast<std::size_t>(material.indexCount));
         if (count == 0)
             continue;
-        const auto color = std::array<float, 4>{material.diffuse[0], material.diffuse[1], material.diffuse[2],
-                                                material.diffuse[3]};
+        const auto *animated = frame != nullptr && materialIndex < frame->materials.size()
+                                   ? &frame->materials[materialIndex]
+                                   : nullptr;
+        const auto &diffuse = animated != nullptr ? animated->diffuse : material.diffuse;
+        const auto color = std::array<float, 4>{diffuse[0], diffuse[1], diffuse[2], diffuse[3]};
         SDL_PushGPUFragmentUniformData(commands, 0, color.data(), sizeof(color));
         SDL_DrawGPUIndexedPrimitives(pass, static_cast<Uint32>(count), 1, static_cast<Uint32>(indexBegin), 0, 0);
         indexBegin += count;
