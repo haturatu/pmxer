@@ -53,6 +53,8 @@ float4 mainPS(VertexOutput input) : SV_Target0 {
             color *= sphereColor.rgb * sphereMultiply.rgb + sphereAdd.rgb;
         else if (materialModes.x < 2.5)
             color += sphereColor.rgb * sphereMultiply.rgb + sphereAdd.rgb;
+        else
+            color = lerp(color, sphereColor.rgb * sphereMultiply.rgb + sphereAdd.rgb, sphereColor.a);
     }
     float3 lighting = light.xxx;
     if (materialModes.y < 0.5) {
