@@ -130,9 +130,10 @@ int runApplication(const EditCommand &options) {
     const auto installedShaderDirectory = resourceDirectory.parent_path() / "shaders";
     if (!std::filesystem::is_directory(shaderDirectory) && std::filesystem::is_directory(installedShaderDirectory))
         shaderDirectory = installedShaderDirectory;
-    GpuModelRenderer gpuModelRenderer(device, shaderDirectory, resourceDirectory, gpuInfo.ColorTargetFormat);
-    if (!gpuModelRenderer.available())
-        log::warn(gpuModelRenderer.error());
+    auto gpuModelRenderer = std::make_unique<GpuModelRenderer>(
+        device, shaderDirectory, resourceDirectory, gpuInfo.ColorTargetFormat);
+    if (!gpuModelRenderer->available())
+        log::warn(gpuModelRenderer->error());
     std::array<char, 1024> newSessionPath{};
     FileDialog fileDialog(window);
     bool running = true;
@@ -338,8 +339,8 @@ int runApplication(const EditCommand &options) {
             ImGui_ImplSDLGPU3_PrepareDrawData(ImGui::GetDrawData(), commands);
             if (!sessions.empty() && activeSession < sessions.size()) {
                 auto &session = *sessions[activeSession];
-                (void)gpuModelRenderer.prepare(commands, session.document.model(), session.ui.previewFrame,
-                                               session.revision, session.preview.frameRevision, session.changes);
+                (void)gpuModelRenderer->prepare(commands, session.document.model(), session.ui.previewFrame,
+                                                session.revision, session.preview.frameRevision, session.changes);
             }
             SDL_GPUColorTargetInfo target{};
             target.texture = swapchain;
@@ -362,8 +363,8 @@ int runApplication(const EditCommand &options) {
                     const auto scale = ImGui::GetDrawData()->FramebufferScale.x;
                     if (!sessions.empty() && activeSession < sessions.size()) {
                         auto &session = *sessions[activeSession];
-                        gpuModelRenderer.render(commands, modelPass, session.document.model(), session.ui.previewFrame,
-                                                session.ui, scale, width, height);
+                        gpuModelRenderer->render(commands, modelPass, session.document.model(), session.ui.previewFrame,
+                                                 session.ui, scale, width, height);
                     }
                     SDL_EndGPURenderPass(modelPass);
                 }
@@ -388,6 +389,7 @@ int runApplication(const EditCommand &options) {
     ImGui::DestroyContext();
     if (depthTexture != nullptr)
         SDL_ReleaseGPUTexture(device, depthTexture);
+    gpuModelRenderer.reset();
     releaseWindow();
     return 0;
 }
