@@ -23,9 +23,13 @@ int validate(const std::filesystem::path &path) {
     try {
         const auto model = mmd::pmx::load(path);
         const auto result = mmd::pmx::validate(model);
-        for (const auto &issue : result.issues)
-            std::printf("%s: %s: %s\n", pmxer::validationSeverityName(issue.severity).c_str(), issue.object.c_str(),
-                        issue.message.c_str());
+        for (const auto &issue : result.issues) {
+            const auto line = pmxer::validationSeverityName(issue.severity) + ": " + issue.object + ": " + issue.message;
+            if (issue.severity >= mmd::ValidationSeverity::warning)
+                std::fprintf(stderr, "%s\n", line.c_str());
+            else
+                std::printf("%s\n", line.c_str());
+        }
         return result.valid() ? 0 : 1;
     } catch (const std::exception &error) {
         pmxer::log::error(error.what());
