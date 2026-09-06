@@ -1,15 +1,23 @@
 #pragma once
 
+#include <mmd/pmx.hpp>
+
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 namespace pmxer {
 
-struct StartupOptions {
-    bool help{};
+enum class OutputFormat { text, json };
+
+struct GlobalOptions {
     bool version{};
+};
+
+struct EditCommand {
     bool gpuDebug{};
     bool physics{true};
     bool safeMode{};
@@ -21,31 +29,47 @@ struct StartupOptions {
     std::vector<std::filesystem::path> documents;
 };
 
-struct StartupParseResult {
-    StartupOptions options;
-    std::string error;
+struct InfoCommand {
+    std::filesystem::path model;
+    OutputFormat format{OutputFormat::text};
 };
 
-[[nodiscard]] StartupParseResult parseStartupArguments(int argc, char *const argv[]);
-[[nodiscard]] std::string startupUsage();
-[[nodiscard]] std::string applicationVersion();
+struct ValidateCommand {
+    std::vector<std::filesystem::path> models;
+    OutputFormat format{OutputFormat::text};
+};
 
-struct CliOptions {
-    std::string command;
-    std::string helpCommand;
-    std::string profile{"logical"};
+struct DiffCommand {
+    std::filesystem::path left;
+    std::filesystem::path right;
+    mmd::PmxComparisonProfile profile{mmd::PmxComparisonProfile::logical};
+    OutputFormat format{OutputFormat::text};
+};
+
+struct NormalizeCommand {
+    std::filesystem::path input;
     std::filesystem::path output;
-    std::vector<std::filesystem::path> operands;
-    bool help{};
-    bool json{};
+    OutputFormat format{OutputFormat::text};
 };
 
-struct CliParseResult {
-    CliOptions options;
+struct HelpCommand {
+    std::string command;
+};
+
+using Command = std::variant<EditCommand, InfoCommand, ValidateCommand, DiffCommand, NormalizeCommand, HelpCommand>;
+
+struct Invocation {
+    GlobalOptions global;
+    Command command;
+};
+
+struct ParseResult {
+    std::optional<Invocation> invocation;
     std::string error;
 };
 
-[[nodiscard]] CliParseResult parseCliArguments(int argc, char *const argv[]);
-[[nodiscard]] std::string cliUsage(std::string_view command = {});
+[[nodiscard]] ParseResult parseInvocation(int argc, char *const argv[]);
+[[nodiscard]] std::string usage(std::string_view command = {});
+[[nodiscard]] std::string applicationVersion();
 
 } // namespace pmxer

@@ -1,22 +1,20 @@
 #include "CommandLine.hpp"
-#include "../ui/MainWindow.hpp"
+#include "Dispatch.hpp"
 
 #include <cstdio>
-#include <filesystem>
-
 int main(int argc, char **argv) {
-    const auto parsed = pmxer::parseStartupArguments(argc, argv);
+    const auto parsed = pmxer::parseInvocation(argc, argv);
     if (!parsed.error.empty()) {
-        std::fprintf(stderr, "ERROR %s\n%s", parsed.error.c_str(), pmxer::startupUsage().c_str());
-        return 1;
+        std::fprintf(stderr, "ERROR %s\n%s", parsed.error.c_str(), pmxer::usage().c_str());
+        return 2;
     }
-    if (parsed.options.help) {
-        std::fputs(pmxer::startupUsage().c_str(), stdout);
-        return 0;
+    if (!parsed.invocation.has_value()) {
+        std::fputs(pmxer::usage().c_str(), stderr);
+        return 2;
     }
-    if (parsed.options.version) {
+    if (parsed.invocation->global.version) {
         std::printf("%s\n", pmxer::applicationVersion().c_str());
         return 0;
     }
-    return pmxer::runApplication(parsed.options);
+    return pmxer::dispatch(*parsed.invocation);
 }

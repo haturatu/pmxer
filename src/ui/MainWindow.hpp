@@ -6,6 +6,6 @@
 
 namespace pmxer {
 
-[[nodiscard]] int runApplication(const StartupOptions &options);
+[[nodiscard]] int runApplication(const EditCommand &options);
 
 } // namespace pmxer

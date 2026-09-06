@@ -7,18 +7,14 @@
 #include <fstream>
 #include <sstream>
 
-#ifndef PMXER_CLI_PATH
-#define PMXER_CLI_PATH "pmxer-cli"
+#ifndef PMXER_BINARY_PATH
+#define PMXER_BINARY_PATH "pmxer"
 #endif
 
 namespace {
 
 std::string quote(const std::filesystem::path &path) {
     return "\"" + path.string() + "\"";
-}
-
-std::string quote(const char *path) {
-    return "\"" + std::string(path) + "\"";
 }
 
 mmd::PmxModel sampleModel() {
@@ -55,11 +51,12 @@ int main() {
     assert(result.valid());
 
     const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
-    const auto input = std::filesystem::temp_directory_path() / ("pmxer-cli-" + std::to_string(suffix) + ".pmx");
+    const auto input = std::filesystem::temp_directory_path() / ("pmxer-command-" + std::to_string(suffix) + ".pmx");
     const auto output = input.string() + ".json";
     const auto saved = mmd::pmx::save(input, sampleModel());
     (void)saved;
-    const auto command = quote(PMXER_CLI_PATH) + " info --json " + quote(input) + " > " + quote(output);
+    const auto command = quote(std::filesystem::path(PMXER_BINARY_PATH)) + " info --json " + quote(input) + " > " +
+                         quote(std::filesystem::path(output));
     assert(std::system(command.c_str()) == 0);
     std::ifstream stream(output);
     std::stringstream contents;

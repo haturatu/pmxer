@@ -13,6 +13,20 @@ endif()
 include(CTest)
 include(FetchContent)
 
+find_package(argparse CONFIG QUIET)
+if(NOT TARGET argparse::argparse)
+  set(ARGPARSE_INSTALL OFF CACHE BOOL "" FORCE)
+  set(ARGPARSE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(ARGPARSE_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    argparse
+    URL https://github.com/p-ranav/argparse/archive/refs/tags/v3.2.tar.gz
+    URL_HASH SHA256=9dcb3d8ce0a41b2a48ac8baa54b51a9f1b6a2c52dd374e28cc713bab0568ec98
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+  )
+  FetchContent_MakeAvailable(argparse)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -69,6 +83,18 @@ add_library(pmxer_editor
 )
 target_include_directories(pmxer_editor PUBLIC src)
 target_link_libraries(pmxer_editor PUBLIC mmd::core pmxer_platform)
+
+add_library(pmxer_command_line
+  src/app/CommandLine.cpp
+)
+target_include_directories(pmxer_command_line PUBLIC src)
+target_link_libraries(pmxer_command_line PUBLIC mmd::core PRIVATE argparse::argparse)
+
+add_library(pmxer_commands
+  src/commands/CommandOutput.cpp
+)
+target_include_directories(pmxer_commands PUBLIC src)
+target_link_libraries(pmxer_commands PUBLIC pmxer_editor mmd::core)
 
 add_library(pmxer_preview
   src/preview/PreviewController.cpp
@@ -227,23 +253,26 @@ if(PMXER_BUILD_GUI)
   target_include_directories(pmxer_ui PUBLIC src)
   target_link_libraries(pmxer_ui PUBLIC pmxer_render pmxer_imgui SDL3::SDL3)
   target_compile_definitions(pmxer_ui PRIVATE PMXER_HAS_GUI=1 PMXER_SHADER_DIRECTORY="${PMXER_SHADER_OUTPUT_DIR}")
-else()
-  add_library(pmxer_ui src/ui/MainWindow.cpp)
-  target_include_directories(pmxer_ui PUBLIC src)
-  target_link_libraries(pmxer_ui PUBLIC pmxer_render)
-  target_compile_definitions(pmxer_ui PRIVATE PMXER_HAS_GUI=0)
 endif()
 
-add_executable(pmxer src/app/main.cpp)
-target_sources(pmxer PRIVATE src/app/CommandLine.cpp)
-target_link_libraries(pmxer PRIVATE pmxer_ui)
-
-add_executable(pmxer-cli src/cli/main.cpp)
-target_sources(pmxer-cli PRIVATE src/app/CommandLine.cpp)
-target_link_libraries(pmxer-cli PRIVATE pmxer_editor pmxer_preview)
+add_executable(pmxer
+  src/app/main.cpp
+  src/app/Dispatch.cpp
+)
+target_link_libraries(pmxer PRIVATE pmxer_commands pmxer_command_line)
+if(PMXER_BUILD_GUI)
+  target_link_libraries(pmxer PRIVATE pmxer_ui)
+  target_compile_definitions(pmxer PRIVATE PMXER_HAS_GUI=1)
+else()
+  target_compile_definitions(pmxer PRIVATE PMXER_HAS_GUI=0)
+endif()
 
 if(PMXER_WARNINGS_AS_ERRORS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  foreach(target IN ITEMS pmxer_platform pmxer_editor pmxer_preview pmxer_render pmxer_ui pmxer pmxer-cli)
+  set(PMXER_WARNING_TARGETS pmxer_platform pmxer_editor pmxer_command_line pmxer_commands pmxer_preview pmxer_render pmxer)
+  if(TARGET pmxer_ui)
+    list(APPEND PMXER_WARNING_TARGETS pmxer_ui)
+  endif()
+  foreach(target IN LISTS PMXER_WARNING_TARGETS)
     target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror)
   endforeach()
 endif()
@@ -253,18 +282,19 @@ if(BUILD_TESTING)
   target_link_libraries(pmxer_editor_tests PRIVATE pmxer_editor pmxer_preview pmxer_render)
   add_test(NAME pmxer_editor COMMAND pmxer_editor_tests)
 
-  add_executable(pmxer_cli_tests tests/integration/CliTests.cpp)
-  target_link_libraries(pmxer_cli_tests PRIVATE pmxer_editor)
-  add_dependencies(pmxer_cli_tests pmxer-cli)
-  target_compile_definitions(pmxer_cli_tests PRIVATE PMXER_CLI_PATH="$<TARGET_FILE:pmxer-cli>")
-  add_test(NAME pmxer_cli COMMAND pmxer_cli_tests)
+  add_executable(pmxer_command_tests tests/integration/CliTests.cpp)
+  target_link_libraries(pmxer_command_tests PRIVATE pmxer_editor)
+  add_dependencies(pmxer_command_tests pmxer)
+  target_compile_definitions(pmxer_command_tests PRIVATE PMXER_BINARY_PATH="$<TARGET_FILE:pmxer>")
+  add_test(NAME pmxer_command COMMAND pmxer_command_tests)
 
-  add_executable(pmxer_command_line_tests tests/unit/CommandLineTests.cpp src/app/CommandLine.cpp)
+  add_executable(pmxer_command_line_tests tests/unit/CommandLineTests.cpp)
   target_include_directories(pmxer_command_line_tests PRIVATE src)
+  target_link_libraries(pmxer_command_line_tests PRIVATE pmxer_command_line)
   add_test(NAME pmxer_command_line COMMAND pmxer_command_line_tests)
 endif()
 
-install(TARGETS pmxer pmxer-cli RUNTIME DESTINATION bin)
+install(TARGETS pmxer RUNTIME DESTINATION bin)
 install(DIRECTORY assets/ DESTINATION share/pmxer/assets)
 if(PMXER_SHADER_OUTPUTS)
   install(FILES ${PMXER_SHADER_OUTPUTS} DESTINATION share/pmxer/shaders)

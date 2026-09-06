@@ -27,7 +27,7 @@
 
 namespace pmxer {
 
-int runApplication(const StartupOptions &options) {
+int runApplication(const EditCommand &options) {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         log::error(SDL_GetError());
         return 1;
@@ -242,7 +242,7 @@ int runApplication(const StartupOptions &options) {
 
 namespace pmxer {
 
-int runApplication(const StartupOptions &) {
+int runApplication(const EditCommand &) {
     return 0;
 }
 

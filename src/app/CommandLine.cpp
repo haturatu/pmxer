@@ -1,230 +1,374 @@
 #include "CommandLine.hpp"
 
+#include <argparse/argparse.hpp>
+
+#include <algorithm>
 #include <cmath>
-#include <cstdlib>
-#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <utility>
 
 namespace pmxer {
 namespace {
 
-bool splitOption(const std::string &argument, const char *name, std::string &value) {
-    const std::string prefix = std::string(name) + "=";
-    if (argument.rfind(prefix, 0) != 0)
-        return false;
-    value = argument.substr(prefix.size());
-    return true;
+using Parser = argparse::ArgumentParser;
+
+void addHelp(Parser &parser, const char *description) {
+    parser.add_argument("-h", "--help")
+        .help(description)
+        .default_value(false)
+        .implicit_value(true)
+        .nargs(0);
 }
 
-bool isRenderer(const std::string &value) {
-    return value == "auto" || value == "vulkan" || value == "direct3d12" || value == "metal";
+void addJson(Parser &parser) {
+    parser.add_argument("--json")
+        .help("write machine-readable JSON")
+        .default_value(false)
+        .implicit_value(true)
+        .nargs(0);
 }
 
-bool parseFontSize(const std::string &value, float &result) {
-    char *end = nullptr;
-    const auto parsed = std::strtof(value.c_str(), &end);
-    if (end == value.c_str() || *end != '\0' || !std::isfinite(parsed) || parsed < 6.0F || parsed > 256.0F)
-        return false;
-    result = parsed;
-    return true;
+void configureEditParser(Parser &parser) {
+    addHelp(parser, "show this help message");
+    parser.add_argument("--gpu-debug")
+        .help("enable GPU validation")
+        .default_value(false)
+        .implicit_value(true)
+        .nargs(0);
+    parser.add_argument("--no-physics")
+        .help("disable physics preview")
+        .default_value(false)
+        .implicit_value(true)
+        .nargs(0);
+    parser.add_argument("--safe-mode")
+        .help("use conservative editor settings")
+        .default_value(false)
+        .implicit_value(true)
+        .nargs(0);
+    parser.add_argument("--renderer")
+        .help("select the graphics backend")
+        .default_value(std::string{"auto"})
+        .choices("auto", "vulkan", "direct3d12", "metal");
+    parser.add_argument("--font")
+        .help("path to the interface font")
+        .default_value(std::string{});
+    parser.add_argument("--font-size")
+        .help("interface font size")
+        .default_value(18.0F)
+        .scan<'g', float>();
+    parser.add_argument("--lang")
+        .help("interface locale")
+        .default_value(std::string{"auto"});
+    parser.add_argument("--resource-dir")
+        .help("directory containing application resources")
+        .default_value(std::string{});
+    parser.add_argument("documents")
+        .help("PMX files to open")
+        .nargs(argparse::nargs_pattern::any);
 }
 
-bool takeValue(int &index, int argc, char *const argv[], const std::string &argument, const char *name,
-               std::string &value, std::string &error) {
-    if (splitOption(argument, name, value)) {
-        if (!value.empty())
+void configureInfoParser(Parser &parser) {
+    addHelp(parser, "show this help message");
+    addJson(parser);
+    parser.add_argument("model").help("PMX file");
+}
+
+void configureValidateParser(Parser &parser) {
+    addHelp(parser, "show this help message");
+    addJson(parser);
+    parser.add_argument("models")
+        .help("PMX files to validate")
+        .nargs(argparse::nargs_pattern::at_least_one);
+}
+
+void configureDiffParser(Parser &parser) {
+    addHelp(parser, "show this help message");
+    addJson(parser);
+    parser.add_argument("--profile")
+        .help("comparison profile")
+        .default_value(std::string{"logical"})
+        .choices("logical", "preservation");
+    parser.add_argument("left").help("left PMX file");
+    parser.add_argument("right").help("right PMX file");
+}
+
+void configureNormalizeParser(Parser &parser) {
+    addHelp(parser, "show this help message");
+    addJson(parser);
+    parser.add_argument("-o", "--output")
+        .help("output PMX file")
+        .default_value(std::string{});
+    parser.add_argument("input").help("input PMX file");
+}
+
+void configureHelpParser(Parser &parser) {
+    addHelp(parser, "show this help message");
+    parser.add_argument("command")
+        .help("command to describe")
+        .nargs(argparse::nargs_pattern::optional);
+}
+
+std::vector<std::string> tailArguments(int argc, char *const argv[], int first) {
+    std::vector<std::string> arguments{"pmxer"};
+    for (int index = first; index < argc; ++index) {
+        arguments.emplace_back(argv[index] == nullptr ? "" : argv[index]);
+    }
+    return arguments;
+}
+
+bool hasHelpArgument(int argc, char *const argv[], int first) {
+    for (int index = first; index < argc; ++index) {
+        const std::string argument = argv[index] == nullptr ? "" : argv[index];
+        if (argument == "--") {
+            return false;
+        }
+        if (argument == "-h" || argument == "--help") {
             return true;
-        error = std::string(name) + " requires a value";
-        return false;
+        }
     }
-    if (argument != name)
-        return false;
-    if (index + 1 >= argc) {
-        error = std::string(name) + " requires a value";
-        return false;
+    return false;
+}
+
+void rejectEmptyOptionValues(int argc, char *const argv[], int first) {
+    constexpr const char *options[] = {
+        "--renderer=", "--font=", "--font-size=", "--lang=", "--resource-dir=",
+    };
+    for (int index = first; index < argc; ++index) {
+        const std::string argument = argv[index] == nullptr ? "" : argv[index];
+        if (argument == "--") {
+            return;
+        }
+        for (const char *option : options) {
+            if (argument == option) {
+                throw std::runtime_error(std::string(option).substr(0, std::string(option).size() - 1) +
+                                         " requires a value");
+            }
+        }
     }
-    value = argv[++index];
-    if (value.empty()) {
-        error = std::string(name) + " requires a value";
-        return false;
+}
+
+template <typename Function>
+ParseResult parseWith(Parser &parser, Function &&function) {
+    try {
+        return {function(parser), {}};
+    } catch (const std::exception &error) {
+        return {std::nullopt, error.what()};
     }
-    return true;
+}
+
+ParseResult parseEdit(int argc, char *const argv[], int first) {
+    Parser parser("pmxer edit", applicationVersion(), argparse::default_arguments::none, false);
+    configureEditParser(parser);
+    return parseWith(parser, [argc, argv, first](Parser &parser) -> std::optional<Invocation> {
+        if (hasHelpArgument(argc, argv, first)) {
+            return Invocation{{}, HelpCommand{"edit"}};
+        }
+        rejectEmptyOptionValues(argc, argv, first);
+        auto arguments = tailArguments(argc, argv, first);
+        std::vector<std::string> positionalOnly;
+        const auto separator = std::find(arguments.begin() + 1, arguments.end(), "--");
+        if (separator != arguments.end()) {
+            positionalOnly.assign(std::next(separator), arguments.end());
+            arguments.erase(separator, arguments.end());
+        }
+        parser.parse_args(arguments);
+
+        EditCommand command;
+        command.gpuDebug = parser.get<bool>("--gpu-debug");
+        command.safeMode = parser.get<bool>("--safe-mode");
+        command.physics = !parser.get<bool>("--no-physics") && !command.safeMode;
+        command.renderer = parser.get<std::string>("--renderer");
+        command.locale = parser.get<std::string>("--lang");
+        command.fontSize = parser.get<float>("--font-size");
+        if (!std::isfinite(command.fontSize) || command.fontSize < 6.0F || command.fontSize > 256.0F) {
+            throw std::runtime_error("font size must be between 6 and 256");
+        }
+        command.font = parser.get<std::string>("--font");
+        command.resourceDirectory = parser.get<std::string>("--resource-dir");
+        for (const auto &document : parser.get<std::vector<std::string>>("documents")) {
+            command.documents.emplace_back(document);
+        }
+        for (const auto &document : positionalOnly) {
+            command.documents.emplace_back(document);
+        }
+        return Invocation{{}, std::move(command)};
+    });
+}
+
+ParseResult parseInfo(int argc, char *const argv[], int first) {
+    Parser parser("pmxer info", applicationVersion(), argparse::default_arguments::none, false);
+    configureInfoParser(parser);
+    return parseWith(parser, [argc, argv, first](Parser &parser) -> std::optional<Invocation> {
+        if (hasHelpArgument(argc, argv, first)) {
+            return Invocation{{}, HelpCommand{"info"}};
+        }
+        parser.parse_args(tailArguments(argc, argv, first));
+        InfoCommand command;
+        command.model = parser.get<std::string>("model");
+        command.format = parser.get<bool>("--json") ? OutputFormat::json : OutputFormat::text;
+        return Invocation{{}, std::move(command)};
+    });
+}
+
+ParseResult parseValidate(int argc, char *const argv[], int first) {
+    Parser parser("pmxer validate", applicationVersion(), argparse::default_arguments::none, false);
+    configureValidateParser(parser);
+    return parseWith(parser, [argc, argv, first](Parser &parser) -> std::optional<Invocation> {
+        if (hasHelpArgument(argc, argv, first)) {
+            return Invocation{{}, HelpCommand{"validate"}};
+        }
+        parser.parse_args(tailArguments(argc, argv, first));
+        ValidateCommand command;
+        command.format = parser.get<bool>("--json") ? OutputFormat::json : OutputFormat::text;
+        for (const auto &model : parser.get<std::vector<std::string>>("models")) {
+            command.models.emplace_back(model);
+        }
+        return Invocation{{}, std::move(command)};
+    });
+}
+
+ParseResult parseDiff(int argc, char *const argv[], int first) {
+    Parser parser("pmxer diff", applicationVersion(), argparse::default_arguments::none, false);
+    configureDiffParser(parser);
+    return parseWith(parser, [argc, argv, first](Parser &parser) -> std::optional<Invocation> {
+        if (hasHelpArgument(argc, argv, first)) {
+            return Invocation{{}, HelpCommand{"diff"}};
+        }
+        parser.parse_args(tailArguments(argc, argv, first));
+        DiffCommand command;
+        command.left = parser.get<std::string>("left");
+        command.right = parser.get<std::string>("right");
+        command.format = parser.get<bool>("--json") ? OutputFormat::json : OutputFormat::text;
+        const auto profile = parser.get<std::string>("--profile");
+        command.profile = profile == "preservation"
+            ? mmd::PmxComparisonProfile::preservation
+            : mmd::PmxComparisonProfile::logical;
+        return Invocation{{}, std::move(command)};
+    });
+}
+
+ParseResult parseNormalize(int argc, char *const argv[], int first) {
+    Parser parser("pmxer normalize", applicationVersion(), argparse::default_arguments::none, false);
+    configureNormalizeParser(parser);
+    return parseWith(parser, [argc, argv, first](Parser &parser) -> std::optional<Invocation> {
+        if (hasHelpArgument(argc, argv, first)) {
+            return Invocation{{}, HelpCommand{"normalize"}};
+        }
+        parser.parse_args(tailArguments(argc, argv, first));
+        NormalizeCommand command;
+        command.input = parser.get<std::string>("input");
+        command.output = parser.get<std::string>("--output");
+        command.format = parser.get<bool>("--json") ? OutputFormat::json : OutputFormat::text;
+        return Invocation{{}, std::move(command)};
+    });
+}
+
+ParseResult parseHelp(int argc, char *const argv[], int first) {
+    Parser parser("pmxer help", applicationVersion(), argparse::default_arguments::none, false);
+    configureHelpParser(parser);
+    return parseWith(parser, [argc, argv, first](Parser &parser) -> std::optional<Invocation> {
+        if (hasHelpArgument(argc, argv, first)) {
+            return Invocation{{}, HelpCommand{}};
+        }
+        parser.parse_args(tailArguments(argc, argv, first));
+        HelpCommand command;
+        if (parser.is_used("command")) {
+            command.command = parser.get<std::string>("command");
+        }
+        return Invocation{{}, std::move(command)};
+    });
 }
 
 } // namespace
 
-StartupParseResult parseStartupArguments(int argc, char *const argv[]) {
-    StartupParseResult result;
-    bool positionalOnly = false;
-    for (int index = 1; index < argc; ++index) {
-        const std::string argument = argv[index] == nullptr ? std::string{} : argv[index];
-        if (positionalOnly || argument.empty() || argument[0] != '-') {
-            result.options.documents.emplace_back(argument);
-            continue;
-        }
-        if (argument == "--") {
-            positionalOnly = true;
-            continue;
-        }
-        if (argument == "-h" || argument == "--help") {
-            result.options.help = true;
-            continue;
-        }
-        if (argument == "-v" || argument == "--version") {
-            result.options.version = true;
-            continue;
-        }
-        if (argument == "--gpu-debug") {
-            result.options.gpuDebug = true;
-            continue;
-        }
-        if (argument == "--no-physics") {
-            result.options.physics = false;
-            continue;
-        }
-        if (argument == "--safe-mode") {
-            result.options.safeMode = true;
-            result.options.physics = false;
-            continue;
-        }
-
-        std::string value;
-        if (takeValue(index, argc, argv, argument, "--renderer", value, result.error)) {
-            if (!isRenderer(value))
-                result.error = "invalid renderer: " + value;
-            else
-                result.options.renderer = value;
-            continue;
-        }
-        if (!result.error.empty())
-            return result;
-        if (takeValue(index, argc, argv, argument, "--font", value, result.error)) {
-            result.options.font = value;
-            continue;
-        }
-        if (!result.error.empty())
-            return result;
-        if (takeValue(index, argc, argv, argument, "--font-size", value, result.error)) {
-            if (!parseFontSize(value, result.options.fontSize))
-                result.error = "invalid font size: " + value;
-            continue;
-        }
-        if (!result.error.empty())
-            return result;
-        if (takeValue(index, argc, argv, argument, "--lang", value, result.error)) {
-            result.options.locale = value;
-            continue;
-        }
-        if (!result.error.empty())
-            return result;
-        if (takeValue(index, argc, argv, argument, "--resource-dir", value, result.error)) {
-            result.options.resourceDirectory = value;
-            continue;
-        }
-        if (!result.error.empty())
-            return result;
-        result.error = "unknown option: " + argument;
-        return result;
+ParseResult parseInvocation(int argc, char *const argv[]) {
+    if (argc <= 1) {
+        return ParseResult{Invocation{{}, EditCommand{}}, {}};
     }
-    return result;
+
+    const std::string first = argv[1] == nullptr ? "" : argv[1];
+    if (first == "-v" || first == "--version") {
+        Invocation invocation{{}, EditCommand{}};
+        invocation.global.version = true;
+        return ParseResult{std::move(invocation), {}};
+    }
+    if (first == "-h" || first == "--help") {
+        return ParseResult{Invocation{{}, HelpCommand{}}, {}};
+    }
+    if (first == "--") {
+        return parseEdit(argc, argv, 1);
+    }
+    if (first == "edit") {
+        return parseEdit(argc, argv, 2);
+    }
+    if (first == "info") {
+        return parseInfo(argc, argv, 2);
+    }
+    if (first == "validate") {
+        return parseValidate(argc, argv, 2);
+    }
+    if (first == "diff") {
+        return parseDiff(argc, argv, 2);
+    }
+    if (first == "normalize") {
+        return parseNormalize(argc, argv, 2);
+    }
+    if (first == "help") {
+        return parseHelp(argc, argv, 2);
+    }
+    if (!first.empty() && first.front() == '-') {
+        return parseEdit(argc, argv, 1);
+    }
+    return parseEdit(argc, argv, 1);
 }
 
-CliParseResult parseCliArguments(int argc, char *const argv[]) {
-    CliParseResult result;
-    if (argc < 2) {
-        result.options.help = true;
-        return result;
+std::string usage(std::string_view command) {
+    if (command == "edit") {
+        Parser parser("pmxer edit", applicationVersion(), argparse::default_arguments::none, false);
+        configureEditParser(parser);
+        return parser.help().str();
     }
-    result.options.command = argv[1] == nullptr ? std::string{} : argv[1];
-    if (result.options.command == "-h" || result.options.command == "--help") {
-        result.options.command = "help";
-        result.options.help = true;
-        return result;
+    if (command == "info") {
+        Parser parser("pmxer info", applicationVersion(), argparse::default_arguments::none, false);
+        configureInfoParser(parser);
+        return parser.help().str();
     }
-    for (int index = 2; index < argc; ++index) {
-        const std::string argument = argv[index] == nullptr ? std::string{} : argv[index];
-        if (argument == "-h" || argument == "--help") {
-            result.options.help = true;
-            continue;
-        }
-        if (argument == "--json") {
-            result.options.json = true;
-            continue;
-        }
-        if (argument == "--profile") {
-            if (index + 1 >= argc) {
-                result.error = "--profile requires a value";
-                return result;
-            }
-            result.options.profile = argv[++index];
-        } else if (argument.rfind("--profile=", 0) == 0) {
-            result.options.profile = argument.substr(std::string("--profile=").size());
-        } else if (argument == "-o" || argument == "--output") {
-            if (index + 1 >= argc) {
-                result.error = "--output requires a value";
-                return result;
-            }
-            result.options.output = argv[++index];
-        } else if (argument.rfind("--output=", 0) == 0) {
-            result.options.output = argument.substr(std::string("--output=").size());
-        } else if (!argument.empty() && argument[0] == '-') {
-            result.error = "unknown option: " + argument;
-            return result;
-        } else if (result.options.command == "help" && result.options.helpCommand.empty()) {
-            result.options.helpCommand = argument;
-        } else {
-            result.options.operands.emplace_back(argument);
-        }
+    if (command == "validate") {
+        Parser parser("pmxer validate", applicationVersion(), argparse::default_arguments::none, false);
+        configureValidateParser(parser);
+        return parser.help().str();
     }
-    if (result.options.command == "help")
-        result.options.help = true;
-    else if (result.options.help)
-        result.options.helpCommand = result.options.command;
-    if (result.options.profile != "logical" && result.options.profile != "preservation")
-        result.error = "invalid comparison profile: " + result.options.profile;
-    return result;
-}
-
-std::string startupUsage() {
-    return "Usage: pmxer [options] [file.pmx ...]\n"
-           "\n"
-           "Options:\n"
-           "  -h, --help                 Show this help\n"
-           "  -v, --version              Show the application version\n"
-           "      --renderer <name>      auto, vulkan, direct3d12, or metal\n"
-           "      --gpu-debug             Enable GPU validation\n"
-           "      --font <path>            Use a UI font\n"
-           "      --font-size <size>      Set the UI font size\n"
-           "      --lang <locale>         Set the UI locale\n"
-           "      --no-physics             Disable preview physics\n"
-           "      --safe-mode              Disable optional preview features\n"
-           "      --resource-dir <path>  Set the resource directory\n";
+    if (command == "diff") {
+        Parser parser("pmxer diff", applicationVersion(), argparse::default_arguments::none, false);
+        configureDiffParser(parser);
+        return parser.help().str();
+    }
+    if (command == "normalize") {
+        Parser parser("pmxer normalize", applicationVersion(), argparse::default_arguments::none, false);
+        configureNormalizeParser(parser);
+        return parser.help().str();
+    }
+    if (command == "help") {
+        Parser parser("pmxer help", applicationVersion(), argparse::default_arguments::none, false);
+        configureHelpParser(parser);
+        return parser.help().str();
+    }
+    return "Usage:\n"
+           "  pmxer [options] [FILE...]\n"
+           "  pmxer <command> [options] ...\n\n"
+           "Commands:\n"
+           "  edit        Open PMX files in the editor\n"
+           "  info        Display model information\n"
+           "  validate    Validate PMX files\n"
+           "  diff        Compare PMX models\n"
+           "  normalize   Normalize model weights\n"
+           "  help        Show command help\n\n"
+           "Use: pmxer help <command>\n";
 }
 
 std::string applicationVersion() {
     return "0.1.0";
-}
-
-std::string cliUsage(std::string_view command) {
-    if (command == "info")
-        return "Usage: pmxer-cli info [--json] MODEL\n";
-    if (command == "validate")
-        return "Usage: pmxer-cli validate [--json] MODEL...\n";
-    if (command == "diff")
-        return "Usage: pmxer-cli diff [--json] [--profile logical|preservation] LEFT RIGHT\n";
-    if (command == "normalize")
-        return "Usage: pmxer-cli normalize [-o OUTPUT] INPUT\n";
-    return "Usage: pmxer-cli <command> [options]\n\n"
-           "Commands:\n"
-           "  info       Print model counts\n"
-           "  validate   Validate one or more models\n"
-           "  diff       Compare two models\n"
-           "  normalize  Normalize weights and save a model\n"
-           "  help       Show command help\n\n"
-           "Options:\n"
-           "  -h, --help\n"
-           "      --json\n"
-           "      --profile logical|preservation\n"
-           "  -o, --output OUTPUT\n";
 }
 
 } // namespace pmxer
