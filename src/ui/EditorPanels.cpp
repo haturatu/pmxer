@@ -621,17 +621,13 @@ void drawMaterialPanel(DocumentSession &session) {
     }
     ImGui::SameLine();
     if (ImGui::Button("←") && session.ui.materialIndex > 0) {
-        const auto result = applyTransaction(session, [&](auto &transaction) {
-            return transaction.moveMaterial(handle, session.ui.materialIndex - 1);
-        }, "材質を前へ移動");
+        const auto result = moveMaterial(session, handle, session.ui.materialIndex - 1);
         if (result.success)
             --session.ui.materialIndex;
     }
     ImGui::SameLine();
     if (ImGui::Button("→") && session.ui.materialIndex + 1 < model.materials.size()) {
-        const auto result = applyTransaction(session, [&](auto &transaction) {
-            return transaction.moveMaterial(handle, session.ui.materialIndex + 1);
-        }, "材質を後へ移動");
+        const auto result = moveMaterial(session, handle, session.ui.materialIndex + 1);
         if (result.success)
             ++session.ui.materialIndex;
     }
@@ -742,17 +738,13 @@ void drawBonePanel(DocumentSession &session) {
     }
     ImGui::SameLine();
     if (ImGui::Button("←") && session.ui.boneIndex > 0) {
-        const auto result = applyTransaction(session, [&](auto &transaction) {
-            return transaction.moveBone(handle, session.ui.boneIndex - 1);
-        }, "ボーンを前へ移動");
+        const auto result = moveBone(session, handle, session.ui.boneIndex - 1);
         if (result.success)
             --session.ui.boneIndex;
     }
     ImGui::SameLine();
     if (ImGui::Button("→") && session.ui.boneIndex + 1 < model.bones.size()) {
-        const auto result = applyTransaction(session, [&](auto &transaction) {
-            return transaction.moveBone(handle, session.ui.boneIndex + 1);
-        }, "ボーンを後へ移動");
+        const auto result = moveBone(session, handle, session.ui.boneIndex + 1);
         if (result.success)
             ++session.ui.boneIndex;
     }
@@ -885,17 +877,13 @@ void drawMorphPanel(DocumentSession &session) {
     }
     ImGui::SameLine();
     if (ImGui::Button("←") && session.ui.morphIndex > 0) {
-        const auto result = applyTransaction(session, [&](auto &transaction) {
-            return transaction.moveMorph(handle, session.ui.morphIndex - 1);
-        }, "モーフを前へ移動");
+        const auto result = moveMorph(session, handle, session.ui.morphIndex - 1);
         if (result.success)
             --session.ui.morphIndex;
     }
     ImGui::SameLine();
     if (ImGui::Button("→") && session.ui.morphIndex + 1 < model.morphs.size()) {
-        const auto result = applyTransaction(session, [&](auto &transaction) {
-            return transaction.moveMorph(handle, session.ui.morphIndex + 1);
-        }, "モーフを後へ移動");
+        const auto result = moveMorph(session, handle, session.ui.morphIndex + 1);
         if (result.success)
             ++session.ui.morphIndex;
     }
@@ -987,17 +975,13 @@ void drawDisplayFramePanel(DocumentSession &session) {
     }
     ImGui::SameLine();
     if (ImGui::Button("←") && session.ui.displayFrameIndex > 0) {
-        const auto result = applyTransaction(session, [&](auto &transaction) {
-            return transaction.moveDisplayFrame(handle, session.ui.displayFrameIndex - 1);
-        }, "表示枠を前へ移動");
+        const auto result = moveDisplayFrame(session, handle, session.ui.displayFrameIndex - 1);
         if (result.success)
             --session.ui.displayFrameIndex;
     }
     ImGui::SameLine();
     if (ImGui::Button("→") && session.ui.displayFrameIndex + 1 < model.displayFrames.size()) {
-        const auto result = applyTransaction(session, [&](auto &transaction) {
-            return transaction.moveDisplayFrame(handle, session.ui.displayFrameIndex + 1);
-        }, "表示枠を後へ移動");
+        const auto result = moveDisplayFrame(session, handle, session.ui.displayFrameIndex + 1);
         if (result.success)
             ++session.ui.displayFrameIndex;
     }

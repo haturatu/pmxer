@@ -30,9 +30,7 @@ bool setMaterialColors(DocumentSession &session, mmd::MaterialHandle handle, mmd
 }
 
 bool reorderMaterial(DocumentSession &session, mmd::MaterialHandle handle, std::size_t destination) {
-    return applyTransaction(session, [&](auto &transaction) {
-        return transaction.moveMaterial(handle, destination);
-    }, "材質順序を変更").success;
+    return moveMaterial(session, handle, destination).success;
 }
 
 } // namespace pmxer

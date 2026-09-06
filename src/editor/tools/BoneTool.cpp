@@ -17,9 +17,7 @@ bool setBoneIkTarget(DocumentSession &session, mmd::BoneHandle bone, mmd::BoneHa
 }
 
 bool reorderBone(DocumentSession &session, mmd::BoneHandle bone, std::size_t destination) {
-    return applyTransaction(session, [&](auto &transaction) {
-        return transaction.moveBone(bone, destination);
-    }, "ボーン順序を変更").success;
+    return moveBone(session, bone, destination).success;
 }
 
 bool addIkLink(DocumentSession &session, mmd::BoneHandle bone, mmd::PmxIkLink link) {
@@ -29,4 +27,3 @@ bool addIkLink(DocumentSession &session, mmd::BoneHandle bone, mmd::PmxIkLink li
 }
 
 } // namespace pmxer
-

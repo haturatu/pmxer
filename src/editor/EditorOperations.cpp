@@ -56,6 +56,36 @@ class MetadataCommand final : public EditorCommand {
     std::string description_;
 };
 
+class TransactionCommand final : public EditorCommand {
+  public:
+    using Edit = std::function<bool(mmd::PmxDocument::Transaction &)>;
+
+    TransactionCommand(Edit forward, Edit reverse, std::string description)
+        : forward_(std::move(forward)), reverse_(std::move(reverse)), description_(std::move(description)) {}
+
+    bool apply(mmd::PmxDocument &document) override {
+        return execute(document, forward_);
+    }
+
+    bool undo(mmd::PmxDocument &document) override {
+        return execute(document, reverse_);
+    }
+
+    const std::string &description() const noexcept override {
+        return description_;
+    }
+
+  private:
+    static bool execute(mmd::PmxDocument &document, const Edit &edit) {
+        auto transaction = document.transaction();
+        return edit(transaction) && transaction.commit().committed;
+    }
+
+    Edit forward_;
+    Edit reverse_;
+    std::string description_;
+};
+
 template <typename Handle, typename Value>
 using PropertySetter = mmd::PmxTransactionResult (*)(mmd::PmxDocument &, Handle, const Value &);
 
@@ -154,6 +184,27 @@ OperationResult applyProperty(DocumentSession &session, Handle handle, const Val
 
 } // namespace
 
+namespace {
+
+OperationResult applyReversibleTransaction(DocumentSession &session, TransactionCommand::Edit forward,
+                                           TransactionCommand::Edit reverse, std::string description) {
+    auto transaction = session.document.transaction();
+    if (!forward(transaction))
+        return {false, "対象が見つかりません"};
+    const auto committed = transaction.commit();
+    if (!committed.committed)
+        return {false, committed.errors.empty() ? "編集結果が検証に失敗しました" : committed.errors.front()};
+    session.commands.recordApplied(
+        std::make_unique<TransactionCommand>(std::move(forward), std::move(reverse), std::move(description)));
+    session.modified = session.commands.isModified();
+    ++session.revision;
+    session.validation = committed.validation;
+    session.changes = committed.changes;
+    return {true, {}};
+}
+
+} // namespace
+
 OperationResult applyTransaction(DocumentSession &session,
                                   const std::function<bool(mmd::PmxDocument::Transaction &)> &callback,
                                   std::string description) {
@@ -172,6 +223,47 @@ OperationResult applyTransaction(DocumentSession &session,
     session.validation = committed.validation;
     session.changes = committed.changes;
     return {true, {}};
+}
+
+OperationResult moveMaterial(DocumentSession &session, mmd::MaterialHandle handle, std::size_t destination) {
+    const auto source = session.document.resolve(handle);
+    if (source == nullptr)
+        return {false, "対象が見つかりません"};
+    const auto from = static_cast<std::size_t>(source - session.document.model().materials.data());
+    return applyReversibleTransaction(
+        session, [=](auto &transaction) { return transaction.moveMaterial(handle, destination); },
+        [=](auto &transaction) { return transaction.moveMaterial(handle, from); }, "材質順序を変更");
+}
+
+OperationResult moveBone(DocumentSession &session, mmd::BoneHandle handle, std::size_t destination) {
+    const auto source = session.document.resolve(handle);
+    if (source == nullptr)
+        return {false, "対象が見つかりません"};
+    const auto from = static_cast<std::size_t>(source - session.document.model().bones.data());
+    return applyReversibleTransaction(
+        session, [=](auto &transaction) { return transaction.moveBone(handle, destination); },
+        [=](auto &transaction) { return transaction.moveBone(handle, from); }, "ボーン順序を変更");
+}
+
+OperationResult moveMorph(DocumentSession &session, mmd::MorphHandle handle, std::size_t destination) {
+    const auto source = session.document.resolve(handle);
+    if (source == nullptr)
+        return {false, "対象が見つかりません"};
+    const auto from = static_cast<std::size_t>(source - session.document.model().morphs.data());
+    return applyReversibleTransaction(
+        session, [=](auto &transaction) { return transaction.moveMorph(handle, destination); },
+        [=](auto &transaction) { return transaction.moveMorph(handle, from); }, "モーフ順序を変更");
+}
+
+OperationResult moveDisplayFrame(DocumentSession &session, mmd::DisplayFrameHandle handle,
+                                 std::size_t destination) {
+    const auto source = session.document.resolve(handle);
+    if (source == nullptr)
+        return {false, "対象が見つかりません"};
+    const auto from = static_cast<std::size_t>(source - session.document.model().displayFrames.data());
+    return applyReversibleTransaction(
+        session, [=](auto &transaction) { return transaction.moveDisplayFrame(handle, destination); },
+        [=](auto &transaction) { return transaction.moveDisplayFrame(handle, from); }, "表示枠順序を変更");
 }
 
 OperationResult editVertex(DocumentSession &session, mmd::VertexHandle handle, const mmd::PmxVertex &value) {

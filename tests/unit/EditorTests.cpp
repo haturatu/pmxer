@@ -95,6 +95,20 @@ int main() {
     assert(historySession.document.resolve(historyHandle) != nullptr);
     assert(historySession.document.resolve(historyHandle)->position[0] == 0.0F);
 
+    auto reorderModel = sampleModel();
+    reorderModel.morphs.resize(2);
+    reorderModel.morphs[0].name = "first";
+    reorderModel.morphs[1].name = "second";
+    pmxer::DocumentSession reorderSession(std::move(reorderModel));
+    const auto firstMorph = reorderSession.document.morphHandle(0);
+    assert(pmxer::moveMorph(reorderSession, firstMorph, 1).success);
+    assert(reorderSession.document.resolve(firstMorph)->name == "first");
+    assert(reorderSession.document.morphHandle(1) == firstMorph);
+    assert(reorderSession.undo());
+    assert(reorderSession.document.morphHandle(0) == firstMorph);
+    assert(reorderSession.redo());
+    assert(reorderSession.document.morphHandle(1) == firstMorph);
+
     const auto materialHandle = session.document.materialHandle(0);
     auto material = *session.document.resolve(materialHandle);
     material.diffuse[0] = 0.25F;

@@ -16,6 +16,10 @@ struct OperationResult {
 
 [[nodiscard]] OperationResult applyTransaction(
     DocumentSession &, const std::function<bool(mmd::PmxDocument::Transaction &)> &, std::string description);
+[[nodiscard]] OperationResult moveMaterial(DocumentSession &, mmd::MaterialHandle, std::size_t destination);
+[[nodiscard]] OperationResult moveBone(DocumentSession &, mmd::BoneHandle, std::size_t destination);
+[[nodiscard]] OperationResult moveMorph(DocumentSession &, mmd::MorphHandle, std::size_t destination);
+[[nodiscard]] OperationResult moveDisplayFrame(DocumentSession &, mmd::DisplayFrameHandle, std::size_t destination);
 
 [[nodiscard]] OperationResult editVertex(DocumentSession &, mmd::VertexHandle, const mmd::PmxVertex &);
 [[nodiscard]] OperationResult editTexture(DocumentSession &, mmd::TextureHandle, const mmd::PmxTexture &);
