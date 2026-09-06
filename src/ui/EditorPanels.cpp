@@ -9,6 +9,7 @@
 #include "../editor/SaveController.hpp"
 #include "../editor/tools/PhysicsTool.hpp"
 #include "../editor/tools/SdefTool.hpp"
+#include "../editor/tools/StandardBoneTool.hpp"
 #include "../editor/tools/TextureTool.hpp"
 #include "../preview/PreviewController.hpp"
 #include "ViewportPanel.hpp"
@@ -26,6 +27,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace pmxer {
 namespace {
@@ -243,6 +245,11 @@ void drawModelPanel(DocumentSession &session) {
                 session.commands.undoCount(), session.commands.redoCount());
     const auto differences = compareWithBaseline(session);
     ImGui::Text("基準との差分: %zu", differences.differences.size());
+    const auto recipes = inspectStandardBones(model);
+    ImGui::Text("準標準骨格: %zu / 不足 %zu", recipes.available, recipes.missing);
+    if (ImGui::Button("不足骨格を追加") && recipes.missing != 0) {
+        session.ui.status = applyStandardBones(session, standardBoneRecipes()) ? "骨格を追加しました" : "骨格追加に失敗しました";
+    }
     ImGui::End();
 }
 
@@ -622,6 +629,13 @@ void drawPhysicsPanel(DocumentSession &session) {
                 session.ui.softBodyDraft.reset();
             }
         }
+    }
+    if (ImGui::Button("全ボーンから剛体を生成") && !model.bones.empty()) {
+        std::vector<mmd::BoneHandle> handles;
+        handles.reserve(model.bones.size());
+        for (std::size_t i = 0; i < model.bones.size(); ++i)
+            handles.push_back(session.document.boneHandle(i));
+        session.ui.status = generateRigidBodyChain(session, handles, 1) ? "剛体を生成しました" : "剛体生成に失敗しました";
     }
     ImGui::End();
 }
