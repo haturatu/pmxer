@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <exception>
@@ -712,49 +713,14 @@ void drawBonePanel(DocumentSession &session) {
     }
     const bool hasIk = (draft.flags & 0x0020U) != 0;
     if (ImGui::Button("適用")) {
-        const auto result = applyTransaction(session, [&](auto &transaction) {
-            const auto parent = draft.parent >= 0 && static_cast<std::size_t>(draft.parent) < model.bones.size()
-                                    ? std::optional{session.document.boneHandle(static_cast<std::size_t>(draft.parent))}
-                                    : std::nullopt;
-            if (!transaction.setBoneName(handle, draft.name) || !transaction.setBoneEnglishName(handle, draft.englishName) ||
-                !transaction.setBonePosition(handle, draft.position) || !transaction.setBoneDeformLayer(handle, draft.deformLayer) ||
-                !transaction.setBoneFlags(handle, draft.flags) || !transaction.setBoneParent(handle, parent))
-                return false;
-            if (draft.tailBone >= 0 && static_cast<std::size_t>(draft.tailBone) < model.bones.size() &&
-                !transaction.setBoneTailBone(handle, session.document.boneHandle(static_cast<std::size_t>(draft.tailBone))))
-                return false;
-            if ((draft.flags & 1U) == 0 && !transaction.setBoneTailOffset(handle, draft.tailOffset))
-                return false;
-            if ((draft.flags & 0x0300U) != 0 &&
-                !transaction.setBoneInheritParent(handle, draft.inheritParent >= 0
-                                                             ? std::optional{session.document.boneHandle(static_cast<std::size_t>(draft.inheritParent))}
-                                                             : std::nullopt))
-                return false;
-            if (!transaction.setBoneInheritRatio(handle, draft.inheritRatio) ||
-                !transaction.setBoneFixedAxis(handle, draft.fixedAxis) ||
-                !transaction.setBoneLocalAxes(handle, draft.localAxisX, draft.localAxisZ) ||
-                !transaction.setBoneExternalParentKey(handle, draft.externalParentKey))
-                return false;
-            if ((draft.flags & 0x0020U) != 0 &&
-                !transaction.setBoneIkTarget(handle, draft.ikTarget >= 0
-                                                       ? std::optional{session.document.boneHandle(static_cast<std::size_t>(draft.ikTarget))}
-                                                       : std::nullopt))
-                return false;
-            if (!transaction.setBoneIkLimits(handle, draft.ikLoopCount, draft.ikLimitAngle))
-                return false;
-            for (std::size_t index = 0; index < draft.ikLinks.size(); ++index)
-                if (!transaction.setBoneIkLink(handle, index, draft.ikLinks[index]))
-                    return false;
-            return true;
-        }, "ボーンを更新");
+        const auto result = editBone(session, handle, draft);
         session.ui.status = result.success ? "ボーンを更新しました" : result.message;
         session.ui.boneDraft.reset();
     }
     if (hasIk) {
         if (ImGui::Button("IKリンク追加")) {
-            const auto result = applyTransaction(session, [&](auto &transaction) {
-                return transaction.addBoneIkLink(handle, mmd::PmxIkLink{});
-            }, "IKリンクを追加");
+            draft.ikLinks.emplace_back();
+            const auto result = editBone(session, handle, draft);
             session.ui.status = result.success ? "IKリンクを追加しました" : result.message;
             session.ui.boneDraft.reset();
             ImGui::End();
@@ -763,9 +729,9 @@ void drawBonePanel(DocumentSession &session) {
         if (!draft.ikLinks.empty()) {
             ImGui::SameLine();
             if (ImGui::Button("IKリンク削除")) {
-                const auto result = applyTransaction(session, [&](auto &transaction) {
-                    return transaction.eraseBoneIkLink(handle, session.ui.boneIkLinkIndex);
-                }, "IKリンクを削除");
+                draft.ikLinks.erase(draft.ikLinks.begin() +
+                                    static_cast<std::ptrdiff_t>(session.ui.boneIkLinkIndex));
+                const auto result = editBone(session, handle, draft);
                 session.ui.status = result.success ? "IKリンクを削除しました" : result.message;
                 session.ui.boneIkLinkIndex = 0;
                 session.ui.boneDraft.reset();
@@ -875,58 +841,7 @@ void drawMorphPanel(DocumentSession &session) {
     }
     session.ui.morphOffsetDirty = session.ui.morphOffsetDirty || offsetDirty;
     if (ImGui::Button("適用")) {
-        OperationResult result;
-        if (session.ui.morphOffsetDirty && !draft.offsets.empty()) {
-            const auto &offset = draft.offsets[session.ui.morphOffsetIndex];
-            result = applyTransaction(session, [&](auto &transaction) {
-                if (!transaction.setMorphName(handle, draft.name) || !transaction.setMorphEnglishName(handle, draft.englishName) ||
-                    !transaction.setMorphPanel(handle, draft.panel) || !transaction.setMorphType(handle, draft.type))
-                    return false;
-                switch (draft.type) {
-                case 0:
-                    return offset.index >= 0 && static_cast<std::size_t>(offset.index) < model.morphs.size() &&
-                           transaction.setGroupMorphOffset(handle, session.ui.morphOffsetIndex,
-                                                           session.document.morphHandle(static_cast<std::size_t>(offset.index)), offset.scalar);
-                case 1:
-                    return offset.index >= 0 && static_cast<std::size_t>(offset.index) < model.vertices.size() &&
-                           transaction.setVertexMorphOffset(handle, session.ui.morphOffsetIndex,
-                                                            session.document.vertexHandle(static_cast<std::size_t>(offset.index)), offset.vector3);
-                case 2:
-                    return offset.index >= 0 && static_cast<std::size_t>(offset.index) < model.bones.size() &&
-                           transaction.setBoneMorphOffset(handle, session.ui.morphOffsetIndex,
-                                                          session.document.boneHandle(static_cast<std::size_t>(offset.index)), offset.vector3,
-                                                          offset.vector4);
-                case 3:
-                case 4:
-                case 5:
-                case 6:
-                case 7:
-                    return offset.index >= 0 && static_cast<std::size_t>(offset.index) < model.vertices.size() &&
-                           transaction.setUvMorphOffset(handle, session.ui.morphOffsetIndex,
-                                                        session.document.vertexHandle(static_cast<std::size_t>(offset.index)),
-                                                        static_cast<std::uint32_t>(draft.type - 3), offset.vector4);
-                case 8:
-                    return transaction.setMaterialMorphOffset(handle, session.ui.morphOffsetIndex,
-                                                               offset.index >= 0 && static_cast<std::size_t>(offset.index) < model.materials.size()
-                                                                   ? std::optional{session.document.materialHandle(static_cast<std::size_t>(offset.index))}
-                                                                   : std::nullopt,
-                                                               offset.operation, offset.materialVectors);
-                case 9:
-                    return offset.index >= 0 && static_cast<std::size_t>(offset.index) < model.morphs.size() &&
-                           transaction.setFlipMorphOffset(handle, session.ui.morphOffsetIndex,
-                                                          session.document.morphHandle(static_cast<std::size_t>(offset.index)), offset.scalar);
-                case 10:
-                    return offset.index >= 0 && static_cast<std::size_t>(offset.index) < model.rigidBodies.size() &&
-                           transaction.setImpulseMorphOffset(handle, session.ui.morphOffsetIndex,
-                                                             session.document.rigidBodyHandle(static_cast<std::size_t>(offset.index)),
-                                                             offset.vector3, offset.tertiaryVector3, offset.local);
-                default:
-                    return false;
-                }
-            }, "モーフオフセットを更新");
-        } else {
-            result = editMorph(session, handle, draft);
-        }
+        const auto result = editMorph(session, handle, draft);
         session.ui.status = result.success ? "モーフを更新しました" : (result.message.empty() ? "モーフ更新に失敗しました" : result.message);
         session.ui.morphDraft.reset();
         session.ui.morphOffsetDirty = false;
@@ -935,9 +850,9 @@ void drawMorphPanel(DocumentSession &session) {
     }
     ImGui::SameLine();
     if (ImGui::Button("オフセット削除") && !draft.offsets.empty()) {
-        const auto result = applyTransaction(session, [&](auto &transaction) {
-            return transaction.eraseMorphOffset(handle, session.ui.morphOffsetIndex);
-        }, "モーフオフセットを削除");
+        draft.offsets.erase(draft.offsets.begin() +
+                            static_cast<std::ptrdiff_t>(session.ui.morphOffsetIndex));
+        const auto result = editMorph(session, handle, draft);
         if (result.success) {
             session.ui.morphOffsetIndex = 0;
             session.ui.morphDraft.reset();
@@ -948,9 +863,9 @@ void drawMorphPanel(DocumentSession &session) {
     }
     ImGui::SameLine();
     if (ImGui::Button("オフセットを前へ") && session.ui.morphOffsetIndex > 0) {
-        if (applyTransaction(session, [&](auto &transaction) {
-                return transaction.moveMorphOffset(handle, session.ui.morphOffsetIndex, session.ui.morphOffsetIndex - 1);
-            }, "モーフオフセットを前へ移動").success)
+        std::swap(draft.offsets[session.ui.morphOffsetIndex],
+                  draft.offsets[session.ui.morphOffsetIndex - 1]);
+        if (editMorph(session, handle, draft).success)
             --session.ui.morphOffsetIndex;
         session.ui.morphDraft.reset();
         session.ui.morphOffsetDirty = false;
@@ -959,9 +874,9 @@ void drawMorphPanel(DocumentSession &session) {
     }
     ImGui::SameLine();
     if (ImGui::Button("オフセットを後へ") && !draft.offsets.empty() && session.ui.morphOffsetIndex + 1 < draft.offsets.size()) {
-        if (applyTransaction(session, [&](auto &transaction) {
-                return transaction.moveMorphOffset(handle, session.ui.morphOffsetIndex, session.ui.morphOffsetIndex + 1);
-            }, "モーフオフセットを後へ移動").success)
+        std::swap(draft.offsets[session.ui.morphOffsetIndex],
+                  draft.offsets[session.ui.morphOffsetIndex + 1]);
+        if (editMorph(session, handle, draft).success)
             ++session.ui.morphOffsetIndex;
         session.ui.morphDraft.reset();
         session.ui.morphOffsetDirty = false;
@@ -1005,43 +920,25 @@ void drawDisplayFramePanel(DocumentSession &session) {
     inputString("名前", draft.name);
     inputString("英語名", draft.englishName);
     ImGui::Text("項目: %zu", draft.items.size());
-    bool itemChanged = false;
     if (!draft.items.empty()) {
-        if (selectIndex("項目番号", draft.items.size(), session.ui.displayItemIndex))
-            itemChanged = true;
+        (void)selectIndex("項目番号", draft.items.size(), session.ui.displayItemIndex);
         auto &item = draft.items[session.ui.displayItemIndex];
         if (item.bone)
-            itemChanged = chooseBone("対象ボーン", model, item.index, false) || itemChanged;
+            (void)chooseBone("対象ボーン", model, item.index, false);
         else
-            itemChanged = chooseMorph("対象モーフ", model, item.index) || itemChanged;
+            (void)chooseMorph("対象モーフ", model, item.index);
     }
     if (ImGui::Button("適用")) {
-        const auto result = applyTransaction(session, [&](auto &transaction) {
-            if (!transaction.setDisplayFrameName(handle, draft.name) ||
-                !transaction.setDisplayFrameEnglishName(handle, draft.englishName))
-                return false;
-            if (!itemChanged || draft.items.empty())
-                return true;
-            const auto &item = draft.items[session.ui.displayItemIndex];
-            if (item.index < 0)
-                return false;
-            if (item.bone && static_cast<std::size_t>(item.index) < model.bones.size())
-                return transaction.setDisplayFrameItem(handle, session.ui.displayItemIndex,
-                                                       session.document.boneHandle(static_cast<std::size_t>(item.index)));
-            if (!item.bone && static_cast<std::size_t>(item.index) < model.morphs.size())
-                return transaction.setDisplayFrameItem(handle, session.ui.displayItemIndex,
-                                                       session.document.morphHandle(static_cast<std::size_t>(item.index)));
-            return false;
-        }, "表示枠を更新");
+        const auto result = editDisplayFrame(session, handle, draft);
         session.ui.status = result.success ? "表示枠を更新しました" : result.message;
         session.ui.displayFrameDraft.reset();
         ImGui::End();
         return;
     }
     if (ImGui::Button("項目削除") && !draft.items.empty()) {
-        const auto result = applyTransaction(session, [&](auto &transaction) {
-            return transaction.eraseDisplayFrameItem(handle, session.ui.displayItemIndex);
-        }, "表示枠項目を削除");
+        draft.items.erase(draft.items.begin() +
+                          static_cast<std::ptrdiff_t>(session.ui.displayItemIndex));
+        const auto result = editDisplayFrame(session, handle, draft);
         session.ui.status = result.success ? "表示枠項目を削除しました" : result.message;
         session.ui.displayItemIndex = 0;
         session.ui.displayFrameDraft.reset();
@@ -1050,9 +947,9 @@ void drawDisplayFramePanel(DocumentSession &session) {
     }
     ImGui::SameLine();
     if (ImGui::Button("項目を前へ") && session.ui.displayItemIndex > 0) {
-        const auto result = applyTransaction(session, [&](auto &transaction) {
-            return transaction.moveDisplayFrameItem(handle, session.ui.displayItemIndex, session.ui.displayItemIndex - 1);
-        }, "表示枠項目を前へ移動");
+        std::swap(draft.items[session.ui.displayItemIndex],
+                  draft.items[session.ui.displayItemIndex - 1]);
+        const auto result = editDisplayFrame(session, handle, draft);
         session.ui.status = result.success ? "表示枠項目を移動しました" : result.message;
         --session.ui.displayItemIndex;
         session.ui.displayFrameDraft.reset();
@@ -1061,9 +958,9 @@ void drawDisplayFramePanel(DocumentSession &session) {
     }
     ImGui::SameLine();
     if (ImGui::Button("項目を後へ") && !draft.items.empty() && session.ui.displayItemIndex + 1 < draft.items.size()) {
-        const auto result = applyTransaction(session, [&](auto &transaction) {
-            return transaction.moveDisplayFrameItem(handle, session.ui.displayItemIndex, session.ui.displayItemIndex + 1);
-        }, "表示枠項目を後へ移動");
+        std::swap(draft.items[session.ui.displayItemIndex],
+                  draft.items[session.ui.displayItemIndex + 1]);
+        const auto result = editDisplayFrame(session, handle, draft);
         session.ui.status = result.success ? "表示枠項目を移動しました" : result.message;
         ++session.ui.displayItemIndex;
         session.ui.displayFrameDraft.reset();
@@ -1072,9 +969,8 @@ void drawDisplayFramePanel(DocumentSession &session) {
     }
     ImGui::SameLine();
     if (ImGui::Button("ボーン項目追加") && !model.bones.empty()) {
-        const auto result = applyTransaction(session, [&](auto &transaction) {
-            return transaction.addDisplayFrameItem(handle, session.document.boneHandle(0));
-        }, "表示枠にボーンを追加");
+        draft.items.push_back({true, 0});
+        const auto result = editDisplayFrame(session, handle, draft);
         session.ui.status = result.success ? "表示枠項目を追加しました" : result.message;
         session.ui.displayFrameDraft.reset();
         ImGui::End();
@@ -1082,9 +978,8 @@ void drawDisplayFramePanel(DocumentSession &session) {
     }
     ImGui::SameLine();
     if (ImGui::Button("モーフ項目追加") && !model.morphs.empty()) {
-        const auto result = applyTransaction(session, [&](auto &transaction) {
-            return transaction.addDisplayFrameItem(handle, session.document.morphHandle(0));
-        }, "表示枠にモーフを追加");
+        draft.items.push_back({false, 0});
+        const auto result = editDisplayFrame(session, handle, draft);
         session.ui.status = result.success ? "表示枠項目を追加しました" : result.message;
         session.ui.displayFrameDraft.reset();
         ImGui::End();
@@ -1148,20 +1043,7 @@ void drawPhysicsPanel(DocumentSession &session) {
             ImGui::InputInt("モード", &mode);
             draft.mode = static_cast<std::uint8_t>(std::clamp(mode, 0, 2));
             if (ImGui::Button("剛体を適用")) {
-                const auto result = applyTransaction(session, [&](auto &transaction) {
-                    const auto bone = draft.bone >= 0 && static_cast<std::size_t>(draft.bone) < model.bones.size()
-                                          ? std::optional{session.document.boneHandle(static_cast<std::size_t>(draft.bone))}
-                                          : std::nullopt;
-                    return transaction.setRigidBodyName(handle, draft.name) &&
-                           transaction.setRigidBodyEnglishName(handle, draft.englishName) &&
-                           transaction.setRigidBodyBone(handle, bone) &&
-                           transaction.setRigidBodyShape(handle, draft.shape, draft.size) &&
-                           transaction.setRigidBodyTransform(handle, draft.position, draft.rotation) &&
-                           transaction.setRigidBodyPhysical(handle, draft.mass, draft.linearDamping,
-                                                            draft.angularDamping, draft.restitution, draft.friction) &&
-                           transaction.setRigidBodyCollision(handle, draft.group, draft.collisionMask) &&
-                           transaction.setRigidBodyMode(handle, draft.mode);
-                }, "剛体を更新");
+                const auto result = editRigidBody(session, handle, draft);
                 session.ui.status = result.success ? "剛体を更新しました" : result.message;
                 session.ui.rigidBodyDraft.reset();
                 ImGui::End();
@@ -1192,21 +1074,7 @@ void drawPhysicsPanel(DocumentSession &session) {
             ImGui::InputFloat3("移動ばね", draft.translationSpring.data());
             ImGui::InputFloat3("回転ばね", draft.rotationSpring.data());
             if (ImGui::Button("ジョイントを適用")) {
-                const auto result = applyTransaction(session, [&](auto &transaction) {
-                    if (draft.bodyA < 0 || draft.bodyB < 0 || static_cast<std::size_t>(draft.bodyA) >= model.rigidBodies.size() ||
-                        static_cast<std::size_t>(draft.bodyB) >= model.rigidBodies.size())
-                        return false;
-                    return transaction.setJointName(handle, draft.name) &&
-                           transaction.setJointEnglishName(handle, draft.englishName) &&
-                           transaction.setJointType(handle, draft.type) &&
-                           transaction.setJointBodies(handle,
-                                                      session.document.rigidBodyHandle(static_cast<std::size_t>(draft.bodyA)),
-                                                      session.document.rigidBodyHandle(static_cast<std::size_t>(draft.bodyB))) &&
-                           transaction.setJointTransform(handle, draft.position, draft.rotation) &&
-                           transaction.setJointLimits(handle, draft.translationMinimum, draft.translationMaximum,
-                                                      draft.rotationMinimum, draft.rotationMaximum) &&
-                           transaction.setJointSprings(handle, draft.translationSpring, draft.rotationSpring);
-                }, "ジョイントを更新");
+                const auto result = editJoint(session, handle, draft);
                 session.ui.status = result.success ? "ジョイントを更新しました" : result.message;
                 session.ui.jointDraft.reset();
                 ImGui::End();
@@ -1250,11 +1118,7 @@ void drawPhysicsPanel(DocumentSession &session) {
             ImGui::InputFloat3("材質設定", draft.materialConfig.data());
             ImGui::Text("アンカー %zu / 固定頂点 %zu", draft.anchors.size(), draft.pinnedVertices.size());
             if (ImGui::Button("ソフトボディを適用")) {
-                const auto result = applyTransaction(session, [&](auto &transaction) {
-                    return transaction.setSoftBodyName(handle, draft.name) &&
-                           transaction.setSoftBodyEnglishName(handle, draft.englishName) &&
-                           transaction.setSoftBody(handle, draft);
-                }, "ソフトボディを更新");
+                const auto result = editSoftBody(session, handle, draft);
                 session.ui.status = result.success ? "ソフトボディを更新しました" : result.message;
                 session.ui.softBodyDraft.reset();
                 ImGui::End();
