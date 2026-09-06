@@ -49,6 +49,8 @@ std::filesystem::path resolveUiFont(const std::filesystem::path &requested,
         "/usr/share/fonts/opentype/noto/NotoSansCJKjp-Regular.otf",
         "/usr/share/fonts/opentype/noto/NotoSansJP-Regular.otf",
         "/usr/share/fonts/truetype/noto/NotoSansJP-Regular.ttf",
+        "/usr/share/fonts/truetype/droid/DroidSansJapanese.ttf",
+        "/usr/share/fonts/droid/DroidSansJapanese.ttf",
         "C:/Windows/Fonts/msgothic.ttc",
         "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
     };

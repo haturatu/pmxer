@@ -27,5 +27,11 @@ int main() {
     assert(cli.options.json);
     assert(cli.options.profile == "preservation");
     assert(cli.options.operands.size() == 2);
+
+    char cliHelp[] = "--help";
+    char *helpArguments[] = {cliName, cliHelp};
+    const auto cliHelpResult = pmxer::parseCliArguments(2, helpArguments);
+    assert(cliHelpResult.error.empty());
+    assert(cliHelpResult.options.help);
     return 0;
 }

@@ -135,6 +135,11 @@ CliParseResult parseCliArguments(int argc, char *const argv[]) {
         return result;
     }
     result.options.command = argv[1] == nullptr ? std::string{} : argv[1];
+    if (result.options.command == "-h" || result.options.command == "--help") {
+        result.options.command = "help";
+        result.options.help = true;
+        return result;
+    }
     for (int index = 2; index < argc; ++index) {
         const std::string argument = argv[index] == nullptr ? std::string{} : argv[index];
         if (argument == "-h" || argument == "--help") {
