@@ -43,12 +43,18 @@ fi
 echo '55665c87824051ed4774ff3280a79ccbbb7d39243b9736ca5e98222134112d54  '"$compiler_archive" | sha256sum --check --status
 mkdir -p "$work_dir/compiler"
 tar -xf "$compiler_archive" -C "$work_dir/compiler"
+compiler_include=$(dirname "$(find "$work_dir/compiler" -type f -name dxcapi.h -print -quit)")
+compiler_library=$(find "$work_dir/compiler" -type f -name 'libdxcompiler.so*' -print -quit)
+validator_library=$(find "$work_dir/compiler" -type f -name 'libdxil.so*' -print -quit)
+test -n "$compiler_include" -a -n "$compiler_library" -a -n "$validator_library"
 
 clone_at https://github.com/libsdl-org/SDL_shadercross.git \
   1ff05bec573988a98ef9e0260b4da44f512b8367 "$work_dir/offline-compiler"
 cmake -S "$work_dir/offline-compiler" -B "$work_dir/offline-compiler-build" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$prefix_dir" \
-  -DDirectXShaderCompiler_ROOT="$work_dir/compiler" \
+  -DDirectXShaderCompiler_INCLUDE_PATH="$compiler_include" \
+  -DDirectXShaderCompiler_dxcompiler_LIBRARY="$compiler_library" \
+  -DDirectXShaderCompiler_dxil_LIBRARY="$validator_library" \
   -DSDLSHADERCROSS_DXC=ON -DSDLSHADERCROSS_VENDORED=OFF \
   -DSDLSHADERCROSS_SHARED=OFF -DSDLSHADERCROSS_STATIC=ON \
   -DSDLSHADERCROSS_SPIRVCROSS_SHARED=OFF -DSDLSHADERCROSS_CLI=ON \
@@ -57,7 +63,8 @@ cmake --build "$work_dir/offline-compiler-build" --target shadercross
 
 tool=$(find "$work_dir/offline-compiler-build" -type f -name shadercross -perm -111 -print -quit)
 test -n "$tool"
-export LD_LIBRARY_PATH="$work_dir/compiler/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+compiler_library_dir=$(dirname "$compiler_library")
+export LD_LIBRARY_PATH="$compiler_library_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 for stage in vertex fragment; do
   entry=mainVS
   suffix=vert
