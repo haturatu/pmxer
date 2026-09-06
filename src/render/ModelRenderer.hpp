@@ -23,6 +23,16 @@ struct RenderStatistics {
     std::size_t bones{};
 };
 
+struct GpuModelState {
+    std::uint64_t vertexBuffer{};
+    std::uint64_t indexBuffer{};
+    std::uint64_t materialBuffer{};
+    std::uint64_t boneBuffer{};
+    std::uint64_t morphBuffer{};
+    std::size_t dirtyVertexBegin{};
+    std::size_t dirtyVertexEnd{};
+};
+
 class ModelRenderer {
   public:
     void setModel(const mmd::PmxModel &model);
@@ -30,12 +40,13 @@ class ModelRenderer {
     void setFrame(const mmd::AnimatedModelFrame *frame) noexcept;
     [[nodiscard]] RenderStatistics statistics() const noexcept;
     [[nodiscard]] bool hasModel() const noexcept;
+    [[nodiscard]] const GpuModelState &resources() const noexcept;
 
   private:
     const mmd::PmxModel *model_{};
     const mmd::AnimatedModelFrame *frame_{};
     RenderInvalidation invalidation_;
+    GpuModelState resources_;
 };
 
 } // namespace pmxer
-

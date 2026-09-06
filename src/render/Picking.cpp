@@ -20,5 +20,16 @@ void PickingTable::clear() noexcept {
     next_ = 1;
 }
 
-} // namespace pmxer
+std::uint32_t encodePickingId(SelectionKind kind, std::uint32_t value) noexcept {
+    return (static_cast<std::uint32_t>(kind) << 28U) | (value & 0x0fffffffU);
+}
 
+SelectionKind decodePickingKind(std::uint32_t id) noexcept {
+    return static_cast<SelectionKind>((id >> 28U) & 0x0fU);
+}
+
+std::uint32_t decodePickingValue(std::uint32_t id) noexcept {
+    return id & 0x0fffffffU;
+}
+
+} // namespace pmxer

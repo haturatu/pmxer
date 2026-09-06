@@ -28,6 +28,27 @@ bool addGroupMorphOffset(DocumentSession &session, mmd::MorphHandle handle, mmd:
     }, "グループモーフオフセットを追加").success;
 }
 
+bool addUvMorphOffset(DocumentSession &session, mmd::MorphHandle handle, mmd::VertexHandle vertex, std::uint32_t channel,
+                      mmd::Float4 value) {
+    return applyTransaction(session, [&](auto &transaction) {
+        return transaction.addUvMorphOffset(handle, vertex, channel, value);
+    }, "UVモーフオフセットを追加").success;
+}
+
+bool addMaterialMorphOffset(DocumentSession &session, mmd::MorphHandle handle,
+                            std::optional<mmd::MaterialHandle> material, std::uint8_t operation,
+                            std::array<mmd::Float4, 8> values) {
+    return applyTransaction(session, [&](auto &transaction) {
+        return transaction.addMaterialMorphOffset(handle, material, operation, values);
+    }, "材質モーフオフセットを追加").success;
+}
+
+bool addFlipMorphOffset(DocumentSession &session, mmd::MorphHandle handle, mmd::MorphHandle target, float weight) {
+    return applyTransaction(session, [&](auto &transaction) {
+        return transaction.addFlipMorphOffset(handle, target, weight);
+    }, "フリップモーフオフセットを追加").success;
+}
+
 bool addImpulseMorphOffset(DocumentSession &session, mmd::MorphHandle handle, mmd::RigidBodyHandle body,
                            mmd::Float3 velocity, mmd::Float3 torque, bool local) {
     return applyTransaction(session, [&](auto &transaction) {

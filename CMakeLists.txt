@@ -60,6 +60,7 @@ add_library(pmxer_editor
   src/editor/tools/BoneTool.cpp
   src/editor/tools/VertexTool.cpp
   src/editor/tools/ModelMergeTool.cpp
+  src/editor/tools/TextureTool.cpp
 )
 target_include_directories(pmxer_editor PUBLIC src)
 target_link_libraries(pmxer_editor PUBLIC mmd::core pmxer_platform)

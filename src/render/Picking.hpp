@@ -19,5 +19,8 @@ class PickingTable {
     std::unordered_map<std::uint32_t, SelectionItem> values_;
 };
 
-} // namespace pmxer
+[[nodiscard]] std::uint32_t encodePickingId(SelectionKind kind, std::uint32_t value) noexcept;
+[[nodiscard]] SelectionKind decodePickingKind(std::uint32_t id) noexcept;
+[[nodiscard]] std::uint32_t decodePickingValue(std::uint32_t id) noexcept;
 
+} // namespace pmxer

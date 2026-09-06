@@ -5,6 +5,8 @@ namespace pmxer {
 void ModelRenderer::setModel(const mmd::PmxModel &model) {
     model_ = &model;
     invalidation_ = {true, true, true, true, true, true};
+    resources_.dirtyVertexBegin = 0;
+    resources_.dirtyVertexEnd = model.vertices.size();
 }
 
 void ModelRenderer::invalidate(RenderInvalidation invalidation) noexcept {
@@ -30,5 +32,8 @@ bool ModelRenderer::hasModel() const noexcept {
     return model_ != nullptr;
 }
 
-} // namespace pmxer
+const GpuModelState &ModelRenderer::resources() const noexcept {
+    return resources_;
+}
 
+} // namespace pmxer

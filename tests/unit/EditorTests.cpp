@@ -67,6 +67,31 @@ int main() {
     assert(vertexResult.committed);
     assert(!vertexResult.changes.vertices.empty());
 
+    auto structure = session.document.transaction();
+    mmd::PmxMorph morph;
+    morph.name = "vertex_morph";
+    morph.type = 1;
+    const auto morphHandle = structure.addMorph(morph);
+    assert(morphHandle);
+    assert(structure.addVertexMorphOffset(morphHandle, handle, {0.1F, 0.0F, 0.0F}));
+    const auto frameHandle = structure.addDisplayFrame({});
+    assert(frameHandle);
+    assert(structure.addDisplayFrameItem(frameHandle, boneHandle));
+    mmd::PmxRigidBody bodyA;
+    bodyA.name = "body_a";
+    mmd::PmxRigidBody bodyB;
+    bodyB.name = "body_b";
+    const auto bodyHandleA = structure.addRigidBody(bodyA);
+    const auto bodyHandleB = structure.addRigidBody(bodyB);
+    assert(bodyHandleA && bodyHandleB);
+    mmd::PmxJoint joint;
+    joint.name = "joint";
+    const auto jointHandle = structure.addJoint({joint, bodyHandleA, bodyHandleB});
+    assert(jointHandle);
+    const auto structureResult = structure.commit();
+    assert(structureResult.committed);
+    assert(structureResult.changes.topologyChanged);
+
     pmxer::PickingTable picking;
     const pmxer::SelectionItem item{pmxer::SelectionKind::vertex, handle.id, handle.generation};
     const auto id = picking.assign(item);
