@@ -18,6 +18,7 @@ struct EditorUiState {
     std::size_t materialIndex{};
     std::size_t textureIndex{};
     std::size_t boneIndex{};
+    std::size_t boneIkLinkIndex{};
     std::size_t morphIndex{};
     std::size_t morphOffsetIndex{};
     std::size_t displayFrameIndex{};

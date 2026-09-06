@@ -402,6 +402,10 @@ void drawVertexPanel(DocumentSession &session) {
     ImGui::InputFloat3("位置", draft.position.data());
     ImGui::InputFloat3("法線", draft.normal.data());
     ImGui::InputFloat2("UV", draft.uv.data());
+    for (std::size_t channel = 0; channel < std::min<std::size_t>(model.metadata.additionalUvCount, 4); ++channel) {
+        const auto label = "追加UV " + std::to_string(channel);
+        ImGui::InputFloat4(label.c_str(), draft.additionalUv[channel].data());
+    }
     ImGui::InputFloat("エッジ倍率", &draft.edgeScale);
     if (ImGui::BeginCombo("方式", weightName(draft.weightType))) {
         const std::array types{mmd::PmxWeightType::bdef1, mmd::PmxWeightType::bdef2, mmd::PmxWeightType::bdef4,
@@ -477,6 +481,13 @@ void drawMaterialPanel(DocumentSession &session) {
     chooseTexture("テクスチャ", model, draft.textureIndex);
     chooseTexture("球テクスチャ", model, draft.sphereTextureIndex);
     chooseTexture("トゥーン", model, draft.toonTextureIndex);
+    int sphereMode = draft.sphereMode;
+    int toonMode = draft.toonMode;
+    ImGui::InputInt("球モード", &sphereMode);
+    ImGui::InputInt("トゥーンモード", &toonMode);
+    draft.sphereMode = static_cast<std::uint8_t>(std::clamp(sphereMode, 0, 3));
+    draft.toonMode = static_cast<std::uint8_t>(std::clamp(toonMode, 0, 1));
+    inputString("メモ", draft.memo);
     int flags = draft.drawFlags;
     ImGui::InputInt("描画フラグ", &flags);
     draft.drawFlags = static_cast<std::uint8_t>(std::clamp(flags, 0, 255));
@@ -550,16 +561,33 @@ void drawBonePanel(DocumentSession &session) {
     chooseBone("親", model, draft.parent);
     if ((draft.flags & 1U) != 0)
         chooseBone("末端", model, draft.tailBone);
+    else
+        ImGui::InputFloat3("末端オフセット", draft.tailOffset.data());
     if ((draft.flags & 0x0300U) != 0) {
         chooseBone("付与元", model, draft.inheritParent);
         ImGui::InputFloat("付与率", &draft.inheritRatio);
     }
+    ImGui::InputFloat3("固定軸", draft.fixedAxis.data());
+    ImGui::InputFloat3("ローカルX軸", draft.localAxisX.data());
+    ImGui::InputFloat3("ローカルZ軸", draft.localAxisZ.data());
+    ImGui::InputInt("外部親キー", &draft.externalParentKey);
     if ((draft.flags & 0x0020U) != 0) {
         chooseBone("IK対象", model, draft.ikTarget);
         ImGui::InputInt("IK回数", &draft.ikLoopCount);
         ImGui::InputFloat("IK角度", &draft.ikLimitAngle);
         ImGui::Text("IKリンク: %zu", draft.ikLinks.size());
+        if (!draft.ikLinks.empty()) {
+            selectIndex("IKリンク番号", draft.ikLinks.size(), session.ui.boneIkLinkIndex);
+            auto &link = draft.ikLinks[session.ui.boneIkLinkIndex];
+            chooseBone("IKリンク先", model, link.bone, false);
+            ImGui::Checkbox("可動範囲制限", &link.limited);
+            if (link.limited) {
+                ImGui::InputFloat3("IK下限", link.minimum.data());
+                ImGui::InputFloat3("IK上限", link.maximum.data());
+            }
+        }
     }
+    const bool hasIk = (draft.flags & 0x0020U) != 0;
     if (ImGui::Button("適用")) {
         const auto result = applyTransaction(session, [&](auto &transaction) {
             const auto parent = draft.parent >= 0 && static_cast<std::size_t>(draft.parent) < model.bones.size()
@@ -572,20 +600,56 @@ void drawBonePanel(DocumentSession &session) {
             if (draft.tailBone >= 0 && static_cast<std::size_t>(draft.tailBone) < model.bones.size() &&
                 !transaction.setBoneTailBone(handle, session.document.boneHandle(static_cast<std::size_t>(draft.tailBone))))
                 return false;
+            if ((draft.flags & 1U) == 0 && !transaction.setBoneTailOffset(handle, draft.tailOffset))
+                return false;
             if ((draft.flags & 0x0300U) != 0 &&
                 !transaction.setBoneInheritParent(handle, draft.inheritParent >= 0
                                                              ? std::optional{session.document.boneHandle(static_cast<std::size_t>(draft.inheritParent))}
                                                              : std::nullopt))
+                return false;
+            if (!transaction.setBoneInheritRatio(handle, draft.inheritRatio) ||
+                !transaction.setBoneFixedAxis(handle, draft.fixedAxis) ||
+                !transaction.setBoneLocalAxes(handle, draft.localAxisX, draft.localAxisZ) ||
+                !transaction.setBoneExternalParentKey(handle, draft.externalParentKey))
                 return false;
             if ((draft.flags & 0x0020U) != 0 &&
                 !transaction.setBoneIkTarget(handle, draft.ikTarget >= 0
                                                        ? std::optional{session.document.boneHandle(static_cast<std::size_t>(draft.ikTarget))}
                                                        : std::nullopt))
                 return false;
-            return transaction.setBoneIkLimits(handle, draft.ikLoopCount, draft.ikLimitAngle);
+            if (!transaction.setBoneIkLimits(handle, draft.ikLoopCount, draft.ikLimitAngle))
+                return false;
+            for (std::size_t index = 0; index < draft.ikLinks.size(); ++index)
+                if (!transaction.setBoneIkLink(handle, index, draft.ikLinks[index]))
+                    return false;
+            return true;
         }, "ボーンを更新");
         session.ui.status = result.success ? "ボーンを更新しました" : result.message;
         session.ui.boneDraft.reset();
+    }
+    if (hasIk) {
+        if (ImGui::Button("IKリンク追加")) {
+            const auto result = applyTransaction(session, [&](auto &transaction) {
+                return transaction.addBoneIkLink(handle, mmd::PmxIkLink{});
+            }, "IKリンクを追加");
+            session.ui.status = result.success ? "IKリンクを追加しました" : result.message;
+            session.ui.boneDraft.reset();
+            ImGui::End();
+            return;
+        }
+        if (!draft.ikLinks.empty()) {
+            ImGui::SameLine();
+            if (ImGui::Button("IKリンク削除")) {
+                const auto result = applyTransaction(session, [&](auto &transaction) {
+                    return transaction.eraseBoneIkLink(handle, session.ui.boneIkLinkIndex);
+                }, "IKリンクを削除");
+                session.ui.status = result.success ? "IKリンクを削除しました" : result.message;
+                session.ui.boneIkLinkIndex = 0;
+                session.ui.boneDraft.reset();
+                ImGui::End();
+                return;
+            }
+        }
     }
     ImGui::SameLine();
     if (ImGui::Button("←") && session.ui.boneIndex > 0) {
