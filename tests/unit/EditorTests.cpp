@@ -193,9 +193,14 @@ int main() {
     assert(structureResult.changes.topologyChanged);
 
     pmxer::PickingTable picking;
-    const pmxer::SelectionItem item{pmxer::SelectionKind::vertex, handle.id, handle.generation};
+    const pmxer::SelectionItem item{
+        pmxer::SelectionKind::vertex, handle.domain, handle.id, handle.generation};
     const auto id = picking.assign(item);
     assert(picking.resolve(id).value() == item);
+    const auto restored = pmxer::selectionHandle<mmd::VertexTag>(session.document, item);
+    assert(restored == handle);
+    assert(session.document.resolve(restored) != nullptr);
+    assert(!pmxer::selectionHandle<mmd::VertexTag>(otherSession.document, item));
 
     const auto path = std::filesystem::temp_directory_path() / "pmxer-editor-test.pmx";
     session.path = path;

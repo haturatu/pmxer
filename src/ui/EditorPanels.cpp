@@ -251,7 +251,7 @@ std::vector<mmd::VertexHandle> selectedVertices(const DocumentSession &session, 
     for (const auto &item : session.selection.items()) {
         if (item.kind != SelectionKind::vertex)
             continue;
-        const mmd::VertexHandle handle{item.id, item.generation};
+        const auto handle = selectionHandle<mmd::VertexTag>(session.document, item);
         if (session.document.resolve(handle) != nullptr)
             result.push_back(handle);
     }
@@ -639,7 +639,7 @@ void drawTexturePanel(DocumentSession &session) {
     ImGui::Begin("テクスチャ");
     if (selectIndex("番号", model.textures.size(), session.ui.textureIndex)) {
         const auto handle = session.document.textureHandle(session.ui.textureIndex);
-        session.selection.set({SelectionKind::texture, handle.id, handle.generation});
+        session.selection.set({SelectionKind::texture, handle.domain, handle.id, handle.generation});
     }
     if (!model.textures.empty()) {
         const auto texture = session.document.textureHandle(session.ui.textureIndex);
@@ -1135,7 +1135,8 @@ void drawDiagnosticsPanel(DocumentSession &session) {
             ImGui::SameLine();
             const auto button = "選択##診断" + std::to_string(index);
             if (ImGui::SmallButton(button.c_str()))
-                session.selection.set({*selectable, issue.location.id, issue.location.generation});
+                session.selection.set(
+                    {*selectable, session.document.domain(), issue.location.id, issue.location.generation});
         }
         }
         if (session.derived.diagnostics.issues.empty())
@@ -1154,11 +1155,13 @@ void drawReferencePanel(DocumentSession &session) {
         ImGui::Text("選択 ID: %llu", static_cast<unsigned long long>(selected.id));
         ImGui::Text("世代: %u", selected.generation);
         if (selected.kind == SelectionKind::bone && !model.bones.empty()) {
-            const auto handle = session.document.boneHandle(std::min(session.ui.boneIndex, model.bones.size() - 1));
-            const auto summary = summarizeReferences(session.document, handle);
-            ImGui::Text("頂点 %zu / 子ボーン %zu / IK %zu / モーフ %zu / 表示枠 %zu / 剛体 %zu",
-                        summary.vertices, summary.childBones, summary.ikLinks, summary.morphs, summary.displayFrames,
-                        summary.rigidBodies);
+            const auto handle = selectionHandle<mmd::BoneTag>(session.document, selected);
+            if (session.document.resolve(handle) != nullptr) {
+                const auto summary = summarizeReferences(session.document, handle);
+                ImGui::Text("頂点 %zu / 子ボーン %zu / IK %zu / モーフ %zu / 表示枠 %zu / 剛体 %zu",
+                            summary.vertices, summary.childBones, summary.ikLinks, summary.morphs,
+                            summary.displayFrames, summary.rigidBodies);
+            }
         }
     }
     ImGui::Text("頂点 %zu / 材質 %zu / ボーン %zu / モーフ %zu", model.vertices.size(), model.materials.size(),

@@ -22,10 +22,19 @@ enum class SelectionKind : std::uint8_t {
 
 struct SelectionItem {
     SelectionKind kind{};
+    std::uint64_t domain{};
     std::uint64_t id{};
     std::uint32_t generation{};
     auto operator<=>(const SelectionItem &) const = default;
 };
+
+template <typename Tag>
+[[nodiscard]] mmd::PmxHandle<Tag> selectionHandle(const mmd::PmxDocument &document,
+                                                   const SelectionItem &item) noexcept {
+    if (item.domain != document.domain())
+        return {};
+    return {item.domain, item.id, item.generation};
+}
 
 class SelectionState {
   public:
@@ -41,4 +50,3 @@ class SelectionState {
 };
 
 } // namespace pmxer
-

@@ -134,7 +134,8 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         const auto selected = session.selection.items().front();
         for (std::size_t i = 0; i < model.vertices.size(); ++i) {
             const auto handle = session.document.vertexHandle(i);
-            if (handle.id != selected.id || handle.generation != selected.generation ||
+            if (handle.domain != selected.domain || handle.id != selected.id ||
+                handle.generation != selected.generation ||
                 model.vertices[i].weightType != mmd::PmxWeightType::sdef)
                 continue;
             for (const auto &[value, color, radius] :
@@ -151,7 +152,8 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         const auto selected = session.selection.items().front();
         for (std::size_t i = 0; i < model.morphs.size(); ++i) {
             const auto handle = session.document.morphHandle(i);
-            if (handle.id != selected.id || handle.generation != selected.generation)
+            if (handle.domain != selected.domain || handle.id != selected.id ||
+                handle.generation != selected.generation)
                 continue;
             const auto &morph = model.morphs[i];
             if (morph.type != 1 && (morph.type < 3 || morph.type > 7))
@@ -185,7 +187,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         }
         if (distanceSquared <= 18.0F * 18.0F) {
             const auto item = session.document.vertexHandle(closest);
-            const SelectionItem value{SelectionKind::vertex, item.id, item.generation};
+            const SelectionItem value{SelectionKind::vertex, item.domain, item.id, item.generation};
             if (ImGui::GetIO().KeyCtrl)
                 session.selection.add(value);
             else
