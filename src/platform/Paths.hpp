@@ -6,6 +6,8 @@
 namespace pmxer {
 
 [[nodiscard]] std::filesystem::path recoveryDirectory();
+[[nodiscard]] std::filesystem::path configurationDirectory();
+[[nodiscard]] std::filesystem::path workspaceLayoutPath();
 [[nodiscard]] std::filesystem::path recoveryPath(const std::filesystem::path &source);
 [[nodiscard]] std::filesystem::path recoveryPath(const std::filesystem::path &source, std::string_view recoveryId);
 

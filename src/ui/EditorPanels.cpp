@@ -297,7 +297,7 @@ std::optional<SelectionKind> toSelectionKind(mmd::ReferenceObjectKind kind) {
     return std::nullopt;
 }
 
-void drawModelPanel(DocumentSession &session, FileDialog &fileDialog) {
+void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open) {
     const auto &model = session.document.model();
     const auto replaceDocument = [&](const std::filesystem::path &path) {
         try {
@@ -311,7 +311,10 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog) {
             return false;
         }
     };
-    ImGui::Begin("モデル");
+    if (!ImGui::Begin("モデル", open)) {
+        ImGui::End();
+        return;
+    }
     if (session.recoveryModel && !session.recoveryPromptOpened) {
         ImGui::OpenPopup("回復情報##model");
         session.recoveryPromptOpened = true;
@@ -483,7 +486,16 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog) {
         ImGui::TextWrapped("状態: %s", session.ui.status.c_str());
     ImGui::Text("変更済み: %s / Undo %zu / Redo %zu", session.modified ? "はい" : "いいえ",
                 session.commands.undoCount(), session.commands.redoCount());
-    if (ImGui::Begin("差分")) {
+    const auto recipes = inspectStandardBones(model);
+    ImGui::Text("準標準骨格: %zu / 不足 %zu", recipes.available, recipes.missing);
+    if (ImGui::Button("不足骨格を追加") && recipes.missing != 0) {
+        session.ui.status = applyStandardBones(session, standardBoneRecipes()) ? "骨格を追加しました" : "骨格追加に失敗しました";
+    }
+    ImGui::End();
+}
+
+void drawDiffPanel(DocumentSession &session, bool *open) {
+    if (ImGui::Begin("差分", open)) {
         if (session.derived.diffRevision != session.revision) {
             session.derived.diff = compareWithBaseline(session);
             session.derived.diffRevision = session.revision;
@@ -495,17 +507,14 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog) {
             ImGui::TextUnformatted("差分はありません");
     }
     ImGui::End();
-    const auto recipes = inspectStandardBones(model);
-    ImGui::Text("準標準骨格: %zu / 不足 %zu", recipes.available, recipes.missing);
-    if (ImGui::Button("不足骨格を追加") && recipes.missing != 0) {
-        session.ui.status = applyStandardBones(session, standardBoneRecipes()) ? "骨格を追加しました" : "骨格追加に失敗しました";
-    }
-    ImGui::End();
 }
 
-void drawVertexPanel(DocumentSession &session) {
+void drawVertexPanel(DocumentSession &session, bool *open) {
     const auto &model = session.document.model();
-    ImGui::Begin("頂点");
+    if (!ImGui::Begin("頂点", open)) {
+        ImGui::End();
+        return;
+    }
     if (selectIndex("番号", model.vertices.size(), session.ui.vertexIndex))
         session.ui.vertexDraft.reset();
     if (model.vertices.empty()) {
@@ -581,9 +590,12 @@ void drawVertexPanel(DocumentSession &session) {
     ImGui::End();
 }
 
-void drawMaterialPanel(DocumentSession &session) {
+void drawMaterialPanel(DocumentSession &session, bool *open) {
     const auto &model = session.document.model();
-    ImGui::Begin("材質");
+    if (!ImGui::Begin("材質", open)) {
+        ImGui::End();
+        return;
+    }
     if (selectIndex("番号", model.materials.size(), session.ui.materialIndex))
         session.ui.materialDraft.reset();
     if (model.materials.empty()) {
@@ -634,9 +646,12 @@ void drawMaterialPanel(DocumentSession &session) {
     ImGui::End();
 }
 
-void drawTexturePanel(DocumentSession &session) {
+void drawTexturePanel(DocumentSession &session, bool *open) {
     const auto &model = session.document.model();
-    ImGui::Begin("テクスチャ");
+    if (!ImGui::Begin("テクスチャ", open)) {
+        ImGui::End();
+        return;
+    }
     if (selectIndex("番号", model.textures.size(), session.ui.textureIndex)) {
         const auto handle = session.document.textureHandle(session.ui.textureIndex);
         session.selection.set({SelectionKind::texture, handle.domain, handle.id, handle.generation});
@@ -660,9 +675,12 @@ void drawTexturePanel(DocumentSession &session) {
     ImGui::End();
 }
 
-void drawBonePanel(DocumentSession &session) {
+void drawBonePanel(DocumentSession &session, bool *open) {
     const auto &model = session.document.model();
-    ImGui::Begin("ボーン");
+    if (!ImGui::Begin("ボーン", open)) {
+        ImGui::End();
+        return;
+    }
     if (selectIndex("番号", model.bones.size(), session.ui.boneIndex))
         session.ui.boneDraft.reset();
     if (model.bones.empty()) {
@@ -751,9 +769,12 @@ void drawBonePanel(DocumentSession &session) {
     ImGui::End();
 }
 
-void drawMorphPanel(DocumentSession &session) {
+void drawMorphPanel(DocumentSession &session, bool *open) {
     const auto &model = session.document.model();
-    ImGui::Begin("モーフ");
+    if (!ImGui::Begin("モーフ", open)) {
+        ImGui::End();
+        return;
+    }
     if (selectIndex("番号", model.morphs.size(), session.ui.morphIndex)) {
         session.ui.morphDraft.reset();
         session.ui.morphOffsetIndex = 0;
@@ -890,9 +911,12 @@ void drawMorphPanel(DocumentSession &session) {
     ImGui::End();
 }
 
-void drawDisplayFramePanel(DocumentSession &session) {
+void drawDisplayFramePanel(DocumentSession &session, bool *open) {
     const auto &model = session.document.model();
-    ImGui::Begin("表示枠");
+    if (!ImGui::Begin("表示枠", open)) {
+        ImGui::End();
+        return;
+    }
     if (selectIndex("番号", model.displayFrames.size(), session.ui.displayFrameIndex)) {
         session.ui.displayFrameDraft.reset();
         session.ui.displayItemIndex = 0;
@@ -988,9 +1012,12 @@ void drawDisplayFramePanel(DocumentSession &session) {
     ImGui::End();
 }
 
-void drawPhysicsPanel(DocumentSession &session) {
+void drawPhysicsPanel(DocumentSession &session, bool *open) {
     const auto &model = session.document.model();
-    ImGui::Begin("物理");
+    if (!ImGui::Begin("物理", open)) {
+        ImGui::End();
+        return;
+    }
     ImGui::Checkbox("物理プレビュー", &session.previewPhysics);
     ImGui::Checkbox("IKプレビュー", &session.previewIk);
     const auto status = physicsPreviewStatus(model);
@@ -1120,8 +1147,8 @@ void drawPhysicsPanel(DocumentSession &session) {
     ImGui::End();
 }
 
-void drawDiagnosticsPanel(DocumentSession &session) {
-    if (ImGui::Begin("診断")) {
+void drawDiagnosticsPanel(DocumentSession &session, bool *open) {
+    if (ImGui::Begin("診断", open)) {
         if (session.derived.diagnosticsRevision != session.revision) {
             session.derived.diagnostics = validateForEditing(session.document.model());
             session.derived.diagnosticsRevision = session.revision;
@@ -1145,8 +1172,11 @@ void drawDiagnosticsPanel(DocumentSession &session) {
     ImGui::End();
 }
 
-void drawReferencePanel(DocumentSession &session) {
-    ImGui::Begin("参照");
+void drawReferencePanel(DocumentSession &session, bool *open) {
+    if (!ImGui::Begin("参照", open)) {
+        ImGui::End();
+        return;
+    }
     const auto &model = session.document.model();
     if (session.selection.items().empty()) {
         ImGui::TextUnformatted("ビューポートまたは各編集欄で対象を選択してください");
@@ -1171,14 +1201,17 @@ void drawReferencePanel(DocumentSession &session) {
 
 } // namespace
 
-void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog) {
+void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog, WorkspaceUiState &workspace) {
     if (session.modified) {
         const auto now = std::chrono::steady_clock::now();
         if (now - session.lastRecovery >= std::chrono::seconds(30) && writeRecovery(session).success)
             session.lastRecovery = now;
     }
     auto &preview = updatePreview(session);
-    drawViewportPanel(session, preview.frame ? &*preview.frame : nullptr);
+    if (workspace.showViewport)
+        drawViewportPanel(session, preview.frame ? &*preview.frame : nullptr, &workspace.showViewport);
+    else
+        session.ui.viewportVisible = false;
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("編集")) {
             if (ImGui::MenuItem("元に戻す", "Ctrl+Z", false, session.commands.undoCount() != 0))
@@ -1190,20 +1223,52 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog) {
         if (ImGui::BeginMenu("表示")) {
             ImGui::MenuItem("物理プレビュー", nullptr, &session.previewPhysics);
             ImGui::MenuItem("IKプレビュー", nullptr, &session.previewIk);
+            if (ImGui::BeginMenu("パネル")) {
+                ImGui::MenuItem("ドキュメント", nullptr, &workspace.showDocuments);
+                ImGui::MenuItem("ビューポート", nullptr, &workspace.showViewport);
+                ImGui::MenuItem("モデル", nullptr, &workspace.showModel);
+                ImGui::MenuItem("頂点", nullptr, &workspace.showVertex);
+                ImGui::MenuItem("材質", nullptr, &workspace.showMaterial);
+                ImGui::MenuItem("テクスチャ", nullptr, &workspace.showTexture);
+                ImGui::MenuItem("ボーン", nullptr, &workspace.showBone);
+                ImGui::MenuItem("モーフ", nullptr, &workspace.showMorph);
+                ImGui::MenuItem("表示枠", nullptr, &workspace.showDisplayFrame);
+                ImGui::MenuItem("物理", nullptr, &workspace.showPhysics);
+                ImGui::MenuItem("診断", nullptr, &workspace.showDiagnostics);
+                ImGui::MenuItem("参照", nullptr, &workspace.showReferences);
+                ImGui::MenuItem("差分", nullptr, &workspace.showDiff);
+                ImGui::EndMenu();
+            }
+            if (ImGui::MenuItem("レイアウトをリセット")) {
+                workspace.showAll();
+                workspace.resetLayout = true;
+            }
             ImGui::EndMenu();
         }
         ImGui::EndMainMenuBar();
     }
-    drawModelPanel(session, fileDialog);
-    drawVertexPanel(session);
-    drawMaterialPanel(session);
-    drawTexturePanel(session);
-    drawBonePanel(session);
-    drawMorphPanel(session);
-    drawDisplayFramePanel(session);
-    drawPhysicsPanel(session);
-    drawDiagnosticsPanel(session);
-    drawReferencePanel(session);
+    if (workspace.showModel)
+        drawModelPanel(session, fileDialog, &workspace.showModel);
+    if (workspace.showVertex)
+        drawVertexPanel(session, &workspace.showVertex);
+    if (workspace.showMaterial)
+        drawMaterialPanel(session, &workspace.showMaterial);
+    if (workspace.showTexture)
+        drawTexturePanel(session, &workspace.showTexture);
+    if (workspace.showBone)
+        drawBonePanel(session, &workspace.showBone);
+    if (workspace.showMorph)
+        drawMorphPanel(session, &workspace.showMorph);
+    if (workspace.showDisplayFrame)
+        drawDisplayFramePanel(session, &workspace.showDisplayFrame);
+    if (workspace.showPhysics)
+        drawPhysicsPanel(session, &workspace.showPhysics);
+    if (workspace.showDiagnostics)
+        drawDiagnosticsPanel(session, &workspace.showDiagnostics);
+    if (workspace.showReferences)
+        drawReferencePanel(session, &workspace.showReferences);
+    if (workspace.showDiff)
+        drawDiffPanel(session, &workspace.showDiff);
 }
 
 } // namespace pmxer

@@ -35,9 +35,12 @@ ImVec2 project(const mmd::PmxVertex &vertex, const Bounds &bounds, ImVec2 origin
 
 } // namespace
 
-void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *frame) {
+void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *frame, bool *open) {
     session.ui.viewportVisible = false;
-    ImGui::Begin("ビューポート", nullptr, ImGuiWindowFlags_NoBackground);
+    if (!ImGui::Begin("ビューポート", open, ImGuiWindowFlags_NoBackground)) {
+        ImGui::End();
+        return;
+    }
     const auto available = ImGui::GetContentRegionAvail();
     if (available.x < 10.0F || available.y < 10.0F) {
         ImGui::End();

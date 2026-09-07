@@ -33,6 +33,31 @@ std::filesystem::path recoveryDirectory() {
     return root / "pmxer" / "recovery";
 }
 
+std::filesystem::path configurationDirectory() {
+#ifdef _WIN32
+    auto root = environmentPath("APPDATA");
+    if (root.empty())
+        root = environmentPath("LOCALAPPDATA");
+#elif defined(__APPLE__)
+    const auto home = environmentPath("HOME");
+    auto root = home.empty() ? std::filesystem::path{} : home / "Library" / "Application Support";
+#else
+    auto root = environmentPath("XDG_CONFIG_HOME");
+    if (root.empty()) {
+        const auto home = environmentPath("HOME");
+        if (!home.empty())
+            root = home / ".config";
+    }
+#endif
+    if (root.empty())
+        root = std::filesystem::temp_directory_path();
+    return root / "pmxer";
+}
+
+std::filesystem::path workspaceLayoutPath() {
+    return configurationDirectory() / "workspace.ini";
+}
+
 std::filesystem::path recoveryPath(const std::filesystem::path &source) {
     return recoveryPath(source, {});
 }

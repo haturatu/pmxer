@@ -6,6 +6,7 @@
 
 namespace pmxer {
 
-void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *frame = nullptr);
+void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *frame = nullptr,
+                       bool *open = nullptr);
 
 } // namespace pmxer

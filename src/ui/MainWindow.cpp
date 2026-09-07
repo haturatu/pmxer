@@ -3,6 +3,7 @@
 #include "../editor/DocumentSession.hpp"
 #include "../editor/RecoveryController.hpp"
 #include "../editor/SaveController.hpp"
+#include "../platform/AtomicFile.hpp"
 #include "../platform/Log.hpp"
 #include "../platform/Paths.hpp"
 #include "../platform/ResourceLocator.hpp"
@@ -13,6 +14,8 @@
 #include <array>
 #include <cstddef>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
@@ -25,10 +28,73 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_sdlgpu3.h>
 
 namespace pmxer {
+namespace {
+
+void buildDefaultDockLayout(ImGuiID dockspaceId) {
+    const auto *viewport = ImGui::GetMainViewport();
+    ImGui::DockBuilderRemoveNode(dockspaceId);
+    ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
+    ImGui::DockBuilderSetNodePos(dockspaceId, viewport->WorkPos);
+    ImGui::DockBuilderSetNodeSize(dockspaceId, viewport->WorkSize);
+
+    ImGuiID center = dockspaceId;
+    const auto left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.20F, nullptr, &center);
+    const auto right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.28F, nullptr, &center);
+    const auto bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.22F, nullptr, &center);
+
+    ImGui::DockBuilderDockWindow("ビューポート", center);
+    ImGui::DockBuilderDockWindow("ドキュメント", left);
+    ImGui::DockBuilderDockWindow("モデル", left);
+    ImGui::DockBuilderDockWindow("頂点", right);
+    ImGui::DockBuilderDockWindow("材質", right);
+    ImGui::DockBuilderDockWindow("テクスチャ", right);
+    ImGui::DockBuilderDockWindow("ボーン", right);
+    ImGui::DockBuilderDockWindow("モーフ", right);
+    ImGui::DockBuilderDockWindow("表示枠", right);
+    ImGui::DockBuilderDockWindow("物理", right);
+    ImGui::DockBuilderDockWindow("診断", bottom);
+    ImGui::DockBuilderDockWindow("参照", bottom);
+    ImGui::DockBuilderDockWindow("差分", bottom);
+    ImGui::DockBuilderFinish(dockspaceId);
+}
+
+bool loadWorkspaceLayout(const std::filesystem::path &path) {
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream)
+        return false;
+    const std::string contents((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+    if (contents.empty())
+        return false;
+    ImGui::LoadIniSettingsFromMemory(contents.data(), contents.size());
+    return true;
+}
+
+bool saveWorkspaceLayout(const std::filesystem::path &path) {
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    if (error)
+        return false;
+    std::size_t size{};
+    const auto *contents = ImGui::SaveIniSettingsToMemory(&size);
+    const auto temporary = temporarySibling(path);
+    std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
+    if (!stream)
+        return false;
+    stream.write(contents, static_cast<std::streamsize>(size));
+    stream.close();
+    if (!stream || !atomicReplace(temporary, path)) {
+        std::filesystem::remove(temporary, error);
+        return false;
+    }
+    return true;
+}
+
+} // namespace
 
 int runApplication(const EditCommand &options) {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -57,7 +123,6 @@ int runApplication(const EditCommand &options) {
         SDL_Quit();
         return 1;
     }
-
     const auto releaseWindow = [&]() {
         SDL_ReleaseWindowFromGPUDevice(device, window);
         SDL_DestroyGPUDevice(device);
@@ -89,9 +154,12 @@ int runApplication(const EditCommand &options) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     auto &io = ImGui::GetIO();
+    io.IniFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.ConfigDpiScaleFonts = true;
     io.ConfigDpiScaleViewports = true;
+    const auto layoutPath = workspaceLayoutPath();
+    const auto hasSavedLayout = loadWorkspaceLayout(layoutPath);
     const auto basePath = SDL_GetBasePath();
     const auto resourceDirectory = resolveResourceDirectory(
         options.resourceDirectory,
@@ -142,6 +210,8 @@ int runApplication(const EditCommand &options) {
     bool recoveryPromptOpened = false;
     std::size_t quitSessionIndex = 0;
     std::vector<bool> quitDiscarded;
+    WorkspaceUiState workspace;
+    bool initializeDockLayout = !hasSavedLayout;
     SDL_GPUTexture *depthTexture = nullptr;
     Uint32 depthWidth = 0;
     Uint32 depthHeight = 0;
@@ -203,6 +273,12 @@ int runApplication(const EditCommand &options) {
         ImGui_ImplSDLGPU3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
+        const auto dockspaceId = ImGui::DockSpaceOverViewport();
+        if (initializeDockLayout || workspace.resetLayout) {
+            buildDefaultDockLayout(dockspaceId);
+            initializeDockLayout = false;
+            workspace.resetLayout = false;
+        }
         if (!untitledRecoveries.empty() && !recoveryPromptOpened) {
             ImGui::OpenPopup("回復情報");
             recoveryPromptOpened = true;
@@ -298,44 +374,51 @@ int runApplication(const EditCommand &options) {
             }
             ImGui::EndPopup();
         }
-        ImGui::DockSpaceOverViewport();
-        ImGui::Begin("ドキュメント");
-        if (ImGui::BeginTabBar("document-tabs")) {
-            for (std::size_t i = 0; i < sessions.size(); ++i) {
-                const auto &path = sessions[i]->path;
-                const auto title = path.empty() ? "無題" : path.filename().string();
-                const auto label = title + "##document" + std::to_string(i);
-                if (ImGui::BeginTabItem(label.c_str())) {
-                    activeSession = i;
-                    ImGui::EndTabItem();
+        if (workspace.showDocuments) {
+            if (ImGui::Begin("ドキュメント", &workspace.showDocuments)) {
+                if (ImGui::BeginTabBar("document-tabs")) {
+                    for (std::size_t i = 0; i < sessions.size(); ++i) {
+                        const auto &path = sessions[i]->path;
+                        const auto title = path.empty() ? "無題" : path.filename().string();
+                        const auto label = title + "##document" + std::to_string(i);
+                        if (ImGui::BeginTabItem(label.c_str())) {
+                            activeSession = i;
+                            ImGui::EndTabItem();
+                        }
+                    }
+                    ImGui::EndTabBar();
+                }
+                ImGui::InputText("新しいPMX", newSessionPath.data(), newSessionPath.size());
+                ImGui::SameLine();
+                if (ImGui::Button("ファイルを選択") && !fileDialog.busy())
+                    (void)fileDialog.open();
+                if (ImGui::Button("タブで開く") && newSessionPath[0] != '\0') {
+                    try {
+                        const std::filesystem::path path(newSessionPath.data());
+                        loadSession(path);
+                        if (!sessions.empty())
+                            activeSession = sessions.size() - 1;
+                        newSessionPath.fill('\0');
+                    } catch (const std::exception &error) {
+                        log::error(error.what());
+                    }
                 }
             }
-            ImGui::EndTabBar();
+            ImGui::End();
         }
-        ImGui::InputText("新しいPMX", newSessionPath.data(), newSessionPath.size());
-        ImGui::SameLine();
-        if (ImGui::Button("ファイルを選択") && !fileDialog.busy())
-            (void)fileDialog.open();
-        if (ImGui::Button("タブで開く") && newSessionPath[0] != '\0') {
-            try {
-                const std::filesystem::path path(newSessionPath.data());
-                loadSession(path);
-                if (!sessions.empty())
-                    activeSession = sessions.size() - 1;
-                newSessionPath.fill('\0');
-            } catch (const std::exception &error) {
-                log::error(error.what());
-            }
-        }
-        ImGui::End();
         if (!sessions.empty() && activeSession < sessions.size())
-            drawEditorPanels(*sessions[activeSession], fileDialog);
+            drawEditorPanels(*sessions[activeSession], fileDialog, workspace);
         else {
             ImGui::Begin("pmxer");
             ImGui::TextUnformatted("PMX ファイルを開いてください");
             ImGui::End();
         }
         ImGui::Render();
+        if (io.WantSaveIniSettings) {
+            if (!saveWorkspaceLayout(layoutPath))
+                log::warn("workspace layout could not be saved");
+            io.WantSaveIniSettings = false;
+        }
 
         SDL_GPUCommandBuffer *commands = SDL_AcquireGPUCommandBuffer(device);
         SDL_GPUTexture *swapchain = nullptr;
@@ -395,6 +478,8 @@ int runApplication(const EditCommand &options) {
         if (commands != nullptr && !SDL_SubmitGPUCommandBuffer(commands))
             log::error(SDL_GetError());
     }
+    if (!saveWorkspaceLayout(layoutPath))
+        log::warn("workspace layout could not be saved during shutdown");
     ImGui_ImplSDLGPU3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
