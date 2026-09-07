@@ -276,6 +276,20 @@ if(PMXER_BUILD_GUI)
     )
     target_include_directories(pmxer_imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
     target_link_libraries(pmxer_imgui PUBLIC SDL3::SDL3)
+
+    FetchContent_Declare(
+      viewport_gizmo
+      GIT_REPOSITORY https://github.com/CedricGuillemet/ImGuizmo.git
+      GIT_TAG b796ac3b861afc6e91ca74e4611effd9c9527367
+      GIT_SHALLOW FALSE
+    )
+    FetchContent_GetProperties(viewport_gizmo)
+    if(NOT viewport_gizmo_POPULATED)
+      FetchContent_Populate(viewport_gizmo)
+    endif()
+    add_library(pmxer_gizmo STATIC ${viewport_gizmo_SOURCE_DIR}/src/ImGuizmo.cpp)
+    target_include_directories(pmxer_gizmo PUBLIC ${viewport_gizmo_SOURCE_DIR}/src)
+    target_link_libraries(pmxer_gizmo PUBLIC pmxer_imgui)
   else()
     message(FATAL_ERROR "PMXER_BUILD_GUI requires PMXER_FETCH_GUI_DEPENDENCIES=ON in this source tree")
   endif()
@@ -286,13 +300,14 @@ if(PMXER_BUILD_GUI)
     src/ui/OutlinerPanel.cpp
     src/ui/InspectorPanel.cpp
     src/ui/ViewportPanel.cpp
+    src/ui/ViewportGizmo.cpp
     src/render/GpuModelRenderer.cpp
     src/render/ImageDecoder.cpp
     src/platform/FileDialog.cpp
   )
   target_include_directories(pmxer_ui PUBLIC src)
   target_include_directories(pmxer_ui SYSTEM PRIVATE "${stb_image_SOURCE_DIR}" "${bcdec_SOURCE_DIR}")
-  target_link_libraries(pmxer_ui PUBLIC pmxer_render pmxer_imgui SDL3::SDL3)
+  target_link_libraries(pmxer_ui PUBLIC pmxer_render pmxer_imgui pmxer_gizmo SDL3::SDL3)
   target_compile_definitions(pmxer_ui PRIVATE PMXER_HAS_GUI=1 PMXER_SHADER_DIRECTORY="${PMXER_SHADER_OUTPUT_DIR}")
 endif()
 

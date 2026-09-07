@@ -80,6 +80,9 @@ struct EditorUiState {
     bool showBones{true};
     bool showPhysics{};
     bool orthographic{};
+    bool gizmoDragging{};
+    SelectionItem gizmoSelection{};
+    std::array<float, 16> gizmoMatrix{};
     const mmd::AnimatedModelFrame *previewFrame{};
 
     void clearDrafts() {

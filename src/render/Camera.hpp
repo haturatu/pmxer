@@ -19,6 +19,8 @@ struct CameraState {
 };
 
 struct CameraMatrices {
+    std::array<float, 16> view{};
+    std::array<float, 16> projection{};
     std::array<float, 16> viewProjection{};
 };
 
@@ -89,6 +91,8 @@ inline CameraMatrices makeCameraMatrices(const CameraState &camera, float aspect
     };
     const auto &projection = camera.orthographic ? orthographic : perspective;
     CameraMatrices result;
+    result.view = view;
+    result.projection = projection;
     for (std::size_t row = 0; row < 4; ++row)
         for (std::size_t column = 0; column < 4; ++column)
             result.viewProjection[row * 4 + column] =

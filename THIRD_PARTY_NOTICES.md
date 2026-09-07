@@ -6,6 +6,7 @@ source distributions.
 
 - SDL3
 - Dear ImGui
+- ImGuizmo - MIT
 - argparse (p-ranav/argparse) - MIT
 - stb_image - Public Domain or MIT
 - bcdec - MIT or Unlicense

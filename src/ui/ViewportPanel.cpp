@@ -1,4 +1,5 @@
 #include "ViewportPanel.hpp"
+#include "ViewportGizmo.hpp"
 
 #include "../render/Camera.hpp"
 
@@ -405,6 +406,9 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             }
         }
     }
+    const CameraState camera{session.ui.cameraTarget, session.ui.cameraYaw, session.ui.cameraPitch,
+                             session.ui.cameraDistance, session.ui.orthographic};
+    drawViewportGizmo(session, makeCameraMatrices(camera, available.x / available.y), origin, available);
     ImGui::End();
 }
 
