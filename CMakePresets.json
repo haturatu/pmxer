@@ -50,7 +50,8 @@
         "CMAKE_BUILD_TYPE": "Release",
         "PMXER_BUILD_GUI": "ON",
         "PMXER_FETCH_GUI_DEPENDENCIES": "ON",
-        "PMXER_FETCH_LIBMMD_DEPENDENCIES": "ON"
+        "PMXER_FETCH_LIBMMD_DEPENDENCIES": "ON",
+        "PMXER_WARNINGS_AS_ERRORS": "ON"
       }
     },
     {
