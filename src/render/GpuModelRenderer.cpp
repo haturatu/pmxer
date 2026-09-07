@@ -533,7 +533,8 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
                                    : nullptr;
         const auto &diffuse = animated != nullptr ? animated->diffuse : material.diffuse;
         MaterialUniforms uniforms;
-        uniforms.diffuse = {diffuse[0], diffuse[1], diffuse[2], diffuse[3]};
+        uniforms.diffuse = {diffuse[0], diffuse[1], diffuse[2],
+                            ui.xray ? diffuse[3] * 0.28F : diffuse[3]};
         if (animated != nullptr) {
             uniforms.textureMultiply = {animated->textureMultiply[0], animated->textureMultiply[1],
                                         animated->textureMultiply[2], animated->textureMultiply[3]};
@@ -573,6 +574,8 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
             edgeFrame.edgeParameters[0] = edgeSize;
             auto edgeMaterial = uniforms;
             edgeMaterial.edgeColor = {edgeColor[0], edgeColor[1], edgeColor[2], edgeColor[3]};
+            if (ui.xray)
+                edgeMaterial.edgeColor[3] *= 0.28F;
             edgeMaterial.materialModes[2] = 1.0F;
             SDL_PushGPUVertexUniformData(commands, 0, &edgeFrame, sizeof(edgeFrame));
             SDL_PushGPUFragmentUniformData(commands, 0, &edgeMaterial, sizeof(edgeMaterial));
@@ -591,7 +594,7 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
     if (indexBegin < impl_->indexCount) {
         SDL_BindGPUGraphicsPipeline(pass, impl_->pipeline);
         MaterialUniforms uniforms;
-        uniforms.diffuse = {1.0F, 1.0F, 1.0F, 1.0F};
+        uniforms.diffuse = {1.0F, 1.0F, 1.0F, ui.xray ? 0.28F : 1.0F};
         SDL_PushGPUVertexUniformData(commands, 0, &frameUniforms, sizeof(frameUniforms));
         SDL_PushGPUFragmentUniformData(commands, 0, &uniforms, sizeof(uniforms));
         const std::array<SDL_GPUTextureSamplerBinding, 3> bindings{{
