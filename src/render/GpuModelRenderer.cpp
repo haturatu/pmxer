@@ -171,7 +171,9 @@ struct GpuModelRenderer::Impl {
     SDL_GPUGraphicsPipeline *edgePipeline{};
     SDL_GPUBuffer *vertexBuffer{};
     SDL_GPUBuffer *indexBuffer{};
-    SDL_GPUSampler *textureSampler{};
+    SDL_GPUSampler *baseSampler{};
+    SDL_GPUSampler *sphereSampler{};
+    SDL_GPUSampler *toonSampler{};
     SDL_GPUTexture *defaultTexture{};
     std::vector<SDL_GPUTexture *> textures;
     std::array<SDL_GPUTexture *, 10> sharedToons{};
@@ -225,19 +227,25 @@ struct GpuModelRenderer::Impl {
 
     bool prepareTextures(SDL_GPUCommandBuffer *commands, const mmd::PmxModel &model) {
         clearTextures();
-        if (textureSampler == nullptr) {
+        const auto createSampler = [&](SDL_GPUAddressMode addressMode) {
             SDL_GPUSamplerCreateInfo samplerInfo{};
             samplerInfo.min_filter = SDL_GPU_FILTER_LINEAR;
             samplerInfo.mag_filter = SDL_GPU_FILTER_LINEAR;
             samplerInfo.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR;
-            samplerInfo.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
-            samplerInfo.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
-            samplerInfo.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
-            textureSampler = SDL_CreateGPUSampler(device, &samplerInfo);
-        }
+            samplerInfo.address_mode_u = addressMode;
+            samplerInfo.address_mode_v = addressMode;
+            samplerInfo.address_mode_w = addressMode;
+            return SDL_CreateGPUSampler(device, &samplerInfo);
+        };
+        if (baseSampler == nullptr)
+            baseSampler = createSampler(SDL_GPU_SAMPLERADDRESSMODE_REPEAT);
+        if (sphereSampler == nullptr)
+            sphereSampler = createSampler(SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE);
+        if (toonSampler == nullptr)
+            toonSampler = createSampler(SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE);
         const unsigned char white[] = {255, 255, 255, 255};
         defaultTexture = uploadTexture(device, commands, white, 1, 1, transfers);
-        if (defaultTexture == nullptr || textureSampler == nullptr)
+        if (defaultTexture == nullptr || baseSampler == nullptr || sphereSampler == nullptr || toonSampler == nullptr)
             return false;
 
         textures.resize(model.textures.size(), nullptr);
@@ -282,8 +290,12 @@ struct GpuModelRenderer::Impl {
         clearBuffers();
         clearTextures();
         clearTransfers();
-        if (textureSampler != nullptr)
-            SDL_ReleaseGPUSampler(device, textureSampler);
+        if (baseSampler != nullptr)
+            SDL_ReleaseGPUSampler(device, baseSampler);
+        if (sphereSampler != nullptr)
+            SDL_ReleaseGPUSampler(device, sphereSampler);
+        if (toonSampler != nullptr)
+            SDL_ReleaseGPUSampler(device, toonSampler);
         if (pipeline != nullptr)
             SDL_ReleaseGPUGraphicsPipeline(device, pipeline);
         if (singleSidedPipeline != nullptr)
@@ -531,13 +543,13 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
                        : impl_->defaultTexture;
         };
         const std::array<SDL_GPUTextureSamplerBinding, 3> bindings{{
-            {textureFor(material.textureIndex), impl_->textureSampler},
-            {textureFor(material.sphereTextureIndex), impl_->textureSampler},
+            {textureFor(material.textureIndex), impl_->baseSampler},
+            {textureFor(material.sphereTextureIndex), impl_->sphereSampler},
             {material.toonMode == 0 ? textureFor(material.toonTextureIndex)
                                     : (material.toonTextureIndex >= 0 && material.toonTextureIndex < 10
                                            ? impl_->sharedToons[static_cast<std::size_t>(material.toonTextureIndex)]
                                            : impl_->defaultTexture),
-             impl_->textureSampler},
+             impl_->toonSampler},
         }};
         SDL_BindGPUFragmentSamplers(pass, 0, bindings.data(), static_cast<Uint32>(bindings.size()));
         const auto &edgeColor = animated != nullptr ? animated->edgeColor : material.edgeColor;
@@ -569,9 +581,9 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
         SDL_PushGPUVertexUniformData(commands, 0, &frameUniforms, sizeof(frameUniforms));
         SDL_PushGPUFragmentUniformData(commands, 0, &uniforms, sizeof(uniforms));
         const std::array<SDL_GPUTextureSamplerBinding, 3> bindings{{
-            {impl_->defaultTexture, impl_->textureSampler},
-            {impl_->defaultTexture, impl_->textureSampler},
-            {impl_->defaultTexture, impl_->textureSampler},
+            {impl_->defaultTexture, impl_->baseSampler},
+            {impl_->defaultTexture, impl_->sphereSampler},
+            {impl_->defaultTexture, impl_->toonSampler},
         }};
         SDL_BindGPUFragmentSamplers(pass, 0, bindings.data(), static_cast<Uint32>(bindings.size()));
         SDL_DrawGPUIndexedPrimitives(pass, static_cast<Uint32>(impl_->indexCount - indexBegin), 1,
