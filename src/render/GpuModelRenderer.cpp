@@ -62,6 +62,25 @@ std::vector<GpuVertex> makeVertices(const std::vector<mmd::PmxVertex> &vertices)
     return result;
 }
 
+std::array<std::uint8_t, 64U * 4U> makeSharedToonFallback(std::size_t index) {
+    constexpr std::array<std::array<std::uint8_t, 3>, 10> shadows{{
+        {52, 52, 56}, {64, 51, 51}, {51, 59, 68}, {58, 51, 66}, {50, 65, 56},
+        {69, 60, 47}, {47, 64, 68}, {67, 48, 60}, {58, 58, 47}, {44, 44, 48},
+    }};
+    const auto shadow = shadows[index % shadows.size()];
+    std::array<std::uint8_t, 64U * 4U> result{};
+    for (std::size_t row = 0; row < 64U; ++row) {
+        const auto eased = row * row;
+        for (std::size_t channel = 0; channel < 3U; ++channel) {
+            const auto range = 255U - shadow[channel];
+            result[row * 4U + channel] = static_cast<std::uint8_t>(
+                shadow[channel] + range * eased / (63U * 63U));
+        }
+        result[row * 4U + 3U] = 255;
+    }
+    return result;
+}
+
 bool uploadBuffer(SDL_GPUDevice *device, SDL_GPUCommandBuffer *commands, SDL_GPUBuffer *buffer,
                   const void *data, std::size_t size, std::vector<SDL_GPUTransferBuffer *> &transfers) {
     if (size == 0)
@@ -272,14 +291,7 @@ struct GpuModelRenderer::Impl {
                                                    static_cast<int>(image.width), static_cast<int>(image.height),
                                                    transfers);
             if (sharedToons[index] == nullptr) {
-                std::array<std::uint8_t, 64U * 4U> gradient{};
-                for (std::size_t row = 0; row < 64U; ++row) {
-                    const auto shade = static_cast<std::uint8_t>(48U + row * 207U / 63U);
-                    gradient[row * 4U] = shade;
-                    gradient[row * 4U + 1U] = shade;
-                    gradient[row * 4U + 2U] = shade;
-                    gradient[row * 4U + 3U] = 255;
-                }
+                const auto gradient = makeSharedToonFallback(index);
                 sharedToons[index] = uploadTexture(device, commands, gradient.data(), 1, 64, transfers);
             }
         }
