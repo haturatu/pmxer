@@ -123,6 +123,9 @@ int runApplication(const EditCommand &options) {
         SDL_Quit();
         return 1;
     }
+    if (const auto *driver = SDL_GetGPUDeviceDriver(device); driver != nullptr)
+        log::info((std::string{"SDL_GPU driver: "} + driver).c_str());
+
     const auto releaseWindow = [&]() {
         SDL_ReleaseWindowFromGPUDevice(device, window);
         SDL_DestroyGPUDevice(device);
