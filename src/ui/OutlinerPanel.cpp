@@ -111,6 +111,7 @@ std::size_t selectedCount(const DocumentSession &session, SelectionKind kind) {
 struct MultiSelectContext {
   DocumentSession *session{};
   SelectionKind kind{};
+  const std::vector<std::size_t> *visible{};
 };
 
 void applySelection(ImGuiSelectionExternalStorage *storage, int index,
@@ -118,8 +119,13 @@ void applySelection(ImGuiSelectionExternalStorage *storage, int index,
   auto &context = *static_cast<MultiSelectContext *>(storage->UserData);
   if (index < 0)
     return;
-  const auto item =
-      itemAt(*context.session, context.kind, static_cast<std::size_t>(index));
+  const auto row = static_cast<std::size_t>(index);
+  if (context.visible != nullptr && row >= context.visible->size())
+    return;
+  const auto itemIndex = context.visible == nullptr
+                             ? row
+                             : (*context.visible)[row];
+  const auto item = itemAt(*context.session, context.kind, itemIndex);
   if (selected)
     context.session->selection.add(item);
   else
@@ -135,25 +141,34 @@ void drawMultiSelectList(DocumentSession &session, SelectionKind kind,
     ImGui::EndChild();
     return;
   }
-  MultiSelectContext context{&session, kind};
+  std::vector<std::size_t> visible;
+  if (!filter.empty()) {
+    visible.reserve(count);
+    for (std::size_t index = 0; index < count; ++index)
+      if (matches(label(index), filter))
+        visible.push_back(index);
+  }
+  const auto *mapping = filter.empty() ? nullptr : &visible;
+  const auto displayedCount = mapping == nullptr ? count : mapping->size();
+  MultiSelectContext context{&session, kind, mapping};
   ImGuiSelectionExternalStorage storage;
   storage.UserData = &context;
   storage.AdapterSetItemSelected = applySelection;
   const auto flags =
       ImGuiMultiSelectFlags_ClearOnEscape | ImGuiMultiSelectFlags_BoxSelect1d;
   auto *selection = ImGui::BeginMultiSelect(
-      flags, itemCount(selectedCount(session, kind)), itemCount(count));
+      flags, itemCount(selectedCount(session, kind)), itemCount(displayedCount));
   storage.ApplyRequests(selection);
   ImGuiListClipper clipper;
-  clipper.Begin(itemCount(count));
+  clipper.Begin(itemCount(displayedCount));
   if (selection->RangeSrcItem != -1)
     clipper.IncludeItemByIndex(static_cast<int>(selection->RangeSrcItem));
   while (clipper.Step()) {
     for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
-      const auto index = static_cast<std::size_t>(row);
+      const auto displayIndex = static_cast<std::size_t>(row);
+      const auto index = mapping == nullptr ? displayIndex
+                                            : (*mapping)[displayIndex];
       const auto text = label(index);
-      if (!matches(text, filter))
-        continue;
       const auto item = itemAt(session, kind, index);
       ImGui::SetNextItemSelectionUserData(row);
       if (ImGui::Selectable((text + "##" + std::to_string(row)).c_str(),
