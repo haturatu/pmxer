@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <iterator>
 #include <string>
 
 namespace pmxer {
@@ -53,6 +54,50 @@ bool flagCheckbox(const char *label, std::uint16_t &flags, std::uint16_t bit) {
                   : static_cast<std::uint16_t>(
                         flags & static_cast<std::uint16_t>(~bit));
   return true;
+}
+
+template <typename Values>
+bool referenceCombo(const char *label, std::int32_t &value,
+                    const Values &values, bool optional) {
+  const char *preview = "なし";
+  if (value >= 0 && static_cast<std::size_t>(value) < values.size())
+    preview = values[static_cast<std::size_t>(value)].name.c_str();
+  bool changed{};
+  if (ImGui::BeginCombo(label, preview)) {
+    if (optional && ImGui::Selectable("なし", value < 0)) {
+      value = -1;
+      changed = true;
+    }
+    for (std::size_t index = 0; index < values.size(); ++index) {
+      const auto selected = value >= 0 &&
+                            static_cast<std::size_t>(value) == index;
+      const auto &name = values[index].name;
+      const auto itemLabel =
+          (name.empty() ? std::string{"(名称なし)"} : name) +
+          "##reference" + std::to_string(index);
+      if (ImGui::Selectable(itemLabel.c_str(), selected)) {
+        value = static_cast<std::int32_t>(index);
+        changed = true;
+      }
+    }
+    ImGui::EndCombo();
+  }
+  return changed;
+}
+
+bool enumCombo(const char *label, std::uint8_t &value,
+               const char *const *labels, std::size_t count) {
+  const auto current = std::min<std::size_t>(value, count - 1U);
+  bool changed{};
+  if (ImGui::BeginCombo(label, labels[current])) {
+    for (std::size_t index = 0; index < count; ++index)
+      if (ImGui::Selectable(labels[index], index == current)) {
+        value = static_cast<std::uint8_t>(index);
+        changed = true;
+      }
+    ImGui::EndCombo();
+  }
+  return changed;
 }
 
 const char *kindName(SelectionKind kind) {
@@ -244,6 +289,137 @@ void vertexInspector(DocumentSession &session, const SelectionItem &selected) {
   }
 }
 
+void rigidBodyInspector(DocumentSession &session,
+                        const SelectionItem &selected) {
+  const auto handle =
+      selectionHandle<mmd::RigidBodyTag>(session.document, selected);
+  const auto *value = session.document.resolve(handle);
+  if (value == nullptr)
+    return;
+  if (!session.ui.rigidBodyDraft)
+    session.ui.rigidBodyDraft = *value;
+  auto &draft = *session.ui.rigidBodyDraft;
+  bool commit{};
+  ImGui::SeparatorText("名前");
+  (void)inputText("名前", draft.name);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  (void)inputText("英語名", draft.englishName);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+
+  ImGui::SeparatorText("関連付け");
+  commit |= referenceCombo("ボーン", draft.bone,
+                           session.document.model().bones, true);
+  static constexpr const char *shapes[]{"球", "箱", "カプセル"};
+  commit |= enumCombo("形状", draft.shape, shapes, std::size(shapes));
+  static constexpr const char *modes[]{"ボーン追従", "物理演算",
+                                        "物理演算 + ボーン"};
+  commit |= enumCombo("動作", draft.mode, modes, std::size(modes));
+
+  ImGui::SeparatorText("変形");
+  (void)ImGui::DragFloat3("位置", draft.position.data(), 0.01F);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  (void)ImGui::DragFloat3("回転", draft.rotation.data(), 0.005F);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  (void)ImGui::DragFloat3("大きさ", draft.size.data(), 0.01F, 0.001F);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+
+  ImGui::SeparatorText("衝突");
+  int group = static_cast<int>(draft.group) + 1;
+  if (ImGui::SliderInt("所属グループ", &group, 1, 16)) {
+    draft.group = static_cast<std::uint8_t>(group - 1);
+  }
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  if (ImGui::TreeNode("衝突除外グループ")) {
+    for (std::size_t index = 0; index < 16U; ++index) {
+      ImGui::PushID(static_cast<int>(index));
+      const auto label = "グループ " + std::to_string(index + 1U);
+      commit |= flagCheckbox(label.c_str(), draft.collisionMask,
+                             static_cast<std::uint16_t>(1U << index));
+      ImGui::PopID();
+    }
+    ImGui::TreePop();
+  }
+
+  ImGui::SeparatorText("物理特性");
+  (void)ImGui::DragFloat("質量", &draft.mass, 0.01F, 0.0F);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  (void)ImGui::DragFloat("移動減衰", &draft.linearDamping, 0.005F,
+                         0.0F, 1.0F);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  (void)ImGui::DragFloat("回転減衰", &draft.angularDamping, 0.005F,
+                         0.0F, 1.0F);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  (void)ImGui::DragFloat("反発", &draft.restitution, 0.005F, 0.0F,
+                         1.0F);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  (void)ImGui::DragFloat("摩擦", &draft.friction, 0.005F, 0.0F, 1.0F);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  if (commit) {
+    const auto result = editRigidBody(session, handle, draft);
+    session.ui.status = result.success ? "剛体を更新しました" : result.message;
+    session.ui.rigidBodyDraft.reset();
+  }
+}
+
+void jointInspector(DocumentSession &session, const SelectionItem &selected) {
+  const auto handle =
+      selectionHandle<mmd::JointTag>(session.document, selected);
+  const auto *value = session.document.resolve(handle);
+  if (value == nullptr)
+    return;
+  if (!session.ui.jointDraft)
+    session.ui.jointDraft = *value;
+  auto &draft = *session.ui.jointDraft;
+  bool commit{};
+  ImGui::SeparatorText("名前");
+  (void)inputText("名前", draft.name);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  (void)inputText("英語名", draft.englishName);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  static constexpr const char *types[]{"ばね付き6軸", "6軸", "点接続",
+                                       "円錐ねじり", "スライダー", "ヒンジ"};
+  commit |= enumCombo("種類", draft.type, types, std::size(types));
+  if (draft.type != 0U)
+    ImGui::TextDisabled("この種類は編集・保存できますが、プレビュー未対応です");
+
+  ImGui::SeparatorText("接続");
+  commit |= referenceCombo("剛体A", draft.bodyA,
+                           session.document.model().rigidBodies, false);
+  commit |= referenceCombo("剛体B", draft.bodyB,
+                           session.document.model().rigidBodies, false);
+  ImGui::SeparatorText("変形");
+  (void)ImGui::DragFloat3("位置", draft.position.data(), 0.01F);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  (void)ImGui::DragFloat3("回転", draft.rotation.data(), 0.005F);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  ImGui::SeparatorText("移動制限");
+  (void)ImGui::DragFloat3("最小##translation", draft.translationMinimum.data(),
+                          0.01F);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  (void)ImGui::DragFloat3("最大##translation", draft.translationMaximum.data(),
+                          0.01F);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  (void)ImGui::DragFloat3("ばね##translation", draft.translationSpring.data(),
+                          0.01F);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  ImGui::SeparatorText("回転制限");
+  (void)ImGui::DragFloat3("最小##rotation", draft.rotationMinimum.data(),
+                          0.005F);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  (void)ImGui::DragFloat3("最大##rotation", draft.rotationMaximum.data(),
+                          0.005F);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  (void)ImGui::DragFloat3("ばね##rotation", draft.rotationSpring.data(),
+                          0.01F);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  if (commit) {
+    const auto result = editJoint(session, handle, draft);
+    session.ui.status =
+        result.success ? "ジョイントを更新しました" : result.message;
+    session.ui.jointDraft.reset();
+  }
+}
+
 void readOnlyInspector(DocumentSession &session,
                        const SelectionItem &selected) {
   const auto &model = session.document.model();
@@ -297,6 +473,12 @@ void drawInspectorPanel(DocumentSession &session, bool *open) {
     break;
   case SelectionKind::vertex:
     vertexInspector(session, selected);
+    break;
+  case SelectionKind::rigidBody:
+    rigidBodyInspector(session, selected);
+    break;
+  case SelectionKind::joint:
+    jointInspector(session, selected);
     break;
   default:
     readOnlyInspector(session, selected);
