@@ -6,6 +6,8 @@
 #include "RecoveryController.hpp"
 
 #include <filesystem>
+#include <limits>
+#include <utility>
 
 namespace pmxer {
 
@@ -42,10 +44,18 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
             log::error(result.message.c_str());
             return result;
         }
+        const auto sourceChanged = session.document.model().sourcePath != destination;
         session.path = destination;
+        session.document.setSourcePath(destination);
+        written.sourcePath = destination;
+        if (sourceChanged) {
+            ++session.resourceRevision;
+            session.derived.diagnosticsRevision = std::numeric_limits<std::uint64_t>::max();
+        }
+        session.derived.diffRevision = std::numeric_limits<std::uint64_t>::max();
         session.commands.markClean();
         session.modified = session.commands.isModified();
-        session.baseline = written;
+        session.baseline = std::move(written);
         (void)discardRecoveryFile(oldRecovery);
         session.recoveryFile.reset();
         (void)discardRecovery(destination);

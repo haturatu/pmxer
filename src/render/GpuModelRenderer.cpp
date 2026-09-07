@@ -181,6 +181,7 @@ struct GpuModelRenderer::Impl {
     const mmd::PmxModel *model{};
     const mmd::AnimatedModelFrame *frame{};
     std::uint64_t revision{std::numeric_limits<std::uint64_t>::max()};
+    std::uint64_t resourceRevision{std::numeric_limits<std::uint64_t>::max()};
     std::uint64_t frameRevision{std::numeric_limits<std::uint64_t>::max()};
     std::size_t vertexCapacity{};
     std::size_t indexCapacity{};
@@ -408,7 +409,8 @@ const char *GpuModelRenderer::error() const noexcept {
 
 bool GpuModelRenderer::prepare(SDL_GPUCommandBuffer *commands, const mmd::PmxModel &model,
                                const mmd::AnimatedModelFrame *frame, std::uint64_t revision,
-                               std::uint64_t frameRevision, const mmd::PmxChangeSet &changes) {
+                               std::uint64_t resourceRevision, std::uint64_t frameRevision,
+                               const mmd::PmxChangeSet &changes) {
     if (!available() || commands == nullptr || model.indices.empty())
         return false;
     const auto &source = frame != nullptr && !frame->vertices.empty() ? frame->vertices : model.vertices;
@@ -416,6 +418,7 @@ bool GpuModelRenderer::prepare(SDL_GPUCommandBuffer *commands, const mmd::PmxMod
         return false;
     const auto modelChanged = impl_->model != &model;
     const auto documentChanged = impl_->revision != revision;
+    const auto resourcesChanged = impl_->resourceRevision != resourceRevision;
     const auto frameChanged = impl_->frameRevision != frameRevision;
     const auto topologyChanged = modelChanged || (documentChanged && changes.topologyChanged) ||
                                  impl_->indexBuffer == nullptr ||
@@ -423,7 +426,7 @@ bool GpuModelRenderer::prepare(SDL_GPUCommandBuffer *commands, const mmd::PmxMod
     const auto verticesChanged = modelChanged || frameChanged ||
                                  (documentChanged && (changes.topologyChanged || !changes.vertices.empty())) ||
                                  impl_->vertexBuffer == nullptr;
-    const auto texturesChanged = modelChanged || (documentChanged && changes.texturesChanged) ||
+    const auto texturesChanged = modelChanged || resourcesChanged || (documentChanged && changes.texturesChanged) ||
                                  impl_->defaultTexture == nullptr;
     const auto vertexBytes = source.size() * sizeof(GpuVertex);
     const auto indexBytes = model.indices.size() * sizeof(std::uint32_t);
@@ -461,6 +464,7 @@ bool GpuModelRenderer::prepare(SDL_GPUCommandBuffer *commands, const mmd::PmxMod
     impl_->model = &model;
     impl_->frame = frame;
     impl_->revision = revision;
+    impl_->resourceRevision = resourceRevision;
     impl_->frameRevision = frameRevision;
     impl_->indexCount = model.indices.size();
     return true;
