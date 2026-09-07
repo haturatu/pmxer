@@ -79,6 +79,7 @@ struct EditorUiState {
     bool showGrid{true};
     bool showBones{true};
     bool showPhysics{};
+    bool orthographic{};
     const mmd::AnimatedModelFrame *previewFrame{};
 
     void clearDrafts() {

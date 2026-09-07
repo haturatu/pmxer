@@ -2,11 +2,13 @@
 #include "../../src/editor/EditorOperations.hpp"
 #include "../../src/editor/RecoveryController.hpp"
 #include "../../src/editor/SaveController.hpp"
+#include "../../src/render/Camera.hpp"
 #include "../../src/render/Picking.hpp"
 
 #include <mmd/pmx.hpp>
 
 #include <cassert>
+#include <cmath>
 #include <filesystem>
 #include <utility>
 
@@ -38,6 +40,22 @@ mmd::PmxModel sampleModel() {
 } // namespace
 
 int main() {
+    const pmxer::CameraState perspective{{0.0F, 0.0F, 0.0F}, 0.0F, 0.0F, 10.0F, false};
+    const auto perspectiveCenter =
+        pmxer::projectWorldToScreen(perspective, {0.0F, 0.0F, 0.0F}, 0.0F, 0.0F, 800.0F, 600.0F);
+    assert(perspectiveCenter.inFront);
+    assert(std::abs(perspectiveCenter.x - 400.0F) < 0.001F);
+    assert(std::abs(perspectiveCenter.y - 300.0F) < 0.001F);
+    assert(!pmxer::projectWorldToScreen(perspective, {0.0F, 0.0F, 20.0F}, 0.0F, 0.0F, 800.0F, 600.0F)
+                .inFront);
+    auto orthographic = perspective;
+    orthographic.orthographic = true;
+    const auto orthographicCenter =
+        pmxer::projectWorldToScreen(orthographic, {0.0F, 0.0F, 0.0F}, 0.0F, 0.0F, 800.0F, 600.0F);
+    assert(orthographicCenter.inFront);
+    assert(std::abs(orthographicCenter.x - 400.0F) < 0.001F);
+    assert(std::abs(orthographicCenter.y - 300.0F) < 0.001F);
+
     pmxer::DocumentSession recovered(sampleModel());
     recovered.commands.markDirty();
     const auto recoveredHandle = recovered.document.vertexHandle(0);

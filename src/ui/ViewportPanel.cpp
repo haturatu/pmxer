@@ -24,7 +24,7 @@ struct Bounds {
 };
 
 ImVec2 project(const mmd::Float3 &position, const Bounds &, ImVec2 origin, ImVec2 size, const EditorUiState &ui) {
-    const CameraState camera{ui.cameraTarget, ui.cameraYaw, ui.cameraPitch, ui.cameraDistance};
+    const CameraState camera{ui.cameraTarget, ui.cameraYaw, ui.cameraPitch, ui.cameraDistance, ui.orthographic};
     const auto point = projectWorldToScreen(camera, position, origin.x, origin.y, size.x, size.y);
     return {point.x, point.y};
 }
@@ -115,6 +115,23 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         session.ui.selectionMode = ViewportSelectionMode::joint;
     ImGui::SameLine();
     ImGui::Checkbox("X-Ray", &session.ui.xray);
+    const auto toolButton = [&](const char *label, ViewportTool tool) {
+        if (ImGui::RadioButton(label, session.ui.viewportTool == tool))
+            session.ui.viewportTool = tool;
+        ImGui::SameLine();
+    };
+    toolButton("選択", ViewportTool::select);
+    toolButton("移動", ViewportTool::move);
+    toolButton("回転", ViewportTool::rotate);
+    if (ImGui::RadioButton("拡縮", session.ui.viewportTool == ViewportTool::scale))
+        session.ui.viewportTool = ViewportTool::scale;
+    ImGui::SameLine();
+    ImGui::Checkbox("ローカル", &session.ui.localTransform);
+    ImGui::SameLine();
+    ImGui::Checkbox("スナップ", &session.ui.snapTransform);
+    ImGui::SameLine();
+    if (ImGui::Button(session.ui.orthographic ? "平行" : "透視"))
+        session.ui.orthographic = !session.ui.orthographic;
     const auto available = ImGui::GetContentRegionAvail();
     if (available.x < 10.0F || available.y < 10.0F) {
         ImGui::End();
@@ -162,7 +179,11 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                                               bounds.maxZ - bounds.minZ, 0.1F}) * 2.0F;
         session.ui.cameraInitialized = true;
     }
-    if (hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle) && ImGui::GetIO().KeyShift) {
+    if (hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle) && ImGui::GetIO().KeyCtrl) {
+        const auto delta = ImGui::GetIO().MouseDelta;
+        session.ui.cameraDistance = std::clamp(session.ui.cameraDistance * std::exp(delta.y * 0.01F), 0.01F,
+                                               100000.0F);
+    } else if (hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle) && ImGui::GetIO().KeyShift) {
         const auto delta = ImGui::GetIO().MouseDelta;
         const auto scale = session.ui.cameraDistance * 0.0015F;
         session.ui.cameraTarget[0] -= delta.x * std::cos(session.ui.cameraYaw) * scale;
@@ -184,16 +205,42 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     if (hovered && ImGui::IsKeyPressed(ImGuiKey_Home))
         session.ui.cameraInitialized = false;
     if (hovered && ImGui::IsKeyPressed(ImGuiKey_Keypad1)) {
-        session.ui.cameraYaw = 0.0F;
+        session.ui.cameraYaw = ImGui::GetIO().KeyCtrl ? 3.1415926F : 0.0F;
         session.ui.cameraPitch = 0.0F;
     }
     if (hovered && ImGui::IsKeyPressed(ImGuiKey_Keypad3)) {
-        session.ui.cameraYaw = 1.5707963F;
+        session.ui.cameraYaw = ImGui::GetIO().KeyCtrl ? -1.5707963F : 1.5707963F;
         session.ui.cameraPitch = 0.0F;
     }
     if (hovered && ImGui::IsKeyPressed(ImGuiKey_Keypad7)) {
         session.ui.cameraYaw = 0.0F;
-        session.ui.cameraPitch = 1.5697963F;
+        session.ui.cameraPitch = ImGui::GetIO().KeyCtrl ? -1.5697963F : 1.5697963F;
+    }
+    if (hovered && ImGui::IsKeyPressed(ImGuiKey_Keypad5))
+        session.ui.orthographic = !session.ui.orthographic;
+    if (hovered && !ImGui::GetIO().WantTextInput) {
+        if (ImGui::IsKeyPressed(ImGuiKey_1))
+            session.ui.selectionMode = ViewportSelectionMode::vertex;
+        if (ImGui::IsKeyPressed(ImGuiKey_2))
+            session.ui.selectionMode = ViewportSelectionMode::face;
+        if (ImGui::IsKeyPressed(ImGuiKey_3))
+            session.ui.selectionMode = ViewportSelectionMode::material;
+        if (ImGui::IsKeyPressed(ImGuiKey_4))
+            session.ui.selectionMode = ViewportSelectionMode::bone;
+        if (ImGui::IsKeyPressed(ImGuiKey_5))
+            session.ui.selectionMode = ViewportSelectionMode::rigidBody;
+        if (ImGui::IsKeyPressed(ImGuiKey_6))
+            session.ui.selectionMode = ViewportSelectionMode::joint;
+        if (ImGui::IsKeyPressed(ImGuiKey_G))
+            session.ui.viewportTool = ViewportTool::move;
+        if (ImGui::IsKeyPressed(ImGuiKey_R))
+            session.ui.viewportTool = ViewportTool::rotate;
+        if (ImGui::IsKeyPressed(ImGuiKey_S))
+            session.ui.viewportTool = ViewportTool::scale;
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape))
+            session.ui.viewportTool = ViewportTool::select;
+        if (ImGui::IsKeyPressed(ImGuiKey_Z) && ImGui::GetIO().KeyAlt)
+            session.ui.xray = !session.ui.xray;
     }
 
     for (std::size_t i = 0; i < model.bones.size(); ++i) {
@@ -270,11 +317,12 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     if (clicked && !vertices.empty()) {
         const auto mouse = ImGui::GetIO().MousePos;
         const CameraState camera{session.ui.cameraTarget, session.ui.cameraYaw, session.ui.cameraPitch,
-                                 session.ui.cameraDistance};
+                                 session.ui.cameraDistance, session.ui.orthographic};
 
         if (session.ui.selectionMode == ViewportSelectionMode::face ||
             session.ui.selectionMode == ViewportSelectionMode::material) {
             std::optional<std::size_t> hit;
+            float hitDepth = std::numeric_limits<float>::max();
             for (std::size_t face = 0; face < model.indices.size() / 3U; ++face) {
                 const auto offset = face * 3U;
                 const auto firstIndex = static_cast<std::size_t>(model.indices[offset]);
@@ -290,8 +338,12 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                                                         available.x, available.y);
                 if (!first.inFront || !second.inFront || !third.inFront)
                     continue;
-                if (insideTriangle(mouse, {first.x, first.y}, {second.x, second.y}, {third.x, third.y}))
+                const auto depth = (first.depth + second.depth + third.depth) / 3.0F;
+                if (depth < hitDepth &&
+                    insideTriangle(mouse, {first.x, first.y}, {second.x, second.y}, {third.x, third.y})) {
                     hit = face;
+                    hitDepth = depth;
+                }
             }
             if (hit && session.ui.selectionMode == ViewportSelectionMode::face) {
                 const auto handle = session.document.faceHandle(*hit);

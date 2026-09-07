@@ -44,7 +44,7 @@ struct alignas(16) MaterialUniforms {
 };
 
 FrameUniforms makeUniforms(const EditorUiState &ui, float aspect) {
-    const CameraState camera{ui.cameraTarget, ui.cameraYaw, ui.cameraPitch, ui.cameraDistance};
+    const CameraState camera{ui.cameraTarget, ui.cameraYaw, ui.cameraPitch, ui.cameraDistance, ui.orthographic};
     const auto matrices = makeCameraMatrices(camera, aspect);
     FrameUniforms result{};
     result.viewProjection = matrices.viewProjection;

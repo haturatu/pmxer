@@ -15,6 +15,7 @@ struct CameraState {
     float yaw{};
     float pitch{};
     float distance{3.0F};
+    bool orthographic{};
 };
 
 struct CameraMatrices {
@@ -25,6 +26,7 @@ struct ScreenPoint {
     float x{};
     float y{};
     bool inFront{};
+    float depth{};
 };
 
 inline CameraMatrices makeCameraMatrices(const CameraState &camera, float aspect) {
@@ -61,7 +63,10 @@ inline CameraMatrices makeCameraMatrices(const CameraState &camera, float aspect
     const auto nearPlane = std::max(0.01F, camera.distance * 0.001F);
     const auto farPlane = std::max(1000.0F, camera.distance * 100.0F);
     const auto focal = 1.0F / std::tan(0.75F * 0.5F);
-    const auto xScale = focal / std::max(aspect, 0.001F);
+    const auto safeAspect = std::max(aspect, 0.001F);
+    const auto halfHeight = std::max(camera.distance * std::tan(0.75F * 0.5F), 0.001F);
+    const auto xScale = camera.orthographic ? 1.0F / (halfHeight * safeAspect) : focal / safeAspect;
+    const auto yScale = camera.orthographic ? 1.0F / halfHeight : focal;
     const auto zScale = farPlane / (farPlane - nearPlane);
     const auto zOffset = -nearPlane * farPlane / (farPlane - nearPlane);
     const std::array<float, 16> view{
@@ -70,12 +75,19 @@ inline CameraMatrices makeCameraMatrices(const CameraState &camera, float aspect
         forward[0], forward[1], forward[2], -dot(forward, eye),
         0.0F, 0.0F, 0.0F, 1.0F,
     };
-    const std::array<float, 16> projection{
+    const std::array<float, 16> perspective{
         xScale, 0.0F, 0.0F, 0.0F,
-        0.0F, focal, 0.0F, 0.0F,
+        0.0F, yScale, 0.0F, 0.0F,
         0.0F, 0.0F, zScale, zOffset,
         0.0F, 0.0F, 1.0F, 0.0F,
     };
+    const std::array<float, 16> orthographic{
+        xScale, 0.0F, 0.0F, 0.0F,
+        0.0F, yScale, 0.0F, 0.0F,
+        0.0F, 0.0F, 1.0F / (farPlane - nearPlane), -nearPlane / (farPlane - nearPlane),
+        0.0F, 0.0F, 0.0F, 1.0F,
+    };
+    const auto &projection = camera.orthographic ? orthographic : perspective;
     CameraMatrices result;
     for (std::size_t row = 0; row < 4; ++row)
         for (std::size_t column = 0; column < 4; ++column)
@@ -91,14 +103,17 @@ inline ScreenPoint projectWorldToScreen(const CameraState &camera, const mmd::Fl
     const auto &m = matrices.viewProjection;
     const auto x = m[0] * position[0] + m[1] * position[1] + m[2] * position[2] + m[3];
     const auto y = m[4] * position[0] + m[5] * position[1] + m[6] * position[2] + m[7];
+    const auto z = m[8] * position[0] + m[9] * position[1] + m[10] * position[2] + m[11];
     const auto w = m[12] * position[0] + m[13] * position[1] + m[14] * position[2] + m[15];
     if (std::abs(w) <= std::numeric_limits<float>::epsilon())
-        return {originX, originY, false};
+        return {originX, originY, false, 0.0F};
     const auto ndcX = x / w;
     const auto ndcY = y / w;
+    const auto depth = z / w;
     return {originX + (ndcX * 0.5F + 0.5F) * width,
             originY + (0.5F - ndcY * 0.5F) * height,
-            w > 0.0F};
+            w > 0.0F && depth >= 0.0F && depth <= 1.0F,
+            depth};
 }
 
 } // namespace pmxer
