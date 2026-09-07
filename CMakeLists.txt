@@ -217,6 +217,17 @@ add_dependencies(pmxer_render pmxer_shaders)
 
 if(PMXER_BUILD_GUI)
   FetchContent_Declare(
+    bcdec
+    URL https://github.com/iOrange/bcdec/archive/80859ed3b7afb1c527a2a99d70c61457bea72d0c.tar.gz
+    URL_HASH SHA256=c54b589fd1db768994c8bb4bbe9dbd658fb9401ce56cb7a1c544cb1ca2c0a033
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+  )
+  FetchContent_GetProperties(bcdec)
+  if(NOT bcdec_POPULATED)
+    FetchContent_Populate(bcdec)
+  endif()
+
+  FetchContent_Declare(
     stb_image
     URL https://github.com/nothings/stb/archive/2c980bb59875b0d32144a71867fbdebb2f77cd20.tar.gz
     URL_HASH SHA256=9a955b1b49a4410088a2e0ee2a9c057c3c907d0c1d75454144cb980aca0ba515
@@ -278,7 +289,7 @@ if(PMXER_BUILD_GUI)
     src/platform/FileDialog.cpp
   )
   target_include_directories(pmxer_ui PUBLIC src)
-  target_include_directories(pmxer_ui PRIVATE "${stb_image_SOURCE_DIR}")
+  target_include_directories(pmxer_ui SYSTEM PRIVATE "${stb_image_SOURCE_DIR}" "${bcdec_SOURCE_DIR}")
   target_link_libraries(pmxer_ui PUBLIC pmxer_render pmxer_imgui SDL3::SDL3)
   target_compile_definitions(pmxer_ui PRIVATE PMXER_HAS_GUI=1 PMXER_SHADER_DIRECTORY="${PMXER_SHADER_OUTPUT_DIR}")
 endif()
@@ -325,7 +336,8 @@ if(BUILD_TESTING)
       tests/unit/ImageDecoderTests.cpp
       src/render/ImageDecoder.cpp
     )
-    target_include_directories(pmxer_image_decoder_tests PRIVATE src "${stb_image_SOURCE_DIR}")
+    target_include_directories(pmxer_image_decoder_tests PRIVATE src)
+    target_include_directories(pmxer_image_decoder_tests SYSTEM PRIVATE "${stb_image_SOURCE_DIR}" "${bcdec_SOURCE_DIR}")
     add_test(NAME pmxer_image_decoder COMMAND pmxer_image_decoder_tests)
   endif()
 endif()

@@ -8,5 +8,6 @@ source distributions.
 - Dear ImGui
 - argparse (p-ranav/argparse) - MIT
 - stb_image - Public Domain or MIT
+- bcdec - MIT or Unlicense
 - libmmd
 - Bullet Physics when enabled

@@ -4,6 +4,9 @@
 #define STBI_MAX_DIMENSIONS 16384
 #include <stb_image.h>
 
+#define BCDEC_IMPLEMENTATION
+#include <bcdec.h>
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -92,6 +95,9 @@ DecodedImage decodeDds(const std::vector<std::uint8_t> &bytes) {
     bool bc1 = format == fourCc('D', 'X', 'T', '1');
     bool bc2 = format == fourCc('D', 'X', 'T', '3');
     bool bc3 = format == fourCc('D', 'X', 'T', '5');
+    bool bc4 = format == fourCc('A', 'T', 'I', '1') || format == fourCc('B', 'C', '4', 'U');
+    bool bc5 = format == fourCc('A', 'T', 'I', '2') || format == fourCc('B', 'C', '5', 'U');
+    bool bc7 = false;
     std::size_t dataOffset = 128U;
     if (format == fourCc('D', 'X', '1', '0')) {
         if (bytes.size() < 148U) {
@@ -103,12 +109,27 @@ DecodedImage decodeDds(const std::vector<std::uint8_t> &bytes) {
         bc1 = extendedFormat == 71U || extendedFormat == 72U;
         bc2 = extendedFormat == 74U || extendedFormat == 75U;
         bc3 = extendedFormat == 77U || extendedFormat == 78U;
+        bc4 = extendedFormat == 80U;
+        bc5 = extendedFormat == 83U;
+        bc7 = extendedFormat == 98U || extendedFormat == 99U;
+        const auto resourceDimension = read32(bytes, 132);
+        const auto miscellaneousFlags = read32(bytes, 136);
+        const auto arraySize = read32(bytes, 140);
+        if (resourceDimension != 3U || arraySize != 1U || (miscellaneousFlags & 0x4U) != 0U) {
+            image.error = "unsupported DDS texture layout";
+            image.rgba.clear();
+            return image;
+        }
         dataOffset = 148U;
+    } else if (read32(bytes, 112) != 0U) {
+        image.error = "unsupported DDS texture layout";
+        image.rgba.clear();
+        return image;
     }
     const auto pixelFlags = read32(bytes, 80);
     const auto bitsPerPixel = read32(bytes, 88);
     const bool uncompressed = (pixelFlags & 0x40U) != 0U && (bitsPerPixel == 24U || bitsPerPixel == 32U);
-    if (!bc1 && !bc2 && !bc3 && !uncompressed) {
+    if (!bc1 && !bc2 && !bc3 && !bc4 && !bc5 && !bc7 && !uncompressed) {
         image.error = "unsupported DDS pixel format";
         image.rgba.clear();
         return image;
@@ -146,7 +167,7 @@ DecodedImage decodeDds(const std::vector<std::uint8_t> &bytes) {
         }
         return image;
     }
-    const std::size_t blockSize = bc1 ? 8U : 16U;
+    const std::size_t blockSize = bc1 || bc4 ? 8U : 16U;
     const auto blocksWide = (image.width + 3U) / 4U;
     const auto blocksHigh = (image.height + 3U) / 4U;
     const auto blockCount = static_cast<std::uint64_t>(blocksWide) * blocksHigh;
@@ -158,6 +179,33 @@ DecodedImage decodeDds(const std::vector<std::uint8_t> &bytes) {
     const std::uint8_t *block = bytes.data() + dataOffset;
     for (std::uint32_t by = 0; by < blocksHigh; ++by) {
         for (std::uint32_t bx = 0; bx < blocksWide; ++bx, block += blockSize) {
+            if (bc4) {
+                std::array<std::uint8_t, 16> decoded{};
+                bcdec_bc4(block, decoded.data(), 4);
+                for (unsigned pixel = 0; pixel < 16; ++pixel) {
+                    const auto value = decoded[pixel];
+                    writePixel(image, bx * 4U + pixel % 4U, by * 4U + pixel / 4U,
+                               {value, value, value, 255});
+                }
+                continue;
+            }
+            if (bc5) {
+                std::array<std::uint8_t, 32> decoded{};
+                bcdec_bc5(block, decoded.data(), 8);
+                for (unsigned pixel = 0; pixel < 16; ++pixel)
+                    writePixel(image, bx * 4U + pixel % 4U, by * 4U + pixel / 4U,
+                               {decoded[pixel * 2U], decoded[pixel * 2U + 1U], 0, 255});
+                continue;
+            }
+            if (bc7) {
+                std::array<std::uint8_t, 64> decoded{};
+                bcdec_bc7(block, decoded.data(), 16);
+                for (unsigned pixel = 0; pixel < 16; ++pixel)
+                    writePixel(image, bx * 4U + pixel % 4U, by * 4U + pixel / 4U,
+                               {decoded[pixel * 4U], decoded[pixel * 4U + 1U],
+                                decoded[pixel * 4U + 2U], decoded[pixel * 4U + 3U]});
+                continue;
+            }
             const auto *colorBlock = block + (bc1 ? 0U : 8U);
             const auto colors = colorTable(colorBlock, bc1);
             const auto colorBits = static_cast<std::uint32_t>(colorBlock[4]) |
