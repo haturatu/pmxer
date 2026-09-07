@@ -17,7 +17,9 @@
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #if PMXER_HAS_GUI
@@ -219,11 +221,38 @@ int runApplication(const EditCommand &options) {
     bool recoveryPromptOpened = false;
     std::size_t quitSessionIndex = 0;
     std::vector<bool> quitDiscarded;
+    std::optional<std::string> pendingCloseSession;
+    std::optional<std::string> closeAfterSaveSession;
+    bool closePromptOpened = false;
     WorkspaceUiState workspace;
     bool initializeDockLayout = !hasSavedLayout;
     SDL_GPUTexture *depthTexture = nullptr;
     Uint32 depthWidth = 0;
     Uint32 depthHeight = 0;
+    const auto findSession = [&](std::string_view id) -> std::optional<std::size_t> {
+        for (std::size_t index = 0; index < sessions.size(); ++index)
+            if (sessions[index]->recoveryId == id)
+                return index;
+        return std::nullopt;
+    };
+    const auto closeSession = [&](std::size_t index) {
+        if (index >= sessions.size())
+            return;
+        const auto &session = *sessions[index];
+        const auto recovery = session.recoveryFile.value_or(
+            session.path.empty() ? recoveryPath({}, session.recoveryId)
+                                 : recoveryPath(session.path));
+        if (!discardRecoveryFile(recovery))
+            log::warn("recovery file could not be discarded while closing a document");
+        sessions.erase(sessions.begin() + static_cast<std::ptrdiff_t>(index));
+        if (sessions.empty()) {
+            activeSession = 0;
+        } else if (activeSession > index) {
+            --activeSession;
+        } else if (activeSession >= sessions.size()) {
+            activeSession = sessions.size() - 1U;
+        }
+    };
     const auto ensureDepthTexture = [&](Uint32 width, Uint32 height) {
         if (depthTexture != nullptr && depthWidth == width && depthHeight == height)
             return true;
@@ -263,11 +292,28 @@ int runApplication(const EditCommand &options) {
         }
         if (const auto result = fileDialog.takeResult()) {
             try {
-                if (result->save) {
-                    if (!sessions.empty() && activeSession < sessions.size())
-                        sessions[activeSession]->ui.status = saveDocument(*sessions[activeSession], result->path).success
-                                                                  ? "保存しました"
-                                                                  : "保存に失敗しました";
+                if (result->canceled) {
+                    if (closeAfterSaveSession &&
+                        *closeAfterSaveSession == result->context)
+                        closeAfterSaveSession.reset();
+                } else if (result->save) {
+                    const auto target = result->context.empty()
+                                            ? (activeSession < sessions.size()
+                                                   ? std::optional<std::size_t>{activeSession}
+                                                   : std::nullopt)
+                                            : findSession(result->context);
+                    if (target) {
+                        const auto targetId = sessions[*target]->recoveryId;
+                        const auto saved = saveDocument(*sessions[*target], result->path).success;
+                        sessions[*target]->ui.status = saved ? "保存しました" : "保存に失敗しました";
+                        if (saved && closeAfterSaveSession &&
+                            *closeAfterSaveSession == targetId) {
+                            closeAfterSaveSession.reset();
+                            closeSession(*target);
+                        }
+                    } else {
+                        log::warn("save dialog target document is no longer open");
+                    }
                 } else {
                     loadSession(result->path);
                     if (!sessions.empty())
@@ -282,6 +328,10 @@ int runApplication(const EditCommand &options) {
         ImGui_ImplSDLGPU3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
+        if (!sessions.empty() && activeSession < sessions.size() &&
+            ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_W,
+                            ImGuiInputFlags_RouteGlobal))
+            pendingCloseSession = sessions[activeSession]->recoveryId;
         const auto dockspaceId = ImGui::DockSpaceOverViewport();
         if (initializeDockLayout || workspace.resetLayout) {
             buildDefaultDockLayout(dockspaceId);
@@ -395,10 +445,13 @@ int runApplication(const EditCommand &options) {
                         const auto title = (path.empty() ? std::string{"無題"} : path.filename().string()) +
                                            (sessions[i]->modified ? " *" : "");
                         const auto label = title + "##document" + std::to_string(i);
-                        if (ImGui::BeginTabItem(label.c_str())) {
+                        bool keepOpen = true;
+                        if (ImGui::BeginTabItem(label.c_str(), &keepOpen)) {
                             activeSession = i;
                             ImGui::EndTabItem();
                         }
+                        if (!keepOpen && !pendingCloseSession)
+                            pendingCloseSession = sessions[i]->recoveryId;
                     }
                     ImGui::EndTabBar();
                 }
@@ -420,12 +473,79 @@ int runApplication(const EditCommand &options) {
             }
             ImGui::End();
         }
+        if (pendingCloseSession && !closePromptOpened) {
+            const auto target = findSession(*pendingCloseSession);
+            if (!target) {
+                pendingCloseSession.reset();
+            } else if (!sessions[*target]->modified) {
+                closeSession(*target);
+                pendingCloseSession.reset();
+            } else {
+                ImGui::OpenPopup("未保存の変更##close-document");
+                closePromptOpened = true;
+            }
+        }
+        if (closePromptOpened &&
+            ImGui::BeginPopupModal("未保存の変更##close-document", nullptr,
+                                   ImGuiWindowFlags_AlwaysAutoResize)) {
+            const auto target = pendingCloseSession
+                                    ? findSession(*pendingCloseSession)
+                                    : std::nullopt;
+            if (!target) {
+                closePromptOpened = false;
+                pendingCloseSession.reset();
+                ImGui::CloseCurrentPopup();
+            } else {
+                auto &session = *sessions[*target];
+                const auto title = session.path.empty()
+                                       ? std::string{"無題"}
+                                       : session.path.filename().string();
+                ImGui::Text("%s に未保存の変更があります。", title.c_str());
+                if (ImGui::Button("保存して閉じる")) {
+                    if (session.path.empty()) {
+                        if (!fileDialog.busy() &&
+                            fileDialog.save({}, session.recoveryId)) {
+                            closeAfterSaveSession = session.recoveryId;
+                            closePromptOpened = false;
+                            pendingCloseSession.reset();
+                            ImGui::CloseCurrentPopup();
+                        }
+                    } else if (saveDocument(session).success) {
+                        closeSession(*target);
+                        closePromptOpened = false;
+                        pendingCloseSession.reset();
+                        ImGui::CloseCurrentPopup();
+                    } else {
+                        session.ui.status = "保存に失敗しました";
+                    }
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("破棄して閉じる")) {
+                    closeSession(*target);
+                    closePromptOpened = false;
+                    pendingCloseSession.reset();
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("キャンセル")) {
+                    closePromptOpened = false;
+                    pendingCloseSession.reset();
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            ImGui::EndPopup();
+        }
         if (!sessions.empty() && activeSession < sessions.size())
             drawEditorPanels(*sessions[activeSession], fileDialog, workspace);
         else {
             ImGui::Begin("pmxer");
             ImGui::TextUnformatted("PMX ファイルを開いてください");
             ImGui::End();
+        }
+        if (workspace.requestCloseDocument) {
+            workspace.requestCloseDocument = false;
+            if (!sessions.empty() && activeSession < sessions.size())
+                pendingCloseSession = sessions[activeSession]->recoveryId;
         }
         ImGui::Render();
         if (io.WantSaveIniSettings) {

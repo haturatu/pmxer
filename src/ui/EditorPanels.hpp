@@ -24,6 +24,7 @@ struct WorkspaceUiState {
     bool showReferences{};
     bool showDiff{};
     bool resetLayout{};
+    bool requestCloseDocument{};
     std::array<char, 128> search{};
 
     void resetPanels() noexcept {

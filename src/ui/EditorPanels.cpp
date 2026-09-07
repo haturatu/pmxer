@@ -426,7 +426,7 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
         session.ui.status = saveDocument(session).success ? "保存しました" : "保存に失敗しました";
     ImGui::SameLine();
     if (ImGui::Button("名前を付けて保存") && !fileDialog.busy())
-        (void)fileDialog.save(session.path);
+        (void)fileDialog.save(session.path, session.recoveryId);
     ImGui::SameLine();
     if (ImGui::Button("回復保存")) {
         const auto saved = writeRecovery(session).success;
@@ -1220,12 +1220,12 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog, Workspac
         (void)session.redo();
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal)) {
         if (session.path.empty())
-            (void)fileDialog.save();
+            (void)fileDialog.save({}, session.recoveryId);
         else
             session.ui.status = saveDocument(session).success ? "保存しました" : "保存に失敗しました";
     }
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S, ImGuiInputFlags_RouteGlobal))
-        (void)fileDialog.save(session.path);
+        (void)fileDialog.save(session.path, session.recoveryId);
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_O, ImGuiInputFlags_RouteGlobal))
         (void)fileDialog.open(session.path.empty() ? std::filesystem::path{} : session.path.parent_path());
     if (ImGui::BeginMainMenuBar()) {
@@ -1234,12 +1234,14 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog, Workspac
                 (void)fileDialog.open(session.path.empty() ? std::filesystem::path{} : session.path.parent_path());
             if (ImGui::MenuItem("保存", "Ctrl+S")) {
                 if (session.path.empty())
-                    (void)fileDialog.save();
+                    (void)fileDialog.save({}, session.recoveryId);
                 else
                     session.ui.status = saveDocument(session).success ? "保存しました" : "保存に失敗しました";
             }
             if (ImGui::MenuItem("名前を付けて保存…", "Ctrl+Shift+S") && !fileDialog.busy())
-                (void)fileDialog.save(session.path);
+                (void)fileDialog.save(session.path, session.recoveryId);
+            if (ImGui::MenuItem("閉じる", "Ctrl+W"))
+                workspace.requestCloseDocument = true;
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("編集")) {

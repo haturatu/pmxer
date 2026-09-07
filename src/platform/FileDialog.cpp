@@ -2,6 +2,8 @@
 
 #include <SDL3/SDL_dialog.h>
 
+#include <utility>
+
 namespace pmxer {
 namespace {
 
@@ -9,13 +11,15 @@ const SDL_DialogFileFilter filters[] = {{"PMX model", "pmx;PMX"}, {"All files", 
 
 } // namespace
 
-bool FileDialog::begin(const std::filesystem::path &location, bool saveMode) {
+bool FileDialog::begin(const std::filesystem::path &location, bool saveMode,
+                       std::string context) {
     const char *defaultLocation = nullptr;
     {
         std::lock_guard lock(mutex_);
         if (busy_)
             return false;
         location_ = location.empty() ? std::string{} : location.string();
+        context_ = std::move(context);
         saveMode_ = saveMode;
         result_.reset();
         error_.reset();
@@ -29,12 +33,12 @@ bool FileDialog::begin(const std::filesystem::path &location, bool saveMode) {
     return true;
 }
 
-bool FileDialog::open(const std::filesystem::path &directory) {
-    return begin(directory, false);
+bool FileDialog::open(const std::filesystem::path &directory, std::string context) {
+    return begin(directory, false, std::move(context));
 }
 
-bool FileDialog::save(const std::filesystem::path &suggested) {
-    return begin(suggested, true);
+bool FileDialog::save(const std::filesystem::path &suggested, std::string context) {
+    return begin(suggested, true, std::move(context));
 }
 
 bool FileDialog::busy() const noexcept {
@@ -62,7 +66,10 @@ void SDLCALL FileDialog::callback(void *userdata, const char *const *files, int)
     if (files == nullptr)
         dialog.error_ = SDL_GetError();
     else if (files[0] != nullptr)
-        dialog.result_ = FileDialogResult{std::filesystem::path(files[0]), dialog.saveMode_};
+        dialog.result_ = FileDialogResult{std::filesystem::path(files[0]), dialog.saveMode_, false,
+                                          dialog.context_};
+    else
+        dialog.result_ = FileDialogResult{{}, dialog.saveMode_, true, dialog.context_};
     dialog.busy_ = false;
 }
 
