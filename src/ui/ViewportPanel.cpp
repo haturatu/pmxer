@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <optional>
 #include <tuple>
 
 namespace pmxer {
@@ -33,6 +34,65 @@ ImVec2 project(const mmd::PmxVertex &vertex, const Bounds &bounds, ImVec2 origin
     return project(vertex.position, bounds, origin, size, ui);
 }
 
+void selectViewportItem(DocumentSession &session, SelectionItem item, std::size_t index) {
+    if (ImGui::GetIO().KeyCtrl)
+        session.selection.add(item);
+    else
+        session.selection.set(item);
+    session.ui.clearDrafts();
+    if (item.kind == SelectionKind::vertex)
+        session.ui.vertexIndex = index;
+    else if (item.kind == SelectionKind::material)
+        session.ui.materialIndex = index;
+    else if (item.kind == SelectionKind::bone)
+        session.ui.boneIndex = index;
+    else if (item.kind == SelectionKind::rigidBody)
+        session.ui.rigidBodyIndex = index;
+    else if (item.kind == SelectionKind::joint)
+        session.ui.jointIndex = index;
+}
+
+std::optional<mmd::Float3> selectedPosition(const DocumentSession &session) {
+    if (session.selection.items().empty())
+        return std::nullopt;
+    const auto selected = session.selection.items().front();
+    if (selected.kind == SelectionKind::vertex) {
+        if (const auto *value = session.document.resolve(selectionHandle<mmd::VertexTag>(session.document, selected)))
+            return value->position;
+    } else if (selected.kind == SelectionKind::bone) {
+        if (const auto *value = session.document.resolve(selectionHandle<mmd::BoneTag>(session.document, selected)))
+            return value->position;
+    } else if (selected.kind == SelectionKind::rigidBody) {
+        if (const auto *value = session.document.resolve(selectionHandle<mmd::RigidBodyTag>(session.document, selected)))
+            return value->position;
+    } else if (selected.kind == SelectionKind::joint) {
+        if (const auto *value = session.document.resolve(selectionHandle<mmd::JointTag>(session.document, selected)))
+            return value->position;
+    }
+    return std::nullopt;
+}
+
+bool insideTriangle(ImVec2 point, ImVec2 a, ImVec2 b, ImVec2 c) {
+    const auto sign = [](ImVec2 p1, ImVec2 p2, ImVec2 p3) {
+        return (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
+    };
+    const auto first = sign(point, a, b);
+    const auto second = sign(point, b, c);
+    const auto third = sign(point, c, a);
+    return !((first < 0.0F || second < 0.0F || third < 0.0F) &&
+             (first > 0.0F || second > 0.0F || third > 0.0F));
+}
+
+std::size_t materialForIndex(const mmd::PmxModel &model, std::size_t indexOffset) {
+    std::size_t end{};
+    for (std::size_t index = 0; index < model.materials.size(); ++index) {
+        end += model.materials[index].indexCount;
+        if (indexOffset < end)
+            return index;
+    }
+    return model.materials.empty() ? 0U : model.materials.size() - 1U;
+}
+
 } // namespace
 
 void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *frame, bool *open) {
@@ -41,6 +101,20 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         ImGui::End();
         return;
     }
+    const auto modeButton = [&](const char *label, ViewportSelectionMode mode) {
+        if (ImGui::RadioButton(label, session.ui.selectionMode == mode))
+            session.ui.selectionMode = mode;
+        ImGui::SameLine();
+    };
+    modeButton("頂点", ViewportSelectionMode::vertex);
+    modeButton("面", ViewportSelectionMode::face);
+    modeButton("材質", ViewportSelectionMode::material);
+    modeButton("ボーン", ViewportSelectionMode::bone);
+    modeButton("剛体", ViewportSelectionMode::rigidBody);
+    if (ImGui::RadioButton("ジョイント", session.ui.selectionMode == ViewportSelectionMode::joint))
+        session.ui.selectionMode = ViewportSelectionMode::joint;
+    ImGui::SameLine();
+    ImGui::Checkbox("X-Ray", &session.ui.xray);
     const auto available = ImGui::GetContentRegionAvail();
     if (available.x < 10.0F || available.y < 10.0F) {
         ImGui::End();
@@ -88,7 +162,13 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                                               bounds.maxZ - bounds.minZ, 0.1F}) * 2.0F;
         session.ui.cameraInitialized = true;
     }
-    if (hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
+    if (hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle) && ImGui::GetIO().KeyShift) {
+        const auto delta = ImGui::GetIO().MouseDelta;
+        const auto scale = session.ui.cameraDistance * 0.0015F;
+        session.ui.cameraTarget[0] -= delta.x * std::cos(session.ui.cameraYaw) * scale;
+        session.ui.cameraTarget[2] += delta.x * std::sin(session.ui.cameraYaw) * scale;
+        session.ui.cameraTarget[1] += delta.y * scale;
+    } else if (hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
         const auto delta = ImGui::GetIO().MouseDelta;
         session.ui.cameraYaw += delta.x * 0.01F;
         session.ui.cameraPitch = std::clamp(session.ui.cameraPitch + delta.y * 0.01F, -1.5F, 1.5F);
@@ -97,6 +177,24 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         session.ui.cameraDistance = std::clamp(session.ui.cameraDistance *
                                                    std::exp(-ImGui::GetIO().MouseWheel * 0.1F),
                                                0.01F, 100000.0F);
+    if (hovered && ImGui::IsKeyPressed(ImGuiKey_F)) {
+        if (const auto position = selectedPosition(session))
+            session.ui.cameraTarget = *position;
+    }
+    if (hovered && ImGui::IsKeyPressed(ImGuiKey_Home))
+        session.ui.cameraInitialized = false;
+    if (hovered && ImGui::IsKeyPressed(ImGuiKey_Keypad1)) {
+        session.ui.cameraYaw = 0.0F;
+        session.ui.cameraPitch = 0.0F;
+    }
+    if (hovered && ImGui::IsKeyPressed(ImGuiKey_Keypad3)) {
+        session.ui.cameraYaw = 1.5707963F;
+        session.ui.cameraPitch = 0.0F;
+    }
+    if (hovered && ImGui::IsKeyPressed(ImGuiKey_Keypad7)) {
+        session.ui.cameraYaw = 0.0F;
+        session.ui.cameraPitch = 1.5697963F;
+    }
 
     for (std::size_t i = 0; i < model.bones.size(); ++i) {
         const auto &bone = model.bones[i];
@@ -171,30 +269,88 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     }
     if (clicked && !vertices.empty()) {
         const auto mouse = ImGui::GetIO().MousePos;
-        std::size_t closest{};
-        float distanceSquared = std::numeric_limits<float>::max();
         const CameraState camera{session.ui.cameraTarget, session.ui.cameraYaw, session.ui.cameraPitch,
                                  session.ui.cameraDistance};
-        for (std::size_t i = 0; i < vertices.size(); ++i) {
-            const auto point = projectWorldToScreen(camera, vertices[i].position, origin.x, origin.y, available.x,
-                                                    available.y);
-            if (!point.inFront)
-                continue;
-            const auto dx = point.x - mouse.x;
-            const auto dy = point.y - mouse.y;
-            const auto candidate = dx * dx + dy * dy;
-            if (candidate < distanceSquared) {
-                distanceSquared = candidate;
-                closest = i;
+
+        if (session.ui.selectionMode == ViewportSelectionMode::face ||
+            session.ui.selectionMode == ViewportSelectionMode::material) {
+            std::optional<std::size_t> hit;
+            for (std::size_t face = 0; face < model.indices.size() / 3U; ++face) {
+                const auto offset = face * 3U;
+                const auto firstIndex = static_cast<std::size_t>(model.indices[offset]);
+                const auto secondIndex = static_cast<std::size_t>(model.indices[offset + 1U]);
+                const auto thirdIndex = static_cast<std::size_t>(model.indices[offset + 2U]);
+                if (firstIndex >= vertices.size() || secondIndex >= vertices.size() || thirdIndex >= vertices.size())
+                    continue;
+                const auto first = projectWorldToScreen(camera, vertices[firstIndex].position, origin.x, origin.y,
+                                                        available.x, available.y);
+                const auto second = projectWorldToScreen(camera, vertices[secondIndex].position, origin.x, origin.y,
+                                                         available.x, available.y);
+                const auto third = projectWorldToScreen(camera, vertices[thirdIndex].position, origin.x, origin.y,
+                                                        available.x, available.y);
+                if (!first.inFront || !second.inFront || !third.inFront)
+                    continue;
+                if (insideTriangle(mouse, {first.x, first.y}, {second.x, second.y}, {third.x, third.y}))
+                    hit = face;
             }
-        }
-        if (distanceSquared <= 18.0F * 18.0F) {
-            const auto item = session.document.vertexHandle(closest);
-            const SelectionItem value{SelectionKind::vertex, item.domain, item.id, item.generation};
-            if (ImGui::GetIO().KeyCtrl)
-                session.selection.add(value);
-            else
-                session.selection.set(value);
+            if (hit && session.ui.selectionMode == ViewportSelectionMode::face) {
+                const auto handle = session.document.faceHandle(*hit);
+                selectViewportItem(session,
+                                   {SelectionKind::face, handle.domain, handle.id, handle.generation}, *hit);
+            } else if (hit && !model.materials.empty()) {
+                const auto index = materialForIndex(model, *hit * 3U);
+                const auto handle = session.document.materialHandle(index);
+                selectViewportItem(session,
+                                   {SelectionKind::material, handle.domain, handle.id, handle.generation}, index);
+            }
+        } else {
+            std::size_t closest{};
+            float distanceSquared = std::numeric_limits<float>::max();
+            const auto consider = [&](const mmd::Float3 &position, std::size_t index) {
+                const auto point = projectWorldToScreen(camera, position, origin.x, origin.y, available.x,
+                                                        available.y);
+                if (!point.inFront)
+                    return;
+                const auto dx = point.x - mouse.x;
+                const auto dy = point.y - mouse.y;
+                const auto candidate = dx * dx + dy * dy;
+                if (candidate < distanceSquared) {
+                    distanceSquared = candidate;
+                    closest = index;
+                }
+            };
+            if (session.ui.selectionMode == ViewportSelectionMode::vertex) {
+                for (std::size_t index = 0; index < vertices.size(); ++index)
+                    consider(vertices[index].position, index);
+            } else if (session.ui.selectionMode == ViewportSelectionMode::bone) {
+                for (std::size_t index = 0; index < model.bones.size(); ++index)
+                    consider(model.bones[index].position, index);
+            } else if (session.ui.selectionMode == ViewportSelectionMode::rigidBody) {
+                for (std::size_t index = 0; index < model.rigidBodies.size(); ++index)
+                    consider(model.rigidBodies[index].position, index);
+            } else if (session.ui.selectionMode == ViewportSelectionMode::joint) {
+                for (std::size_t index = 0; index < model.joints.size(); ++index)
+                    consider(model.joints[index].position, index);
+            }
+            if (distanceSquared <= 18.0F * 18.0F) {
+                if (session.ui.selectionMode == ViewportSelectionMode::vertex) {
+                    const auto handle = session.document.vertexHandle(closest);
+                    selectViewportItem(session,
+                                       {SelectionKind::vertex, handle.domain, handle.id, handle.generation}, closest);
+                } else if (session.ui.selectionMode == ViewportSelectionMode::bone) {
+                    const auto handle = session.document.boneHandle(closest);
+                    selectViewportItem(session,
+                                       {SelectionKind::bone, handle.domain, handle.id, handle.generation}, closest);
+                } else if (session.ui.selectionMode == ViewportSelectionMode::rigidBody) {
+                    const auto handle = session.document.rigidBodyHandle(closest);
+                    selectViewportItem(session,
+                                       {SelectionKind::rigidBody, handle.domain, handle.id, handle.generation}, closest);
+                } else if (session.ui.selectionMode == ViewportSelectionMode::joint) {
+                    const auto handle = session.document.jointHandle(closest);
+                    selectViewportItem(session,
+                                       {SelectionKind::joint, handle.domain, handle.id, handle.generation}, closest);
+                }
+            }
         }
     }
     ImGui::End();

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 namespace pmxer {
 
 class DocumentSession;
@@ -8,23 +10,27 @@ class FileDialog;
 struct WorkspaceUiState {
     bool showDocuments{true};
     bool showViewport{true};
-    bool showModel{true};
-    bool showVertex{true};
-    bool showMaterial{true};
-    bool showTexture{true};
-    bool showBone{true};
-    bool showMorph{true};
-    bool showDisplayFrame{true};
-    bool showPhysics{true};
-    bool showDiagnostics{true};
-    bool showReferences{true};
-    bool showDiff{true};
+    bool showOutliner{true};
+    bool showInspector{true};
+    bool showModel{};
+    bool showVertex{};
+    bool showMaterial{};
+    bool showTexture{};
+    bool showBone{};
+    bool showMorph{};
+    bool showDisplayFrame{};
+    bool showPhysics{};
+    bool showDiagnostics{};
+    bool showReferences{};
+    bool showDiff{};
     bool resetLayout{};
+    std::array<char, 128> search{};
 
-    void showAll() noexcept {
-        showDocuments = showViewport = showModel = showVertex = showMaterial = showTexture = showBone = true;
-        showMorph = showDisplayFrame = showPhysics = showDiagnostics = true;
-        showReferences = showDiff = true;
+    void resetPanels() noexcept {
+        showDocuments = showViewport = showOutliner = showInspector = true;
+        showModel = showVertex = showMaterial = showTexture = showBone = false;
+        showMorph = showDisplayFrame = showPhysics = showDiagnostics = false;
+        showReferences = showDiff = false;
     }
 };
 

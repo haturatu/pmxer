@@ -283,6 +283,8 @@ if(PMXER_BUILD_GUI)
   add_library(pmxer_ui
     src/ui/MainWindow.cpp
     src/ui/EditorPanels.cpp
+    src/ui/OutlinerPanel.cpp
+    src/ui/InspectorPanel.cpp
     src/ui/ViewportPanel.cpp
     src/render/GpuModelRenderer.cpp
     src/render/ImageDecoder.cpp

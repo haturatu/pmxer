@@ -20,6 +20,9 @@ enum class SelectionKind : std::uint8_t {
     face,
 };
 
+enum class ViewportSelectionMode : std::uint8_t { vertex, face, material, bone, rigidBody, joint };
+enum class ViewportTool : std::uint8_t { select, move, rotate, scale };
+
 struct SelectionItem {
     SelectionKind kind{};
     std::uint64_t domain{};

@@ -71,6 +71,14 @@ struct EditorUiState {
     float viewportWidth{};
     float viewportHeight{};
     bool viewportVisible{};
+    ViewportSelectionMode selectionMode{ViewportSelectionMode::bone};
+    ViewportTool viewportTool{ViewportTool::select};
+    bool localTransform{};
+    bool snapTransform{};
+    bool xray{};
+    bool showGrid{true};
+    bool showBones{true};
+    bool showPhysics{};
     const mmd::AnimatedModelFrame *previewFrame{};
 
     void clearDrafts() {

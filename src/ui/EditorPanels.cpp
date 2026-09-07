@@ -1,4 +1,6 @@
 #include "EditorPanels.hpp"
+#include "InspectorPanel.hpp"
+#include "OutlinerPanel.hpp"
 
 #include "../editor/DocumentSession.hpp"
 #include "../editor/DiffController.hpp"
@@ -1212,7 +1214,34 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog, Workspac
         drawViewportPanel(session, preview.frame ? &*preview.frame : nullptr, &workspace.showViewport);
     else
         session.ui.viewportVisible = false;
+    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Z, ImGuiInputFlags_RouteGlobal))
+        (void)session.undo();
+    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Y, ImGuiInputFlags_RouteGlobal))
+        (void)session.redo();
+    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal)) {
+        if (session.path.empty())
+            (void)fileDialog.save();
+        else
+            session.ui.status = saveDocument(session).success ? "保存しました" : "保存に失敗しました";
+    }
+    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S, ImGuiInputFlags_RouteGlobal))
+        (void)fileDialog.save(session.path);
+    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_O, ImGuiInputFlags_RouteGlobal))
+        (void)fileDialog.open(session.path.empty() ? std::filesystem::path{} : session.path.parent_path());
     if (ImGui::BeginMainMenuBar()) {
+        if (ImGui::BeginMenu("ファイル")) {
+            if (ImGui::MenuItem("開く…", "Ctrl+O") && !fileDialog.busy())
+                (void)fileDialog.open(session.path.empty() ? std::filesystem::path{} : session.path.parent_path());
+            if (ImGui::MenuItem("保存", "Ctrl+S")) {
+                if (session.path.empty())
+                    (void)fileDialog.save();
+                else
+                    session.ui.status = saveDocument(session).success ? "保存しました" : "保存に失敗しました";
+            }
+            if (ImGui::MenuItem("名前を付けて保存…", "Ctrl+Shift+S") && !fileDialog.busy())
+                (void)fileDialog.save(session.path);
+            ImGui::EndMenu();
+        }
         if (ImGui::BeginMenu("編集")) {
             if (ImGui::MenuItem("元に戻す", "Ctrl+Z", false, session.commands.undoCount() != 0))
                 (void)session.undo();
@@ -1226,6 +1255,9 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog, Workspac
             if (ImGui::BeginMenu("パネル")) {
                 ImGui::MenuItem("ドキュメント", nullptr, &workspace.showDocuments);
                 ImGui::MenuItem("ビューポート", nullptr, &workspace.showViewport);
+                ImGui::MenuItem("アウトライナー", nullptr, &workspace.showOutliner);
+                ImGui::MenuItem("インスペクター", nullptr, &workspace.showInspector);
+                ImGui::SeparatorText("高度なパネル");
                 ImGui::MenuItem("モデル", nullptr, &workspace.showModel);
                 ImGui::MenuItem("頂点", nullptr, &workspace.showVertex);
                 ImGui::MenuItem("材質", nullptr, &workspace.showMaterial);
@@ -1240,13 +1272,17 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog, Workspac
                 ImGui::EndMenu();
             }
             if (ImGui::MenuItem("レイアウトをリセット")) {
-                workspace.showAll();
+                workspace.resetPanels();
                 workspace.resetLayout = true;
             }
             ImGui::EndMenu();
         }
         ImGui::EndMainMenuBar();
     }
+    if (workspace.showOutliner)
+        drawOutlinerPanel(session, workspace, &workspace.showOutliner);
+    if (workspace.showInspector)
+        drawInspectorPanel(session, &workspace.showInspector);
     if (workspace.showModel)
         drawModelPanel(session, fileDialog, &workspace.showModel);
     if (workspace.showVertex)
@@ -1269,6 +1305,7 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog, Workspac
         drawReferencePanel(session, &workspace.showReferences);
     if (workspace.showDiff)
         drawDiffPanel(session, &workspace.showDiff);
+    drawStatusBar(session, workspace.showDiagnostics, workspace.showReferences, workspace.showDiff);
 }
 
 } // namespace pmxer

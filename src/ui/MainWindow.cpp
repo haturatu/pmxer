@@ -55,20 +55,14 @@ void buildDefaultDockLayout(ImGuiID dockspaceId) {
     ImGui::DockBuilderSetNodeSize(dockspaceId, viewport->WorkSize);
 
     ImGuiID center = dockspaceId;
-    const auto left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.20F, nullptr, &center);
-    const auto right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.28F, nullptr, &center);
-    const auto bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.22F, nullptr, &center);
+    const auto left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.22F, nullptr, &center);
+    const auto right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.30F, nullptr, &center);
+    const auto bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.25F, nullptr, &center);
 
     ImGui::DockBuilderDockWindow("ビューポート", center);
     ImGui::DockBuilderDockWindow("ドキュメント", left);
-    ImGui::DockBuilderDockWindow("モデル", left);
-    ImGui::DockBuilderDockWindow("頂点", right);
-    ImGui::DockBuilderDockWindow("材質", right);
-    ImGui::DockBuilderDockWindow("テクスチャ", right);
-    ImGui::DockBuilderDockWindow("ボーン", right);
-    ImGui::DockBuilderDockWindow("モーフ", right);
-    ImGui::DockBuilderDockWindow("表示枠", right);
-    ImGui::DockBuilderDockWindow("物理", right);
+    ImGui::DockBuilderDockWindow("アウトライナー", left);
+    ImGui::DockBuilderDockWindow("インスペクター", right);
     ImGui::DockBuilderDockWindow("診断", bottom);
     ImGui::DockBuilderDockWindow("参照", bottom);
     ImGui::DockBuilderDockWindow("差分", bottom);
@@ -398,7 +392,8 @@ int runApplication(const EditCommand &options) {
                 if (ImGui::BeginTabBar("document-tabs")) {
                     for (std::size_t i = 0; i < sessions.size(); ++i) {
                         const auto &path = sessions[i]->path;
-                        const auto title = path.empty() ? "無題" : path.filename().string();
+                        const auto title = (path.empty() ? std::string{"無題"} : path.filename().string()) +
+                                           (sessions[i]->modified ? " *" : "");
                         const auto label = title + "##document" + std::to_string(i);
                         if (ImGui::BeginTabItem(label.c_str())) {
                             activeSession = i;
