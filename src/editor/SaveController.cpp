@@ -29,7 +29,7 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
         options.mode = mmd::PmxSaveMode::preserve;
         options.indexWidths = mmd::PmxIndexWidthPolicy::preserveAndWiden;
         result.report = mmd::pmx::save(temporary, session.document.model(), options);
-        const auto written = mmd::pmx::load(temporary);
+        auto written = mmd::pmx::load(temporary);
         result.verification = mmd::pmx::semanticCompare(
             session.document.model(), written, mmd::PmxComparisonProfile::preservation);
         if (!result.verification.equal()) {
