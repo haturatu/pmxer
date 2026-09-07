@@ -83,6 +83,15 @@ struct EditorUiState {
     bool gizmoDragging{};
     SelectionItem gizmoSelection{};
     std::array<float, 16> gizmoMatrix{};
+    std::optional<SelectionItem> viewportHover;
+    std::optional<std::size_t> viewportHoverFace;
+    mmd::Float3 viewportHoverPosition{};
+    float viewportHoverMouseX{};
+    float viewportHoverMouseY{};
+    ViewportSelectionMode viewportHoverMode{ViewportSelectionMode::bone};
+    std::uint64_t viewportHoverRevision{std::numeric_limits<std::uint64_t>::max()};
+    std::uint64_t viewportHoverFrameRevision{std::numeric_limits<std::uint64_t>::max()};
+    std::chrono::steady_clock::time_point viewportHoverUpdated{};
     const mmd::AnimatedModelFrame *previewFrame{};
 
     void clearDrafts() {

@@ -301,6 +301,7 @@ if(PMXER_BUILD_GUI)
     src/ui/InspectorPanel.cpp
     src/ui/ViewportPanel.cpp
     src/ui/ViewportGizmo.cpp
+    src/ui/ViewportPicking.cpp
     src/render/GpuModelRenderer.cpp
     src/render/ImageDecoder.cpp
     src/platform/FileDialog.cpp

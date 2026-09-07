@@ -1,5 +1,6 @@
 #include "ViewportPanel.hpp"
 #include "ViewportGizmo.hpp"
+#include "ViewportPicking.hpp"
 
 #include "../render/Camera.hpp"
 
@@ -7,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <optional>
@@ -73,31 +75,41 @@ std::optional<mmd::Float3> selectedPosition(const DocumentSession &session) {
     return std::nullopt;
 }
 
-bool insideTriangle(ImVec2 point, ImVec2 a, ImVec2 b, ImVec2 c) {
-    const auto sign = [](ImVec2 p1, ImVec2 p2, ImVec2 p3) {
-        return (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
-    };
-    const auto first = sign(point, a, b);
-    const auto second = sign(point, b, c);
-    const auto third = sign(point, c, a);
-    return !((first < 0.0F || second < 0.0F || third < 0.0F) &&
-             (first > 0.0F || second > 0.0F || third > 0.0F));
-}
-
-std::size_t materialForIndex(const mmd::PmxModel &model, std::size_t indexOffset) {
-    std::size_t end{};
-    for (std::size_t index = 0; index < model.materials.size(); ++index) {
-        end += model.materials[index].indexCount;
-        if (indexOffset < end)
-            return index;
-    }
-    return model.materials.empty() ? 0U : model.materials.size() - 1U;
-}
-
 bool isSelected(const DocumentSession &session, SelectionKind kind,
                 const auto &handle) {
     return session.selection.contains(
         {kind, handle.domain, handle.id, handle.generation});
+}
+
+void hoverTooltip(const DocumentSession &session, const SelectionItem &item) {
+    ImGui::BeginTooltip();
+    if (item.kind == SelectionKind::material) {
+        const auto *value = session.document.resolve(
+            selectionHandle<mmd::MaterialTag>(session.document, item));
+        ImGui::Text("材質: %s", value == nullptr ? "(無効)" : value->name.c_str());
+    } else if (item.kind == SelectionKind::bone) {
+        const auto *value = session.document.resolve(
+            selectionHandle<mmd::BoneTag>(session.document, item));
+        if (value == nullptr) {
+            ImGui::TextUnformatted("ボーン: (無効)");
+        } else {
+            ImGui::Text("ボーン: %s", value->name.c_str());
+            ImGui::Text("変形層: %d", value->deformLayer);
+        }
+    } else if (item.kind == SelectionKind::rigidBody) {
+        const auto *value = session.document.resolve(
+            selectionHandle<mmd::RigidBodyTag>(session.document, item));
+        ImGui::Text("剛体: %s", value == nullptr ? "(無効)" : value->name.c_str());
+    } else if (item.kind == SelectionKind::joint) {
+        const auto *value = session.document.resolve(
+            selectionHandle<mmd::JointTag>(session.document, item));
+        ImGui::Text("ジョイント: %s", value == nullptr ? "(無効)" : value->name.c_str());
+    } else if (item.kind == SelectionKind::face) {
+        ImGui::TextUnformatted("面");
+    } else {
+        ImGui::TextUnformatted("頂点");
+    }
+    ImGui::EndTooltip();
 }
 
 } // namespace
@@ -377,99 +389,77 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 }
         }
     }
-    if (clicked && !vertices.empty()) {
-        const auto mouse = ImGui::GetIO().MousePos;
-        const CameraState camera{session.ui.cameraTarget, session.ui.cameraYaw, session.ui.cameraPitch,
-                                 session.ui.cameraDistance, session.ui.orthographic};
-
-        if (session.ui.selectionMode == ViewportSelectionMode::face ||
-            session.ui.selectionMode == ViewportSelectionMode::material) {
-            std::optional<std::size_t> hit;
-            float hitDepth = std::numeric_limits<float>::max();
-            for (std::size_t face = 0; face < model.indices.size() / 3U; ++face) {
-                const auto offset = face * 3U;
-                const auto firstIndex = static_cast<std::size_t>(model.indices[offset]);
-                const auto secondIndex = static_cast<std::size_t>(model.indices[offset + 1U]);
-                const auto thirdIndex = static_cast<std::size_t>(model.indices[offset + 2U]);
-                if (firstIndex >= vertices.size() || secondIndex >= vertices.size() || thirdIndex >= vertices.size())
-                    continue;
-                const auto first = projectWorldToScreen(camera, vertices[firstIndex].position, origin.x, origin.y,
-                                                        available.x, available.y);
-                const auto second = projectWorldToScreen(camera, vertices[secondIndex].position, origin.x, origin.y,
-                                                         available.x, available.y);
-                const auto third = projectWorldToScreen(camera, vertices[thirdIndex].position, origin.x, origin.y,
-                                                        available.x, available.y);
-                if (!first.inFront || !second.inFront || !third.inFront)
-                    continue;
-                const auto depth = (first.depth + second.depth + third.depth) / 3.0F;
-                if (depth < hitDepth &&
-                    insideTriangle(mouse, {first.x, first.y}, {second.x, second.y}, {third.x, third.y})) {
-                    hit = face;
-                    hitDepth = depth;
-                }
-            }
-            if (hit && session.ui.selectionMode == ViewportSelectionMode::face) {
-                const auto handle = session.document.faceHandle(*hit);
-                selectViewportItem(session,
-                                   {SelectionKind::face, handle.domain, handle.id, handle.generation}, *hit);
-            } else if (hit && !model.materials.empty()) {
-                const auto index = materialForIndex(model, *hit * 3U);
-                const auto handle = session.document.materialHandle(index);
-                selectViewportItem(session,
-                                   {SelectionKind::material, handle.domain, handle.id, handle.generation}, index);
-            }
-        } else {
-            std::size_t closest{};
-            float distanceSquared = std::numeric_limits<float>::max();
-            const auto consider = [&](const mmd::Float3 &position, std::size_t index) {
-                const auto point = projectWorldToScreen(camera, position, origin.x, origin.y, available.x,
-                                                        available.y);
-                if (!point.inFront)
-                    return;
-                const auto dx = point.x - mouse.x;
-                const auto dy = point.y - mouse.y;
-                const auto candidate = dx * dx + dy * dy;
-                if (candidate < distanceSquared) {
-                    distanceSquared = candidate;
-                    closest = index;
-                }
-            };
-            if (session.ui.selectionMode == ViewportSelectionMode::vertex) {
-                for (std::size_t index = 0; index < vertices.size(); ++index)
-                    consider(vertices[index].position, index);
-            } else if (session.ui.selectionMode == ViewportSelectionMode::bone) {
-                for (std::size_t index = 0; index < model.bones.size(); ++index)
-                    consider(model.bones[index].position, index);
-            } else if (session.ui.selectionMode == ViewportSelectionMode::rigidBody) {
-                for (std::size_t index = 0; index < model.rigidBodies.size(); ++index)
-                    consider(model.rigidBodies[index].position, index);
-            } else if (session.ui.selectionMode == ViewportSelectionMode::joint) {
-                for (std::size_t index = 0; index < model.joints.size(); ++index)
-                    consider(model.joints[index].position, index);
-            }
-            if (distanceSquared <= 18.0F * 18.0F) {
-                if (session.ui.selectionMode == ViewportSelectionMode::vertex) {
-                    const auto handle = session.document.vertexHandle(closest);
-                    selectViewportItem(session,
-                                       {SelectionKind::vertex, handle.domain, handle.id, handle.generation}, closest);
-                } else if (session.ui.selectionMode == ViewportSelectionMode::bone) {
-                    const auto handle = session.document.boneHandle(closest);
-                    selectViewportItem(session,
-                                       {SelectionKind::bone, handle.domain, handle.id, handle.generation}, closest);
-                } else if (session.ui.selectionMode == ViewportSelectionMode::rigidBody) {
-                    const auto handle = session.document.rigidBodyHandle(closest);
-                    selectViewportItem(session,
-                                       {SelectionKind::rigidBody, handle.domain, handle.id, handle.generation}, closest);
-                } else if (session.ui.selectionMode == ViewportSelectionMode::joint) {
-                    const auto handle = session.document.jointHandle(closest);
-                    selectViewportItem(session,
-                                       {SelectionKind::joint, handle.domain, handle.id, handle.generation}, closest);
-                }
-            }
-        }
-    }
     const CameraState camera{session.ui.cameraTarget, session.ui.cameraYaw, session.ui.cameraPitch,
                              session.ui.cameraDistance, session.ui.orthographic};
+    const auto mouse = ImGui::GetIO().MousePos;
+    if (clicked) {
+        const auto picked = pickViewport(session, vertices, camera, origin,
+                                         available, mouse);
+        if (picked)
+            selectViewportItem(session, picked->item, picked->index);
+    }
+    if (!hovered || session.ui.gizmoDragging) {
+        session.ui.viewportHover.reset();
+        session.ui.viewportHoverFace.reset();
+    } else {
+        const auto now = std::chrono::steady_clock::now();
+        const auto dx = mouse.x - session.ui.viewportHoverMouseX;
+        const auto dy = mouse.y - session.ui.viewportHoverMouseY;
+        const auto moved = dx * dx + dy * dy > 1.0F;
+        const auto stale =
+            session.ui.viewportHoverMode != session.ui.selectionMode ||
+            session.ui.viewportHoverRevision != session.revision ||
+            session.ui.viewportHoverFrameRevision !=
+                session.preview.frameRevision;
+        if ((moved || stale) &&
+            now - session.ui.viewportHoverUpdated >=
+                std::chrono::milliseconds(75)) {
+            const auto picked = pickViewport(session, vertices, camera, origin,
+                                             available, mouse);
+            session.ui.viewportHover =
+                picked ? std::optional<SelectionItem>{picked->item}
+                       : std::nullopt;
+            session.ui.viewportHoverFace =
+                picked ? picked->face : std::nullopt;
+            if (picked)
+                session.ui.viewportHoverPosition = picked->position;
+            session.ui.viewportHoverMouseX = mouse.x;
+            session.ui.viewportHoverMouseY = mouse.y;
+            session.ui.viewportHoverMode = session.ui.selectionMode;
+            session.ui.viewportHoverRevision = session.revision;
+            session.ui.viewportHoverFrameRevision =
+                session.preview.frameRevision;
+            session.ui.viewportHoverUpdated = now;
+        }
+    }
+    if (session.ui.viewportHover) {
+        if (session.ui.viewportHoverFace) {
+            const auto offset = *session.ui.viewportHoverFace * 3U;
+            if (offset + 2U < model.indices.size()) {
+                const auto first = static_cast<std::size_t>(model.indices[offset]);
+                const auto second =
+                    static_cast<std::size_t>(model.indices[offset + 1U]);
+                const auto third =
+                    static_cast<std::size_t>(model.indices[offset + 2U]);
+                if (first < vertices.size() && second < vertices.size() &&
+                    third < vertices.size()) {
+                    const auto a = project(vertices[first], bounds, origin,
+                                           available, session.ui);
+                    const auto b = project(vertices[second], bounds, origin,
+                                           available, session.ui);
+                    const auto c = project(vertices[third], bounds, origin,
+                                           available, session.ui);
+                    draw->AddTriangle(a, b, c, IM_COL32(255, 255, 255, 245),
+                                      2.0F);
+                }
+            }
+        } else {
+            draw->AddCircle(project(session.ui.viewportHoverPosition, bounds,
+                                    origin, available, session.ui),
+                            7.0F, IM_COL32(255, 255, 255, 245), 0, 2.0F);
+        }
+        hoverTooltip(session, *session.ui.viewportHover);
+    }
     drawViewportGizmo(session, makeCameraMatrices(camera, available.x / available.y), origin, available);
     ImGui::End();
 }
