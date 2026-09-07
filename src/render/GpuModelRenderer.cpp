@@ -246,7 +246,7 @@ struct GpuModelRenderer::Impl {
 
     bool prepareTextures(SDL_GPUCommandBuffer *commands, const mmd::PmxModel &model) {
         clearTextures();
-        const auto createSampler = [&](SDL_GPUAddressMode addressMode) {
+        const auto createSampler = [&](SDL_GPUSamplerAddressMode addressMode) {
             SDL_GPUSamplerCreateInfo samplerInfo{};
             samplerInfo.min_filter = SDL_GPU_FILTER_LINEAR;
             samplerInfo.mag_filter = SDL_GPU_FILTER_LINEAR;
