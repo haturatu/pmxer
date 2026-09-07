@@ -463,7 +463,9 @@ bool GpuModelRenderer::prepare(SDL_GPUCommandBuffer *commands, const mmd::PmxMod
             return true;
         if (buffer != nullptr)
             SDL_ReleaseGPUBuffer(impl_->device, buffer);
-        SDL_GPUBufferCreateInfo info{usage, static_cast<Uint32>(required)};
+        SDL_GPUBufferCreateInfo info{};
+        info.usage = usage;
+        info.size = static_cast<Uint32>(required);
         buffer = SDL_CreateGPUBuffer(impl_->device, &info);
         if (buffer == nullptr) {
             capacity = 0;

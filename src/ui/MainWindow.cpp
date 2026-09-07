@@ -28,7 +28,19 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
 #include <imgui.h>
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wconversion"
+#endif
 #include <imgui_internal.h>
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_sdlgpu3.h>
 
@@ -307,7 +319,11 @@ int runApplication(const EditCommand &options) {
                 }
                 ImGui::SameLine();
                 if (ImGui::Button("破棄")) {
-                    discardRecoveryFile(untitledRecoveries[index].path);
+                    if (!discardRecoveryFile(untitledRecoveries[index].path)) {
+                        const auto message = std::string{"Failed to discard recovery file: "} +
+                                             untitledRecoveries[index].path.string();
+                        log::warn(message.c_str());
+                    }
                     untitledRecoveries.erase(untitledRecoveries.begin() + static_cast<std::ptrdiff_t>(index));
                     ImGui::PopID();
                     break;

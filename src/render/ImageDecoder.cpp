@@ -39,13 +39,13 @@ std::array<std::array<std::uint8_t, 4>, 4> colorTable(const std::uint8_t *block,
     const auto second = static_cast<std::uint16_t>(block[2] | (block[3] << 8U));
     std::array<std::array<std::uint8_t, 4>, 4> colors{color565(first), color565(second)};
     if (first > second || !allowTransparent) {
-        for (int channel = 0; channel < 3; ++channel) {
+        for (std::size_t channel = 0; channel < 3U; ++channel) {
             colors[2][channel] = static_cast<std::uint8_t>((2U * colors[0][channel] + colors[1][channel]) / 3U);
             colors[3][channel] = static_cast<std::uint8_t>((colors[0][channel] + 2U * colors[1][channel]) / 3U);
         }
         colors[2][3] = colors[3][3] = 255;
     } else {
-        for (int channel = 0; channel < 3; ++channel)
+        for (std::size_t channel = 0; channel < 3U; ++channel)
             colors[2][channel] = static_cast<std::uint8_t>((colors[0][channel] + colors[1][channel]) / 2U);
         colors[2][3] = 255;
         colors[3] = {0, 0, 0, 0};
