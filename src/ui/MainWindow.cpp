@@ -9,7 +9,10 @@
 #include "../platform/ResourceLocator.hpp"
 
 #include <mmd/pmx.hpp>
+#include <mmd/vmd.hpp>
 
+#include <algorithm>
+#include <cctype>
 #include <exception>
 #include <array>
 #include <cstddef>
@@ -25,6 +28,7 @@
 #if PMXER_HAS_GUI
 #include "EditorPanels.hpp"
 #include "../platform/FileDialog.hpp"
+#include "../preview/PreviewController.hpp"
 #include "../render/GpuModelRenderer.hpp"
 
 #include <SDL3/SDL.h>
@@ -235,6 +239,48 @@ int runApplication(const EditCommand &options) {
                 return index;
         return std::nullopt;
     };
+    const auto loadDroppedPreview = [&](const std::filesystem::path &path) {
+        if (sessions.empty() || activeSession >= sessions.size()) {
+            log::warn("open a model before dropping a motion or pose");
+            return;
+        }
+        auto &session = *sessions[activeSession];
+        auto &preview = session.preview;
+        auto extension = path.extension().string();
+        std::ranges::transform(extension, extension.begin(),
+                               [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+        try {
+            if (extension == ".vmd") {
+                preview.motion = mmd::vmd::load(path);
+                preview.pose.reset();
+                session.ui.motionPath = path.string();
+                if (preview.controller) {
+                    preview.controller->setPose(nullptr);
+                    preview.controller->setMotion(&*preview.motion);
+                }
+                session.ui.status = "モーションを読み込みました";
+            } else if (extension == ".vpd") {
+                preview.pose = mmd::vpd::load(path);
+                preview.motion.reset();
+                session.ui.posePath = path.string();
+                if (preview.controller) {
+                    preview.controller->setMotion(nullptr);
+                    preview.controller->setPose(&*preview.pose);
+                }
+                session.ui.status = "ポーズを読み込みました";
+            }
+            if (preview.controller) {
+                preview.frame = preview.controller->evaluate();
+                ++preview.frameRevision;
+                session.ui.previewFrame = &*preview.frame;
+            }
+            preview.accumulator = 0.0;
+            preview.clockInitialized = false;
+        } catch (const std::exception &error) {
+            session.ui.status = error.what();
+            log::error(error.what());
+        }
+    };
     const auto closeSession = [&](std::size_t index) {
         if (index >= sessions.size())
             return;
@@ -288,6 +334,20 @@ int runApplication(const EditCommand &options) {
                 quitPromptOpened = false;
                 quitSessionIndex = 0;
                 quitDiscarded.assign(sessions.size(), false);
+            } else if (event.type == SDL_EVENT_DROP_FILE && event.drop.data != nullptr) {
+                const auto path = std::filesystem::path(event.drop.data);
+                auto extension = path.extension().string();
+                std::ranges::transform(extension, extension.begin(),
+                                       [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+                if (extension == ".pmx") {
+                    loadSession(path);
+                    if (!sessions.empty())
+                        activeSession = sessions.size() - 1U;
+                } else if (extension == ".vmd" || extension == ".vpd") {
+                    loadDroppedPreview(path);
+                } else {
+                    log::warn("unsupported dropped file type");
+                }
             }
         }
         if (const auto result = fileDialog.takeResult()) {

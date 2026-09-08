@@ -469,6 +469,7 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
         try {
             preview.motion = mmd::vmd::load(session.ui.motionPath);
             preview.pose.reset();
+            preview.controller->setPose(nullptr);
             preview.controller->setMotion(&*preview.motion);
             preview.accumulator = 0.0;
             preview.clockInitialized = false;
@@ -484,6 +485,7 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
         try {
             preview.pose = mmd::vpd::load(session.ui.posePath);
             preview.motion.reset();
+            preview.controller->setMotion(nullptr);
             preview.controller->setPose(&*preview.pose);
             preview.accumulator = 0.0;
             preview.clockInitialized = false;
