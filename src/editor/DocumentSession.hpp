@@ -32,7 +32,9 @@ class PreviewController;
 
 struct MorphOffsetTargetState {
     bool picking{};
+    bool adding{};
     std::size_t offsetIndex{};
+    mmd::MorphHandle morph{};
     SelectionKind expectedKind{SelectionKind::vertex};
     std::optional<SelectionItem> target;
 };
@@ -106,6 +108,7 @@ struct EditorUiState {
     std::array<float, 16> gizmoMatrix{};
     std::optional<SelectionItem> viewportHover;
     MorphOffsetTargetState morphOffsetTarget;
+    std::optional<SelectionItem> morphAddTarget;
     std::optional<std::size_t> viewportHoverFace;
     mmd::Float3 viewportHoverPosition{};
     float viewportHoverMouseX{};
@@ -126,6 +129,7 @@ struct EditorUiState {
         materialDraft.reset();
         boneDraft.reset();
         morphDraft.reset();
+        morphAddTarget.reset();
         morphOffsetDirty = false;
         displayFrameDraft.reset();
         rigidBodyDraft.reset();

@@ -145,6 +145,35 @@ int main() {
                                      synchronized)
                .support == pmxer::SupportLevel::unsupported);
 
+    auto morphTargetModel = sampleModel();
+    mmd::PmxMorph vertexMorph;
+    vertexMorph.name = "vertex morph";
+    vertexMorph.type = 1;
+    mmd::PmxMorphOffset vertexOffset;
+    vertexOffset.index = 0;
+    vertexMorph.offsets.push_back(vertexOffset);
+    morphTargetModel.morphs.push_back(vertexMorph);
+    pmxer::DocumentSession morphTargetSession(std::move(morphTargetModel));
+    const auto targetMorph = morphTargetSession.document.morphHandle(0);
+    morphTargetSession.ui.morphDraft =
+        *morphTargetSession.document.resolve(targetMorph);
+    morphTargetSession.ui.morphOffsetTarget = {
+        true, false, 0, targetMorph, pmxer::SelectionKind::vertex, std::nullopt};
+    const auto targetVertex = morphTargetSession.document.vertexHandle(1);
+    const pmxer::SelectionItem targetVertexItem{
+        pmxer::SelectionKind::vertex, targetVertex.domain, targetVertex.id,
+        targetVertex.generation};
+    assert(pmxer::selectMorphOffsetTarget(morphTargetSession,
+                                          targetVertexItem));
+    assert(!morphTargetSession.ui.morphOffsetTarget.picking);
+    assert(morphTargetSession.ui.morphDraft->offsets[0].index == 1);
+    assert(morphTargetSession.ui.morphOffsetDirty);
+    morphTargetSession.ui.morphOffsetTarget = {
+        true, true, 0, targetMorph, pmxer::SelectionKind::vertex, std::nullopt};
+    assert(pmxer::selectMorphOffsetTarget(morphTargetSession,
+                                          targetVertexItem));
+    assert(morphTargetSession.ui.morphAddTarget == targetVertexItem);
+
     const auto layoutPath = std::filesystem::temp_directory_path() / "pmxer-workspace-layout-test.ini";
     assert(pmxer::saveWorkspaceLayout(layoutPath, "[Window][pmxer]\nPos=0,0\n"));
     pmxer::WorkspaceLayout layout;

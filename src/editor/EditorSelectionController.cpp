@@ -2,6 +2,9 @@
 
 #include "DocumentSession.hpp"
 
+#include <limits>
+#include <optional>
+
 namespace pmxer {
 namespace {
 
@@ -12,6 +15,46 @@ void ensureWorkspaceFor(DocumentSession &session, EditorWorkspace &workspace,
         return;
     workspace = preferredWorkspace(kind);
     applyWorkspacePolicy(session, workspacePolicy(workspace));
+}
+
+std::optional<std::size_t> selectionIndex(const DocumentSession &session,
+                                          SelectionItem item) {
+    const auto &model = session.document.model();
+    switch (item.kind) {
+    case SelectionKind::vertex:
+        for (std::size_t index = 0; index < model.vertices.size(); ++index)
+            if (session.document.vertexHandle(index) ==
+                selectionHandle<mmd::VertexTag>(session.document, item))
+                return index;
+        break;
+    case SelectionKind::material:
+        for (std::size_t index = 0; index < model.materials.size(); ++index)
+            if (session.document.materialHandle(index) ==
+                selectionHandle<mmd::MaterialTag>(session.document, item))
+                return index;
+        break;
+    case SelectionKind::bone:
+        for (std::size_t index = 0; index < model.bones.size(); ++index)
+            if (session.document.boneHandle(index) ==
+                selectionHandle<mmd::BoneTag>(session.document, item))
+                return index;
+        break;
+    case SelectionKind::morph:
+        for (std::size_t index = 0; index < model.morphs.size(); ++index)
+            if (session.document.morphHandle(index) ==
+                selectionHandle<mmd::MorphTag>(session.document, item))
+                return index;
+        break;
+    case SelectionKind::rigidBody:
+        for (std::size_t index = 0; index < model.rigidBodies.size(); ++index)
+            if (session.document.rigidBodyHandle(index) ==
+                selectionHandle<mmd::RigidBodyTag>(session.document, item))
+                return index;
+        break;
+    default:
+        break;
+    }
+    return std::nullopt;
 }
 
 } // namespace
@@ -43,6 +86,7 @@ void selectPrimary(DocumentSession &session, EditorWorkspace &workspace,
     session.selection.set(item);
     session.ui.clearDrafts();
     session.ui.morphOffsetTarget = {};
+    session.ui.morphAddTarget.reset();
 }
 
 void addSelection(DocumentSession &session, EditorWorkspace &workspace,
@@ -71,6 +115,29 @@ bool selectMorphOffsetTarget(DocumentSession &session, SelectionItem item) {
     if (item.kind != target.expectedKind) {
         session.ui.status = "このオフセットが参照する種類を選択してください";
         return true;
+    }
+    const auto index = selectionIndex(session, item);
+    if (!index || *index > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())) {
+        session.ui.status = "オフセット対象のインデックスを解決できません";
+        return true;
+    }
+    if (target.adding) {
+        session.ui.morphAddTarget = item;
+    } else {
+        const auto *morph = session.document.resolve(target.morph);
+        if (morph == nullptr || target.offsetIndex >= morph->offsets.size()) {
+            session.ui.status = "モーフオフセットが見つかりません";
+            return true;
+        }
+        if (!session.ui.morphDraft)
+            session.ui.morphDraft = *morph;
+        if (target.offsetIndex >= session.ui.morphDraft->offsets.size()) {
+            session.ui.status = "モーフオフセットの編集状態が古くなっています";
+            return true;
+        }
+        session.ui.morphDraft->offsets[target.offsetIndex].index =
+            static_cast<std::int32_t>(*index);
+        session.ui.morphOffsetDirty = true;
     }
     target.target = item;
     target.picking = false;

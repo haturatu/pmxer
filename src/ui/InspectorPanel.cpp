@@ -533,11 +533,47 @@ SelectionKind morphOffsetTargetKind(std::uint8_t type) noexcept {
   }
 }
 
+bool morphIndexCombo(const char *label, DocumentSession &session,
+                     std::int32_t &index, mmd::MorphHandle excluded) {
+  const auto &model = session.document.model();
+  const auto current = index >= 0 && static_cast<std::size_t>(index) < model.morphs.size() &&
+                               session.document.morphHandle(static_cast<std::size_t>(index)) != excluded
+                           ? static_cast<std::size_t>(index)
+                           : std::size_t{-1};
+  const auto preview = current == std::size_t{-1}
+                           ? "未選択"
+                           : model.morphs[current].name.c_str();
+  bool changed{};
+  if (ImGui::BeginCombo(label, preview)) {
+    if (ImGui::Selectable("未選択", current == std::size_t{-1})) {
+      index = -1;
+      changed = true;
+    }
+    for (std::size_t candidate = 0; candidate < model.morphs.size(); ++candidate) {
+      const auto handle = session.document.morphHandle(candidate);
+      if (handle == excluded)
+        continue;
+      const auto selected = current == candidate;
+      const auto itemLabel = (model.morphs[candidate].name.empty()
+                                  ? std::string{"(名称なし)"}
+                                  : model.morphs[candidate].name) +
+                             "##morph-target" + std::to_string(candidate);
+      if (ImGui::Selectable(itemLabel.c_str(), selected)) {
+        index = static_cast<std::int32_t>(candidate);
+        changed = true;
+      }
+    }
+    ImGui::EndCombo();
+  }
+  return changed;
+}
+
 void beginMorphOffsetTargetPick(DocumentSession &session,
+                                mmd::MorphHandle morph,
                                 std::size_t offsetIndex,
-                                std::uint8_t type) {
+                                std::uint8_t type, bool adding) {
   session.ui.morphOffsetTarget = {
-      true, offsetIndex, morphOffsetTargetKind(type), std::nullopt};
+      true, adding, offsetIndex, morph, morphOffsetTargetKind(type), std::nullopt};
   switch (session.ui.morphOffsetTarget.expectedKind) {
   case SelectionKind::vertex:
     session.ui.selectionMode = ViewportSelectionMode::vertex;
@@ -559,46 +595,45 @@ void beginMorphOffsetTargetPick(DocumentSession &session,
 
 bool addMorphOffset(DocumentSession &session, mmd::MorphHandle handle,
                     std::uint8_t type) {
-  const auto target = session.ui.morphOffsetTarget.target;
-  const auto &model = session.document.model();
+  const auto target = session.ui.morphAddTarget.has_value()
+                          ? session.ui.morphAddTarget
+                          : session.ui.morphOffsetTarget.target;
   switch (type) {
   case 0:
-    if (model.morphs.size() < 2U)
+  case 9:
+    if (!target || target->kind != SelectionKind::morph ||
+        selectionHandle<mmd::MorphTag>(session.document, *target) == handle)
       return false;
-    for (std::size_t index = 0; index < model.morphs.size(); ++index) {
-      const auto candidate = session.document.morphHandle(index);
-      if (candidate != handle)
-        return addGroupMorphOffset(session, handle, candidate, 1.0F);
-    }
-    return false;
+    if (type == 0)
+      return addGroupMorphOffset(
+          session, handle,
+          selectionHandle<mmd::MorphTag>(session.document, *target), 1.0F);
+    return addFlipMorphOffset(
+        session, handle,
+        selectionHandle<mmd::MorphTag>(session.document, *target), 1.0F);
   case 1:
     if (target && target->kind == SelectionKind::vertex)
       return addVertexMorphOffset(session, handle,
                                   selectionHandle<mmd::VertexTag>(session.document, *target),
                                   {});
-    return model.vertices.empty() ? false
-                                  : addVertexMorphOffset(session, handle,
-                                                         session.document.vertexHandle(0), {});
+    return false;
   case 2:
     if (target && target->kind == SelectionKind::bone)
       return addBoneMorphOffset(session, handle,
                                 selectionHandle<mmd::BoneTag>(session.document, *target),
                                 {}, {0.0F, 0.0F, 0.0F, 1.0F});
-    return model.bones.empty() ? false
-                               : addBoneMorphOffset(session, handle,
-                                                    session.document.boneHandle(0),
-                                                    {}, {0.0F, 0.0F, 0.0F, 1.0F});
+    return false;
   case 3:
   case 4:
   case 5:
   case 6:
   case 7: {
     const auto channel = static_cast<std::uint32_t>(type - 3U);
-    const auto vertex = target && target->kind == SelectionKind::vertex
-                            ? selectionHandle<mmd::VertexTag>(session.document, *target)
-                            : (model.vertices.empty() ? mmd::VertexHandle{}
-                                                      : session.document.vertexHandle(0));
-    return vertex ? addUvMorphOffset(session, handle, vertex, channel, {}) : false;
+    if (!target || target->kind != SelectionKind::vertex)
+      return false;
+    return addUvMorphOffset(
+        session, handle,
+        selectionHandle<mmd::VertexTag>(session.document, *target), channel, {});
   }
   case 8:
     return addMaterialMorphOffset(session, handle,
@@ -606,21 +641,12 @@ bool addMorphOffset(DocumentSession &session, mmd::MorphHandle handle,
                                       ? std::optional{selectionHandle<mmd::MaterialTag>(session.document, *target)}
                                       : std::nullopt,
                                   0, {});
-  case 9:
-    if (model.morphs.size() < 2U)
-      return false;
-    for (std::size_t index = 0; index < model.morphs.size(); ++index) {
-      const auto candidate = session.document.morphHandle(index);
-      if (candidate != handle)
-        return addFlipMorphOffset(session, handle, candidate, 1.0F);
-    }
-    return false;
   case 10: {
-    const auto body = target && target->kind == SelectionKind::rigidBody
-                          ? selectionHandle<mmd::RigidBodyTag>(session.document, *target)
-                          : (model.rigidBodies.empty() ? mmd::RigidBodyHandle{}
-                                                       : session.document.rigidBodyHandle(0));
-    return body ? addImpulseMorphOffset(session, handle, body, {}, {}, false) : false;
+    if (!target || target->kind != SelectionKind::rigidBody)
+      return false;
+    return addImpulseMorphOffset(
+        session, handle,
+        selectionHandle<mmd::RigidBodyTag>(session.document, *target), {}, {}, false);
   }
   default:
     return false;
@@ -636,7 +662,7 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
   if (!session.ui.morphDraft)
     session.ui.morphDraft = *value;
   auto &draft = *session.ui.morphDraft;
-  bool commit{};
+  bool commit = session.ui.morphOffsetDirty;
 
   ImGui::SeparatorText("名前");
   (void)inputText("名前", draft.name);
@@ -648,7 +674,12 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
   static constexpr const char *types[]{"グループ", "頂点", "ボーン", "UV", "追加UV1", "追加UV2",
                                        "追加UV3", "追加UV4", "材質", "フリップ", "インパルス"};
   if (draft.offsets.empty()) {
-    commit |= enumCombo("種類", draft.type, types, std::size(types));
+    const auto typeChanged = enumCombo("種類", draft.type, types, std::size(types));
+    commit |= typeChanged;
+    if (typeChanged) {
+      session.ui.morphAddTarget.reset();
+      session.ui.morphOffsetTarget = {};
+    }
   } else {
     const auto type = std::min<std::size_t>(draft.type, std::size(types) - 1U);
     ImGui::Text("種類: %s", types[type]);
@@ -664,7 +695,9 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
       session.ui.morphOffsetIndex = static_cast<std::size_t>(std::clamp(
           offsetIndex, 0, static_cast<int>(draft.offsets.size() - 1U)));
     auto &offset = draft.offsets[session.ui.morphOffsetIndex];
-    bool offsetCommit = ImGui::InputInt("対象インデックス", &offset.index);
+    bool offsetCommit{};
+    if (draft.type != 0 && draft.type != 9)
+      offsetCommit = ImGui::InputInt("対象インデックス", &offset.index);
     switch (draft.type) {
     case 0:
     case 9:
@@ -706,26 +739,62 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
                              targetKind == SelectionKind::bone ? "ボーン" :
                              targetKind == SelectionKind::material ? "材質" :
                              targetKind == SelectionKind::rigidBody ? "剛体" : "モーフ");
-    if (ImGui::Button("ビューポートから対象を選択"))
-      beginMorphOffsetTargetPick(session, session.ui.morphOffsetIndex, draft.type);
+    if (draft.type == 0 || draft.type == 9) {
+      offsetCommit |= morphIndexCombo("対象モーフ", session, offset.index, handle);
+      if (offsetCommit)
+        commit = true;
+    } else if (ImGui::Button("ビューポートから対象を選択")) {
+      beginMorphOffsetTargetPick(session, handle, session.ui.morphOffsetIndex,
+                                 draft.type, false);
+    }
     if (session.ui.morphOffsetTarget.picking)
       ImGui::TextDisabled("対象を選択中…");
     if (session.ui.morphOffsetTarget.target)
       ImGui::TextDisabled("対象ID: %llu", static_cast<unsigned long long>(session.ui.morphOffsetTarget.target->id));
   }
+  if (draft.offsets.empty() && (draft.type == 0 || draft.type == 9)) {
+    auto addIndex = std::int32_t{-1};
+    if (session.ui.morphAddTarget) {
+      for (std::size_t index = 0; index < session.document.model().morphs.size(); ++index)
+        if (session.document.morphHandle(index) ==
+            selectionHandle<mmd::MorphTag>(session.document, *session.ui.morphAddTarget))
+          addIndex = static_cast<std::int32_t>(index);
+    }
+    if (morphIndexCombo("追加対象モーフ", session, addIndex, handle)) {
+      if (addIndex >= 0)
+        session.ui.morphAddTarget = SelectionItem{
+            SelectionKind::morph,
+            session.document.morphHandle(static_cast<std::size_t>(addIndex)).domain,
+            session.document.morphHandle(static_cast<std::size_t>(addIndex)).id,
+            session.document.morphHandle(static_cast<std::size_t>(addIndex)).generation};
+      else
+        session.ui.morphAddTarget.reset();
+    }
+  } else if (draft.offsets.empty() && draft.type != 8) {
+    if (ImGui::Button("ビューポートから対象を選択"))
+      beginMorphOffsetTargetPick(session, handle, 0, draft.type, true);
+  }
   const auto addLabel = std::string{"+ "} +
                         types[std::min<std::size_t>(draft.type,
                                                     std::size(types) - 1U)] +
                         "オフセット";
+  const auto addTargetRequired = draft.type != 8;
+  const auto hasAddTarget = session.ui.morphAddTarget.has_value();
+  const auto addEnabled = !addTargetRequired || hasAddTarget;
+  if (!addEnabled)
+    ImGui::BeginDisabled();
   if (ImGui::Button(addLabel.c_str())) {
     if (addMorphOffset(session, handle, draft.type)) {
       session.ui.morphDraft.reset();
       session.ui.morphOffsetTarget = {};
+      session.ui.morphAddTarget.reset();
       session.ui.status = "モーフオフセットを追加しました";
     } else {
       session.ui.status = "モーフオフセットを追加できません";
     }
   }
+  if (!addEnabled)
+    ImGui::EndDisabled();
   ImGui::SameLine();
   if (ImGui::Button("詳細編集"))
     workspace.showMorph = true;
@@ -769,7 +838,11 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
   if (commit) {
     const auto result = editMorph(session, handle, draft);
     session.ui.status = result.success ? "モーフを更新しました" : result.message;
-    session.ui.morphDraft.reset();
+    if (result.success) {
+      session.ui.morphDraft.reset();
+      session.ui.morphOffsetTarget = {};
+      session.ui.morphOffsetDirty = false;
+    }
   }
 }
 
