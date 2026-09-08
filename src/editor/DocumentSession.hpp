@@ -7,6 +7,7 @@
 #include <mmd/document.hpp>
 #include <mmd/animation.hpp>
 
+#include <array>
 #include <filesystem>
 #include <atomic>
 #include <chrono>
@@ -29,6 +30,10 @@ inline std::string makeRecoveryId() {
 }
 
 class PreviewController;
+
+struct OutlinerViewState {
+    std::array<char, 128> query{};
+};
 
 struct MorphOffsetTargetState {
     bool picking{};
@@ -68,6 +73,8 @@ struct EditorUiState {
     std::string motionPath;
     std::string posePath;
     std::string status;
+    std::array<OutlinerViewState, 5> outliner{};
+    std::optional<SelectionItem> pendingOutlinerReveal;
     bool previewPlaying{};
     bool morphOffsetDirty{};
     float cameraYaw{};

@@ -22,6 +22,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #if PMXER_HAS_GUI
@@ -76,6 +77,83 @@ void buildDefaultDockLayout(ImGuiID dockspaceId) {
     ImGui::DockBuilderFinish(dockspaceId);
 }
 
+std::string documentBaseName(const DocumentSession &session) {
+    return session.path.empty() ? std::string{"無題"}
+                                : session.path.filename().string();
+}
+
+std::string documentTabTitle(
+    const std::vector<std::unique_ptr<DocumentSession>> &sessions,
+    std::size_t index) {
+    const auto base = documentBaseName(*sessions[index]);
+    std::size_t collisions{};
+    for (const auto &session : sessions)
+        if (documentBaseName(*session) == base)
+            ++collisions;
+    if (collisions <= 1U)
+        return base;
+    if (sessions[index]->path.empty())
+        return base + " — " + sessions[index]->recoveryId.substr(0, 6);
+
+    std::vector<std::string> parents;
+    auto parent = sessions[index]->path.parent_path();
+    while (!parent.empty() && parent != parent.root_path()) {
+        parents.push_back(parent.filename().string());
+        parent = parent.parent_path();
+    }
+    for (std::size_t depth = 1; depth <= parents.size(); ++depth) {
+        std::string suffix;
+        for (std::size_t part = depth; part > 0; --part) {
+            if (!suffix.empty())
+                suffix += '/';
+            suffix += parents[part - 1U];
+        }
+        bool unique = true;
+        for (std::size_t other = 0; other < sessions.size(); ++other) {
+            if (other == index || documentBaseName(*sessions[other]) != base ||
+                sessions[other]->path.empty())
+                continue;
+            std::string otherSuffix;
+            auto otherParent = sessions[other]->path.parent_path();
+            std::vector<std::string> otherParents;
+            while (!otherParent.empty() && otherParent != otherParent.root_path()) {
+                otherParents.push_back(otherParent.filename().string());
+                otherParent = otherParent.parent_path();
+            }
+            if (otherParents.size() < depth)
+                continue;
+            for (std::size_t part = depth; part > 0; --part) {
+                if (!otherSuffix.empty())
+                    otherSuffix += '/';
+                otherSuffix += otherParents[part - 1U];
+            }
+            if (otherSuffix == suffix) {
+                unique = false;
+                break;
+            }
+        }
+        if (unique)
+            return base + " — " + suffix;
+    }
+    return base + " — " + sessions[index]->path.parent_path().string();
+}
+
+std::optional<std::size_t> findOpenDocument(
+    const std::vector<std::unique_ptr<DocumentSession>> &sessions,
+    const std::filesystem::path &path) {
+    std::error_code error;
+    const auto normalized = std::filesystem::weakly_canonical(path, error);
+    if (error)
+        return std::nullopt;
+    for (std::size_t index = 0; index < sessions.size(); ++index) {
+        error.clear();
+        if (!sessions[index]->path.empty() &&
+            std::filesystem::weakly_canonical(sessions[index]->path, error) == normalized)
+            return index;
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 int runApplication(const EditCommand &options) {
@@ -118,7 +196,10 @@ int runApplication(const EditCommand &options) {
     std::vector<std::unique_ptr<DocumentSession>> sessions;
     std::size_t activeSession{};
     std::vector<std::filesystem::path> recentFiles;
-    const auto loadSession = [&](const std::filesystem::path &path) {
+    const auto loadSession = [&](const std::filesystem::path &path)
+        -> std::optional<std::size_t> {
+        if (const auto existing = findOpenDocument(sessions, path))
+            return existing;
         try {
             auto session = std::make_unique<DocumentSession>(mmd::pmx::load(path), path);
             if (auto recovery = loadRecovery(path)) {
@@ -133,8 +214,10 @@ int runApplication(const EditCommand &options) {
                 recentFiles.resize(8U);
             sessions.back()->previewPhysics = options.physics;
             sessions.back()->previewIk = !options.safeMode;
+            return sessions.size() - 1U;
         } catch (const std::exception &error) {
             log::error(error.what());
+            return std::nullopt;
         }
     };
     for (const auto &path : options.documents)
@@ -330,9 +413,8 @@ int runApplication(const EditCommand &options) {
                 std::ranges::transform(extension, extension.begin(),
                                        [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
                 if (extension == ".pmx") {
-                    loadSession(path);
-                    if (!sessions.empty())
-                        activeSession = sessions.size() - 1U;
+        if (const auto opened = loadSession(path))
+            activeSession = *opened;
                 } else if (extension == ".vmd" || extension == ".vpd") {
                     loadDroppedPreview(path);
                 } else {
@@ -365,9 +447,8 @@ int runApplication(const EditCommand &options) {
                         log::warn("save dialog target document is no longer open");
                     }
                 } else {
-                    loadSession(result->path);
-                    if (!sessions.empty())
-                        activeSession = sessions.size() - 1;
+                    if (const auto opened = loadSession(result->path))
+                        activeSession = *opened;
                 }
             } catch (const std::exception &error) {
                 log::error(error.what());
@@ -496,13 +577,20 @@ int runApplication(const EditCommand &options) {
                 if (ImGui::BeginTabBar("document-tabs")) {
                     for (std::size_t i = 0; i < sessions.size(); ++i) {
                         const auto &path = sessions[i]->path;
-                        const auto title = (path.empty() ? std::string{"無題"} : path.filename().string()) +
+                        const auto title = documentTabTitle(sessions, i) +
                                            (sessions[i]->modified ? " *" : "");
-                        const auto label = title + "##document" + std::to_string(i);
+                        const auto label = title + "###document-" + sessions[i]->recoveryId;
                         bool keepOpen = true;
                         if (ImGui::BeginTabItem(label.c_str(), &keepOpen)) {
                             activeSession = i;
                             ImGui::EndTabItem();
+                        }
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::BeginTooltip();
+                            ImGui::TextUnformatted(sessions[i]->path.empty()
+                                                       ? "無題"
+                                                       : sessions[i]->path.string().c_str());
+                            ImGui::EndTooltip();
                         }
                         if (!keepOpen && !pendingCloseSession)
                             pendingCloseSession = sessions[i]->recoveryId;
@@ -516,9 +604,8 @@ int runApplication(const EditCommand &options) {
                 if (ImGui::Button("タブで開く") && newSessionPath[0] != '\0') {
                     try {
                         const std::filesystem::path path(newSessionPath.data());
-                        loadSession(path);
-                        if (!sessions.empty())
-                            activeSession = sessions.size() - 1;
+                        if (const auto opened = loadSession(path))
+                            activeSession = *opened;
                         newSessionPath.fill('\0');
                     } catch (const std::exception &error) {
                         log::error(error.what());
@@ -614,9 +701,8 @@ int runApplication(const EditCommand &options) {
                 for (std::size_t index = 0; index < recentFiles.size(); ++index) {
                     ImGui::PushID(static_cast<int>(index));
                     if (ImGui::Selectable(recentFiles[index].string().c_str())) {
-                        loadSession(recentFiles[index]);
-                        if (!sessions.empty())
-                            activeSession = sessions.size() - 1U;
+                        if (const auto opened = loadSession(recentFiles[index]))
+                            activeSession = *opened;
                     }
                     ImGui::PopID();
                 }

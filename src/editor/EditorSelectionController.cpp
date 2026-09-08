@@ -82,12 +82,16 @@ EditorWorkspace preferredWorkspace(SelectionKind kind) noexcept {
 }
 
 void selectPrimary(DocumentSession &session, EditorWorkspace &workspace,
-                   SelectionItem item, SelectionOrigin /*origin*/) {
+                   SelectionItem item, SelectionOrigin origin) {
     ensureWorkspaceFor(session, workspace, item.kind);
     session.selection.set(item);
     session.ui.clearDrafts();
     session.ui.morphOffsetTarget = {};
     session.ui.morphAddTarget.reset();
+    if (origin == SelectionOrigin::outliner)
+        session.ui.pendingOutlinerReveal.reset();
+    else
+        session.ui.pendingOutlinerReveal = item;
 }
 
 void addSelection(DocumentSession &session, EditorWorkspace &workspace,

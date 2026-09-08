@@ -31,7 +31,6 @@ struct WorkspaceUiState {
     bool resetLayout{};
     bool requestCloseDocument{};
     std::string status;
-    std::array<char, 128> search{};
     std::array<WorkspaceViewportProfile, 5> viewportProfiles{
         defaultViewportProfile(EditorWorkspace::model),
         defaultViewportProfile(EditorWorkspace::rig),

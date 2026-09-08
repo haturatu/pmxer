@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -155,6 +156,17 @@ void drawMultiSelectList(DocumentSession &session, SelectionKind kind,
   }
   const auto *mapping = filter.empty() ? nullptr : &visible;
   const auto displayedCount = mapping == nullptr ? count : mapping->size();
+  std::optional<int> pendingRow;
+  if (session.ui.pendingOutlinerReveal &&
+      session.ui.pendingOutlinerReveal->kind == kind) {
+    for (std::size_t row = 0; row < displayedCount; ++row) {
+      const auto index = mapping == nullptr ? row : (*mapping)[row];
+      if (itemAt(session, kind, index) == *session.ui.pendingOutlinerReveal) {
+        pendingRow = static_cast<int>(row);
+        break;
+      }
+    }
+  }
   MultiSelectContext context{&session, &workspace, kind, mapping};
   ImGuiSelectionExternalStorage storage;
   storage.UserData = &context;
@@ -168,6 +180,9 @@ void drawMultiSelectList(DocumentSession &session, SelectionKind kind,
   clipper.Begin(itemCount(displayedCount));
   if (selection->RangeSrcItem != -1)
     clipper.IncludeItemByIndex(static_cast<int>(selection->RangeSrcItem));
+  if (pendingRow)
+    clipper.IncludeItemByIndex(*pendingRow);
+  bool revealed = false;
   while (clipper.Step()) {
     for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
       const auto displayIndex = static_cast<std::size_t>(row);
@@ -179,11 +194,17 @@ void drawMultiSelectList(DocumentSession &session, SelectionKind kind,
       if (ImGui::Selectable((text + "##" + std::to_string(row)).c_str(),
                             session.selection.contains(item)))
         activate(session, kind, index);
+      if (pendingRow && row == *pendingRow) {
+        ImGui::SetScrollHereY(0.5F);
+        revealed = true;
+      }
     }
   }
   selection = ImGui::EndMultiSelect();
   storage.ApplyRequests(selection);
   ImGui::EndChild();
+  if (revealed)
+    session.ui.pendingOutlinerReveal.reset();
 }
 
 struct BoneFilterResult {
@@ -225,7 +246,9 @@ BoneFilterResult makeBoneFilterResult(const std::vector<mmd::PmxBone> &bones,
 void drawBoneNode(DocumentSession &session, WorkspaceUiState &workspace,
                   const std::vector<std::vector<std::size_t>> &children,
                   std::size_t index, const BoneFilterResult &filter,
-                  std::vector<bool> &visited) {
+                  std::vector<bool> &visited,
+                  const std::optional<SelectionItem> &pending,
+                  bool &revealed) {
   if (index >= children.size() || visited[index] || !filter.visible[index])
     return;
   visited[index] = true;
@@ -241,6 +264,10 @@ void drawBoneNode(DocumentSession &session, WorkspaceUiState &workspace,
   if (filter.forceOpen[index])
     ImGui::SetNextItemOpen(true, ImGuiCond_Always);
   const auto open = ImGui::TreeNodeEx(bone.name.c_str(), flags);
+  if (pending && *pending == item) {
+    ImGui::SetScrollHereY(0.5F);
+    revealed = true;
+  }
   if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
     if (ImGui::GetIO().KeyCtrl) {
       if (session.selection.contains(item))
@@ -254,7 +281,8 @@ void drawBoneNode(DocumentSession &session, WorkspaceUiState &workspace,
   }
   if (open && !children[index].empty()) {
     for (const auto child : children[index])
-      drawBoneNode(session, workspace, children, child, filter, visited);
+      drawBoneNode(session, workspace, children, child, filter, visited,
+                   pending, revealed);
     ImGui::TreePop();
   }
   ImGui::PopID();
@@ -274,12 +302,38 @@ void drawBoneTree(DocumentSession &session, WorkspaceUiState &workspace,
       roots.push_back(index);
   }
   std::vector<bool> visited(bones.size());
-  const auto filterResult = makeBoneFilterResult(bones, filter);
+  auto filterResult = makeBoneFilterResult(bones, filter);
+  bool revealed = false;
+  if (session.ui.pendingOutlinerReveal &&
+      session.ui.pendingOutlinerReveal->kind == SelectionKind::bone) {
+    std::optional<std::size_t> target;
+    for (std::size_t index = 0; index < bones.size(); ++index)
+      if (itemAt(session, SelectionKind::bone, index) ==
+          *session.ui.pendingOutlinerReveal) {
+        target = index;
+        break;
+      }
+    if (target && filterResult.visible[*target]) {
+      auto current = *target;
+      for (std::size_t steps = 0; steps < bones.size(); ++steps) {
+        const auto parent = bones[current].parent;
+        if (parent < 0 || static_cast<std::size_t>(parent) >= bones.size())
+          break;
+        const auto parentIndex = static_cast<std::size_t>(parent);
+        filterResult.forceOpen[parentIndex] = true;
+        current = parentIndex;
+      }
+    }
+  }
   for (const auto root : roots)
-    drawBoneNode(session, workspace, children, root, filterResult, visited);
+    drawBoneNode(session, workspace, children, root, filterResult, visited,
+                 session.ui.pendingOutlinerReveal, revealed);
   for (std::size_t index = 0; index < bones.size(); ++index)
     if (!visited[index])
-      drawBoneNode(session, workspace, children, index, filterResult, visited);
+      drawBoneNode(session, workspace, children, index, filterResult, visited,
+                   session.ui.pendingOutlinerReveal, revealed);
+  if (revealed)
+    session.ui.pendingOutlinerReveal.reset();
 }
 
 std::string indexedName(std::string_view name, std::size_t index) {
@@ -294,10 +348,13 @@ void drawOutlinerPanel(DocumentSession &session, WorkspaceUiState &workspace,
     ImGui::End();
     return;
   }
+  auto &query = session.ui.outliner[workspaceIndex(workspace.active)].query;
   ImGui::SetNextItemWidth(-1.0F);
-  ImGui::InputTextWithHint("##search", "検索", workspace.search.data(),
-                           workspace.search.size());
-  const std::string_view filter(workspace.search.data());
+  ImGui::InputTextWithHint("##search", "検索", query.data(), query.size());
+  ImGui::SameLine();
+  if (ImGui::SmallButton("×##clear-outliner-search"))
+    query.fill('\0');
+  const std::string_view filter(query.data());
   const auto &model = session.document.model();
 
   const auto policy = workspacePolicy(workspace.active);
@@ -361,6 +418,12 @@ void drawOutlinerPanel(DocumentSession &session, WorkspaceUiState &workspace,
           return indexedName(model.softBodies[i].name, i);
         },
         filter, workspace);
+  if (session.ui.pendingOutlinerReveal) {
+    ImGui::Separator();
+    ImGui::TextDisabled("選択中の項目は検索条件で非表示です");
+    if (ImGui::SmallButton("検索をクリア##outliner-reveal"))
+      query.fill('\0');
+  }
   ImGui::End();
 }
 
