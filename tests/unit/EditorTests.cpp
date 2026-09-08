@@ -194,18 +194,19 @@ int main() {
     physicsModel.joints[0].bodyB = 1;
     pmxer::DocumentSession physicsSession(std::move(physicsModel));
     const auto body = physicsSession.document.rigidBodyHandle(0);
-    const auto joint = physicsSession.document.jointHandle(0);
+    const auto physicsJoint = physicsSession.document.jointHandle(0);
     physicsSession.selection.set({pmxer::SelectionKind::rigidBody, body.domain,
                                   body.id, body.generation});
     const auto bodyRelations =
         pmxer::physicsSelectionRelations(physicsSession);
     assert(bodyRelations.bodySelected(body.id));
-    assert(bodyRelations.jointRelated(joint.id));
-    physicsSession.selection.set({pmxer::SelectionKind::joint, joint.domain,
-                                  joint.id, joint.generation});
+    assert(bodyRelations.jointRelated(physicsJoint.id));
+    physicsSession.selection.set({pmxer::SelectionKind::joint,
+                                  physicsJoint.domain, physicsJoint.id,
+                                  physicsJoint.generation});
     const auto jointRelations =
         pmxer::physicsSelectionRelations(physicsSession);
-    assert(jointRelations.jointSelected(joint.id));
+    assert(jointRelations.jointSelected(physicsJoint.id));
     assert(jointRelations.bodyRelated(body.id));
     pmxer::setStatus(session, "一時通知", pmxer::UiStatusKind::success,
                      std::chrono::milliseconds::zero());
