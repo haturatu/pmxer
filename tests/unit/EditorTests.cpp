@@ -1,16 +1,21 @@
 #include "../../src/editor/DocumentSession.hpp"
+#include "../../src/editor/EditorSelectionController.hpp"
 #include "../../src/editor/EditorOperations.hpp"
 #include "../../src/editor/RecoveryController.hpp"
 #include "../../src/editor/SaveController.hpp"
+#include "../../src/editor/ViewportCapabilities.hpp"
+#include "../../src/editor/WorkspacePolicy.hpp"
 #include "../../src/render/Camera.hpp"
 #include "../../src/render/Picking.hpp"
 #include "../../src/preview/PreviewController.hpp"
+#include "../../src/ui/WorkspaceLayout.hpp"
 
 #include <mmd/pmx.hpp>
 
 #include <cassert>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <utility>
 
 namespace {
@@ -76,10 +81,16 @@ int main() {
     pmxer::DocumentSession recovered(sampleModel());
     recovered.commands.markDirty();
     const auto recoveredHandle = recovered.document.vertexHandle(0);
+    const auto recoveredMaterial = recovered.document.materialHandle(0);
+    recovered.selection.set({pmxer::SelectionKind::material, recoveredMaterial.domain,
+                             recoveredMaterial.id, recoveredMaterial.generation});
     auto recoveredVertex = *recovered.document.resolve(recoveredHandle);
     recoveredVertex.position[0] = 4.0F;
     assert(pmxer::editVertex(recovered, recoveredHandle, recoveredVertex).success);
     assert(recovered.undo());
+    assert(recovered.selection.contains({pmxer::SelectionKind::material,
+                                         recoveredMaterial.domain, recoveredMaterial.id,
+                                         recoveredMaterial.generation}));
     assert(recovered.modified);
     assert(recovered.commands.isModified());
     assert(recovered.redo());
@@ -90,6 +101,115 @@ int main() {
     assert(!recovered.modified);
 
     pmxer::DocumentSession session(sampleModel());
+    const auto modelPolicy = pmxer::workspacePolicy(pmxer::EditorWorkspace::model);
+    assert(modelPolicy.allows(pmxer::SelectionKind::material));
+    assert(!modelPolicy.allows(pmxer::SelectionKind::bone));
+    assert(pmxer::workspacePolicy(pmxer::EditorWorkspace::physics)
+               .allows(pmxer::SelectionKind::softBody));
+    assert(pmxer::workspacePolicy(pmxer::EditorWorkspace::inspect)
+               .allows(pmxer::SelectionKind::bone));
+    const auto morphPolicy = pmxer::workspacePolicy(pmxer::EditorWorkspace::morph);
+    assert(!morphPolicy.defaultViewportMode.has_value());
+    assert(!morphPolicy.allows(pmxer::ViewportSelectionMode::material));
+    const auto boneForPolicy = session.document.boneHandle(0);
+    const auto materialForPolicy = session.document.materialHandle(0);
+    session.selection.set(std::vector<pmxer::SelectionItem>{
+        {pmxer::SelectionKind::bone, boneForPolicy.domain, boneForPolicy.id, boneForPolicy.generation},
+        {pmxer::SelectionKind::material, materialForPolicy.domain, materialForPolicy.id,
+         materialForPolicy.generation}});
+    pmxer::applyWorkspacePolicy(session, pmxer::workspacePolicy(pmxer::EditorWorkspace::rig));
+    assert(session.selection.items().size() == 1U);
+    assert(session.selection.items().front().kind == pmxer::SelectionKind::bone);
+    assert(session.ui.showBones);
+    assert(!session.ui.showPhysics);
+    const auto capabilities = pmxer::transformCapabilities(session);
+    assert(capabilities.move);
+    assert(!capabilities.rotate);
+    assert(!capabilities.scale);
+    pmxer::applyWorkspacePolicy(session, pmxer::workspacePolicy(pmxer::EditorWorkspace::physics));
+    assert(session.selection.items().empty());
+    assert(!session.ui.showBones);
+    assert(session.ui.showPhysics);
+
+    pmxer::DocumentSession synchronized(sampleModel());
+    auto synchronizedWorkspace = pmxer::EditorWorkspace::morph;
+    const auto synchronizedBone = synchronized.document.boneHandle(0);
+    pmxer::selectPrimary(
+        synchronized, synchronizedWorkspace,
+        {pmxer::SelectionKind::bone, synchronizedBone.domain, synchronizedBone.id,
+         synchronizedBone.generation},
+        pmxer::SelectionOrigin::viewport);
+    assert(synchronizedWorkspace == pmxer::EditorWorkspace::rig);
+    assert(synchronized.selection.items().front().kind == pmxer::SelectionKind::bone);
+    assert(pmxer::actionAvailability(pmxer::EditorAction::viewportRotate,
+                                     synchronized)
+               .support == pmxer::SupportLevel::unsupported);
+
+    auto morphTargetModel = sampleModel();
+    mmd::PmxMorph vertexMorph;
+    vertexMorph.name = "vertex morph";
+    vertexMorph.type = 1;
+    mmd::PmxMorphOffset vertexOffset;
+    vertexOffset.index = 0;
+    vertexMorph.offsets.push_back(vertexOffset);
+    morphTargetModel.morphs.push_back(vertexMorph);
+    pmxer::DocumentSession morphTargetSession(std::move(morphTargetModel));
+    const auto targetMorph = morphTargetSession.document.morphHandle(0);
+    morphTargetSession.ui.morphDraft =
+        *morphTargetSession.document.resolve(targetMorph);
+    morphTargetSession.ui.morphOffsetTarget = {
+        true, false, 0, targetMorph, pmxer::SelectionKind::vertex, std::nullopt};
+    const auto targetVertex = morphTargetSession.document.vertexHandle(1);
+    const pmxer::SelectionItem targetVertexItem{
+        pmxer::SelectionKind::vertex, targetVertex.domain, targetVertex.id,
+        targetVertex.generation};
+    assert(pmxer::selectMorphOffsetTarget(morphTargetSession,
+                                          targetVertexItem));
+    assert(!morphTargetSession.ui.morphOffsetTarget.picking);
+    assert(morphTargetSession.ui.morphDraft->offsets[0].index == 1);
+    assert(morphTargetSession.ui.morphOffsetDirty);
+    morphTargetSession.ui.morphOffsetTarget = {
+        true, true, 0, targetMorph, pmxer::SelectionKind::vertex, std::nullopt};
+    assert(pmxer::selectMorphOffsetTarget(morphTargetSession,
+                                          targetVertexItem));
+    assert(morphTargetSession.ui.morphAddTarget == targetVertexItem);
+    auto morphWorkspace = pmxer::EditorWorkspace::morph;
+    morphTargetSession.ui.selectionMode = pmxer::ViewportSelectionMode::bone;
+    assert(pmxer::selectAllForMode(
+        morphTargetSession, morphWorkspace,
+        morphTargetSession.ui.selectionMode,
+        pmxer::SelectionOrigin::viewport));
+    assert(morphTargetSession.selection.items().size() == 1U);
+    assert(morphTargetSession.selection.items().front().kind ==
+           pmxer::SelectionKind::morph);
+
+    const auto layoutPath = std::filesystem::temp_directory_path() / "pmxer-workspace-layout-test.ini";
+    assert(pmxer::saveWorkspaceLayout(layoutPath, "[Window][pmxer]\nPos=0,0\n"));
+    pmxer::WorkspaceLayout layout;
+    assert(pmxer::loadWorkspaceLayout(layoutPath, layout) ==
+           pmxer::WorkspaceLayoutLoadResult::loaded);
+    assert(layout.version == pmxer::kWorkspaceLayoutVersion);
+    assert(layout.imguiIni.find("[Window]") != std::string::npos);
+    {
+        std::ofstream legacy(layoutPath, std::ios::trunc);
+        legacy << "[Window][legacy]\nPos=0,0\n";
+    }
+    assert(pmxer::loadWorkspaceLayout(layoutPath, layout) ==
+           pmxer::WorkspaceLayoutLoadResult::legacy);
+    {
+        std::ofstream unsupported(layoutPath, std::ios::trunc);
+        unsupported << "PMXER_WORKSPACE_LAYOUT 1\n[Window][old]\n";
+    }
+    assert(pmxer::loadWorkspaceLayout(layoutPath, layout) ==
+           pmxer::WorkspaceLayoutLoadResult::unsupportedVersion);
+    {
+        std::ofstream corrupt(layoutPath, std::ios::trunc);
+        corrupt << "PMXER_WORKSPACE_LAYOUT nope\n[Window][broken]\n";
+    }
+    assert(pmxer::loadWorkspaceLayout(layoutPath, layout) ==
+           pmxer::WorkspaceLayoutLoadResult::corrupt);
+    std::filesystem::remove(layoutPath);
+
     assert(session.document.validate().valid());
     const auto handle = session.document.vertexHandle(0);
     assert(!session.document.referencesTo(session.document.boneHandle(0)).empty());

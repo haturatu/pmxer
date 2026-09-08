@@ -1,12 +1,15 @@
 #pragma once
 
+#include "../editor/WorkspacePolicy.hpp"
+
 namespace pmxer {
 
-class DocumentSession;
+struct DocumentSession;
+struct WorkspaceUiState;
 class GpuModelRenderer;
 
 void drawInspectorPanel(DocumentSession &session, GpuModelRenderer *renderer,
-                        bool *open);
+                        WorkspaceUiState &workspace, bool *open);
 void drawStatusBar(DocumentSession &session, bool &showDiagnostics,
                    bool &showReferences, bool &showDiff);
 

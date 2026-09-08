@@ -28,8 +28,6 @@ std::array<float, 16> transpose(const std::array<float, 16> &source) {
 struct TransformSource {
     mmd::Float3 position{};
     mmd::Float3 rotation{};
-    bool canRotate{};
-    bool canScale{};
 };
 
 std::optional<TransformSource> sourceFor(const DocumentSession &session,
@@ -38,22 +36,22 @@ std::optional<TransformSource> sourceFor(const DocumentSession &session,
         const auto *value = session.document.resolve(
             selectionHandle<mmd::VertexTag>(session.document, selected));
         if (value != nullptr)
-            return TransformSource{value->position, {}, false, false};
+            return TransformSource{value->position, {}};
     } else if (selected.kind == SelectionKind::bone) {
         const auto *value = session.document.resolve(
             selectionHandle<mmd::BoneTag>(session.document, selected));
         if (value != nullptr)
-            return TransformSource{value->position, {}, false, false};
+            return TransformSource{value->position, {}};
     } else if (selected.kind == SelectionKind::rigidBody) {
         const auto *value = session.document.resolve(
             selectionHandle<mmd::RigidBodyTag>(session.document, selected));
         if (value != nullptr)
-            return TransformSource{value->position, value->rotation, true, true};
+            return TransformSource{value->position, value->rotation};
     } else if (selected.kind == SelectionKind::joint) {
         const auto *value = session.document.resolve(
             selectionHandle<mmd::JointTag>(session.document, selected));
         if (value != nullptr)
-            return TransformSource{value->position, value->rotation, true, false};
+            return TransformSource{value->position, value->rotation};
     }
     return std::nullopt;
 }
@@ -84,7 +82,7 @@ void decompose(const std::array<float, 16> &matrix, mmd::Float3 &position,
 }
 
 void commit(DocumentSession &session, const SelectionItem &selected,
-            const TransformSource &source) {
+            const TransformCapabilities &capabilities) {
     mmd::Float3 position{};
     mmd::Float3 rotation{};
     mmd::Float3 scale{};
@@ -122,9 +120,9 @@ void commit(DocumentSession &session, const SelectionItem &selected,
         }
         auto value = *resolved;
         value.position = position;
-        if (source.canRotate)
+        if (capabilities.rotate)
             value.rotation = rotation;
-        if (source.canScale)
+        if (capabilities.scale)
             for (std::size_t index = 0; index < value.size.size(); ++index)
                 value.size[index] *= std::max(std::abs(scale[index]), 0.001F);
         result = editRigidBody(session, handle, value);
@@ -138,7 +136,7 @@ void commit(DocumentSession &session, const SelectionItem &selected,
         }
         auto value = *resolved;
         value.position = position;
-        if (source.canRotate)
+        if (capabilities.rotate)
             value.rotation = rotation;
         result = editJoint(session, handle, value);
     }
@@ -150,16 +148,21 @@ void commit(DocumentSession &session, const SelectionItem &selected,
                                            : result.message;
 }
 
-ImGuizmo::OPERATION operationFor(const EditorUiState &ui,
-                                 const TransformSource &source) {
-    if (ui.viewportTool == ViewportTool::rotate && source.canRotate)
-        return ImGuizmo::ROTATE;
-    if (ui.viewportTool == ViewportTool::scale && source.canScale)
-        return ImGuizmo::SCALE;
-    return ImGuizmo::TRANSLATE;
-}
-
 } // namespace
+
+std::optional<ImGuizmo::OPERATION>
+operationFor(ViewportTool tool, const TransformCapabilities &capabilities) noexcept {
+    switch (tool) {
+    case ViewportTool::select:
+    case ViewportTool::move:
+        return capabilities.move ? std::optional{ImGuizmo::TRANSLATE} : std::nullopt;
+    case ViewportTool::rotate:
+        return capabilities.rotate ? std::optional{ImGuizmo::ROTATE} : std::nullopt;
+    case ViewportTool::scale:
+        return capabilities.scale ? std::optional{ImGuizmo::SCALE} : std::nullopt;
+    }
+    return std::nullopt;
+}
 
 void drawViewportGizmo(DocumentSession &session, const CameraMatrices &camera,
                        ImVec2 origin, ImVec2 size) {
@@ -167,6 +170,10 @@ void drawViewportGizmo(DocumentSession &session, const CameraMatrices &camera,
         session.selection.items().size() != 1U)
         return;
     const auto selected = session.selection.items().front();
+    const auto capabilities = transformCapabilities(session);
+    const auto operation = operationFor(session.ui.viewportTool, capabilities);
+    if (!operation)
+        return;
     const auto source = sourceFor(session, selected);
     if (!source)
         return;
@@ -180,21 +187,20 @@ void drawViewportGizmo(DocumentSession &session, const CameraMatrices &camera,
     ImGuizmo::SetDrawlist();
     ImGuizmo::SetRect(origin.x, origin.y, size.x, size.y);
     ImGuizmo::SetOrthographic(session.ui.orthographic);
-    const auto operation = operationFor(session.ui, *source);
     const auto mode = session.ui.localTransform ? ImGuizmo::LOCAL
                                                 : ImGuizmo::WORLD;
     const float snap[] = {
-        operation == ImGuizmo::ROTATE ? 5.0F : 0.1F,
-        operation == ImGuizmo::ROTATE ? 5.0F : 0.1F,
-        operation == ImGuizmo::ROTATE ? 5.0F : 0.1F,
+        *operation == ImGuizmo::ROTATE ? 5.0F : 0.1F,
+        *operation == ImGuizmo::ROTATE ? 5.0F : 0.1F,
+        *operation == ImGuizmo::ROTATE ? 5.0F : 0.1F,
     };
     (void)ImGuizmo::Manipulate(
-        view.data(), projection.data(), operation, mode,
+        view.data(), projection.data(), *operation, mode,
         session.ui.gizmoMatrix.data(), nullptr,
         session.ui.snapTransform ? snap : nullptr);
     const auto usingGizmo = ImGuizmo::IsUsing();
     if (session.ui.gizmoDragging && !usingGizmo)
-        commit(session, selected, *source);
+        commit(session, selected, capabilities);
     session.ui.gizmoDragging = usingGizmo;
 }
 

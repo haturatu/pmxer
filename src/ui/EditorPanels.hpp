@@ -1,14 +1,15 @@
 #pragma once
 
+#include "../editor/WorkspacePolicy.hpp"
+
 #include <array>
+#include <string>
 
 namespace pmxer {
 
-class DocumentSession;
+struct DocumentSession;
 class FileDialog;
 class GpuModelRenderer;
-
-enum class EditorWorkspace { model, rig, morph, physics, inspect };
 
 struct WorkspaceUiState {
     EditorWorkspace active{EditorWorkspace::model};
@@ -29,7 +30,15 @@ struct WorkspaceUiState {
     bool showDiff{};
     bool resetLayout{};
     bool requestCloseDocument{};
+    std::string status;
     std::array<char, 128> search{};
+    std::array<WorkspaceViewportProfile, 5> viewportProfiles{
+        defaultViewportProfile(EditorWorkspace::model),
+        defaultViewportProfile(EditorWorkspace::rig),
+        defaultViewportProfile(EditorWorkspace::morph),
+        defaultViewportProfile(EditorWorkspace::physics),
+        defaultViewportProfile(EditorWorkspace::inspect),
+    };
 
     void resetPanels() noexcept {
         showDocuments = showViewport = showOutliner = showInspector = true;
@@ -38,6 +47,9 @@ struct WorkspaceUiState {
         showReferences = showDiff = false;
     }
 };
+
+void drawMainMenu(DocumentSession *session, FileDialog &fileDialog,
+                  WorkspaceUiState &workspace);
 
 void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
                       GpuModelRenderer *renderer,
