@@ -711,7 +711,10 @@ void morphInspector(DocumentSession &session, EditorWorkspace &workspace,
     if (session.ui.morphOffsetTarget.target)
       ImGui::TextDisabled("対象ID: %llu", static_cast<unsigned long long>(session.ui.morphOffsetTarget.target->id));
   }
-  const auto addLabel = std::string{"+ "} + types[std::min<std::size_t>(draft.type, std::size(types) - 1U)} + "オフセット";
+  const auto addLabel = std::string{"+ "} +
+                        types[std::min<std::size_t>(draft.type,
+                                                    std::size(types) - 1U)] +
+                        "オフセット";
   if (ImGui::Button(addLabel.c_str())) {
     if (addMorphOffset(session, handle, draft.type)) {
       session.ui.morphDraft.reset();

@@ -52,8 +52,7 @@ SelectionItem itemAt(const DocumentSession &session, SelectionKind kind,
   return {};
 }
 
-void activate(DocumentSession &session, WorkspaceUiState &workspace,
-              SelectionKind kind, std::size_t index) {
+void activate(DocumentSession &session, SelectionKind kind, std::size_t index) {
   session.ui.clearDrafts();
   switch (kind) {
   case SelectionKind::vertex:
@@ -131,7 +130,7 @@ void applySelection(ImGuiSelectionExternalStorage *storage, int index,
                              : (*context.visible)[row];
   const auto item = itemAt(*context.session, context.kind, itemIndex);
   if (selected)
-    addSelection(*context.session, *context.workspace, item,
+    addSelection(*context.session, context.workspace->active, item,
                  SelectionOrigin::outliner);
   else
     context.session->selection.remove(item);
@@ -179,7 +178,7 @@ void drawMultiSelectList(DocumentSession &session, SelectionKind kind,
       ImGui::SetNextItemSelectionUserData(row);
       if (ImGui::Selectable((text + "##" + std::to_string(row)).c_str(),
                             session.selection.contains(item)))
-        activate(session, workspace, kind, index);
+        activate(session, kind, index);
     }
   }
   selection = ImGui::EndMultiSelect();
@@ -247,11 +246,11 @@ void drawBoneNode(DocumentSession &session, WorkspaceUiState &workspace,
       if (session.selection.contains(item))
         session.selection.remove(item);
       else
-        addSelection(session, workspace, item, SelectionOrigin::outliner);
+        addSelection(session, workspace.active, item, SelectionOrigin::outliner);
     } else {
-      selectPrimary(session, workspace, item, SelectionOrigin::outliner);
+      selectPrimary(session, workspace.active, item, SelectionOrigin::outliner);
     }
-    activate(session, workspace, SelectionKind::bone, index);
+    activate(session, SelectionKind::bone, index);
   }
   if (open && !children[index].empty()) {
     for (const auto child : children[index])

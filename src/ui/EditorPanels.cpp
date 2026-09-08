@@ -1423,7 +1423,7 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
     if (workspace.showMaterial)
         drawMaterialPanel(session, &workspace.showMaterial);
     if (workspace.showTexture)
-        drawTexturePanel(session, workspace, &workspace.showTexture);
+        drawTexturePanel(session, workspace.active, &workspace.showTexture);
     if (workspace.showBone)
         drawBonePanel(session, &workspace.showBone);
     if (workspace.showMorph)
@@ -1433,7 +1433,7 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
     if (workspace.showPhysics)
         drawPhysicsPanel(session, &workspace.showPhysics);
     if (workspace.showDiagnostics)
-        drawDiagnosticsPanel(session, renderer, workspace,
+        drawDiagnosticsPanel(session, renderer, workspace.active,
                              &workspace.showDiagnostics);
     if (workspace.showReferences)
         drawReferencePanel(session, &workspace.showReferences);
