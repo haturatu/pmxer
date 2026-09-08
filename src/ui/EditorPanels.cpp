@@ -1415,7 +1415,7 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
     if (workspace.showOutliner)
         drawOutlinerPanel(session, workspace, &workspace.showOutliner);
     if (workspace.showInspector)
-        drawInspectorPanel(session, renderer, workspace.active, &workspace.showInspector);
+        drawInspectorPanel(session, renderer, workspace, &workspace.showInspector);
     if (workspace.showModel)
         drawModelPanel(session, fileDialog, &workspace.showModel);
     if (workspace.showVertex)

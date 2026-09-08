@@ -2,6 +2,8 @@
 
 #include "../editor/EditorSelectionController.hpp"
 
+#include "EditorPanels.hpp"
+
 #include "../editor/DocumentSession.hpp"
 #include "../editor/EditorOperations.hpp"
 #include "../editor/ReferenceInspector.hpp"
@@ -625,7 +627,7 @@ bool addMorphOffset(DocumentSession &session, mmd::MorphHandle handle,
   }
 }
 
-void morphInspector(DocumentSession &session, EditorWorkspace &workspace,
+void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
                     const SelectionItem &selected) {
   const auto handle = selectionHandle<mmd::MorphTag>(session.document, selected);
   const auto *value = session.document.resolve(handle);
@@ -817,7 +819,8 @@ void readOnlyInspector(DocumentSession &session,
 } // namespace
 
 void drawInspectorPanel(DocumentSession &session, GpuModelRenderer *renderer,
-                        EditorWorkspace &activeWorkspace, bool *open) {
+                        WorkspaceUiState &workspace, bool *open) {
+  const auto activeWorkspace = workspace.active;
   if (!ImGui::Begin("インスペクター", open)) {
     ImGui::End();
     return;
@@ -876,7 +879,7 @@ void drawInspectorPanel(DocumentSession &session, GpuModelRenderer *renderer,
     jointInspector(session, selected);
     break;
   case SelectionKind::morph:
-    morphInspector(session, activeWorkspace, selected);
+    morphInspector(session, workspace, selected);
     break;
   default:
     readOnlyInspector(session, selected, renderer);

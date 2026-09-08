@@ -5,10 +5,11 @@
 namespace pmxer {
 
 struct DocumentSession;
+struct WorkspaceUiState;
 class GpuModelRenderer;
 
 void drawInspectorPanel(DocumentSession &session, GpuModelRenderer *renderer,
-                        EditorWorkspace &workspace, bool *open);
+                        WorkspaceUiState &workspace, bool *open);
 void drawStatusBar(DocumentSession &session, bool &showDiagnostics,
                    bool &showReferences, bool &showDiff);
 
