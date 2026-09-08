@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 
 namespace pmxer {
@@ -75,7 +76,7 @@ ViewportPickCache &ensurePickCache(const DocumentSession &session,
             ++material;
             materialEnd += model.materials[material].indexCount;
         }
-        cache.faceMaterial[face] = material;
+        cache.faceMaterial[face] = static_cast<std::uint32_t>(material);
     }
 
     cache.grid.resize(ViewportPickCache::gridWidth * ViewportPickCache::gridHeight);
