@@ -1,10 +1,12 @@
 #include "../../src/editor/DocumentSession.hpp"
 #include "../../src/editor/EditorSelectionController.hpp"
+#include "../../src/editor/EditorSelectionQueries.hpp"
 #include "../../src/editor/EditorOperations.hpp"
 #include "../../src/editor/RecoveryController.hpp"
 #include "../../src/editor/SaveController.hpp"
 #include "../../src/editor/ViewportCapabilities.hpp"
 #include "../../src/editor/WorkspacePolicy.hpp"
+#include "../../src/editor/UiStatus.hpp"
 #include "../../src/render/Camera.hpp"
 #include "../../src/render/Picking.hpp"
 #include "../../src/preview/PreviewController.hpp"
@@ -13,6 +15,7 @@
 #include <mmd/pmx.hpp>
 
 #include <cassert>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -108,6 +111,8 @@ int main() {
                .allows(pmxer::SelectionKind::softBody));
     assert(pmxer::workspacePolicy(pmxer::EditorWorkspace::inspect)
                .allows(pmxer::SelectionKind::bone));
+    assert(pmxer::defaultViewportProfile(pmxer::EditorWorkspace::physics)
+               .physicsMode == pmxer::PhysicsOverlayMode::context);
     const auto morphPolicy = pmxer::workspacePolicy(pmxer::EditorWorkspace::morph);
     assert(!morphPolicy.defaultViewportMode.has_value());
     assert(!morphPolicy.allows(pmxer::ViewportSelectionMode::material));
@@ -144,6 +149,20 @@ int main() {
     assert(pmxer::actionAvailability(pmxer::EditorAction::viewportRotate,
                                      synchronized)
                .support == pmxer::SupportLevel::unsupported);
+
+    const auto boneItem = pmxer::SelectionItem{
+        pmxer::SelectionKind::bone, boneForPolicy.domain, boneForPolicy.id,
+        boneForPolicy.generation};
+    assert(pmxer::weightedVertices(session, boneItem).size() == 3U);
+    const auto materialItem = pmxer::SelectionItem{
+        pmxer::SelectionKind::material, materialForPolicy.domain,
+        materialForPolicy.id, materialForPolicy.generation};
+    assert(pmxer::facesForMaterial(session, materialItem).size() == 1U);
+    assert(pmxer::verticesForMaterial(session, materialItem).size() == 3U);
+    pmxer::setStatus(session, "一時通知", pmxer::UiStatusKind::success,
+                     std::chrono::milliseconds::zero());
+    pmxer::updateStatusLifetime(session);
+    assert(session.ui.status.empty());
 
     auto morphTargetModel = sampleModel();
     mmd::PmxMorph vertexMorph;
