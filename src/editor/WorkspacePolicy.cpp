@@ -65,13 +65,13 @@ WorkspacePolicy workspacePolicy(EditorWorkspace workspace) noexcept {
 WorkspaceViewportProfile defaultViewportProfile(EditorWorkspace workspace) noexcept {
     switch (workspace) {
     case EditorWorkspace::rig:
-        return {true, false, 0.8F, 0.75F};
+        return {true, false, 0.8F, 0.25F, PhysicsOverlayMode::context};
     case EditorWorkspace::physics:
-        return {false, true, 0.8F, 0.75F};
+        return {false, true, 0.8F, 0.25F, PhysicsOverlayMode::context};
     case EditorWorkspace::model:
     case EditorWorkspace::morph:
     case EditorWorkspace::inspect:
-        return {false, false, 0.8F, 0.75F};
+        return {false, false, 0.8F, 0.25F, PhysicsOverlayMode::context};
     }
     return {};
 }

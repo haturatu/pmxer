@@ -5,6 +5,8 @@
 #include "../editor/DocumentSession.hpp"
 #include "../editor/RecoveryController.hpp"
 #include "../editor/SaveController.hpp"
+#include "../editor/UiStatus.hpp"
+#include "../editor/tools/TextureTool.hpp"
 #include "../platform/Log.hpp"
 #include "../platform/Paths.hpp"
 #include "../platform/ResourceLocator.hpp"
@@ -447,7 +449,39 @@ int runApplication(const EditCommand &options) {
                         log::warn("save dialog target document is no longer open");
                     }
                 } else {
-                    if (const auto opened = loadSession(result->path))
+                    constexpr std::string_view relinkPrefix = "relink-texture:";
+                    if (result->context.starts_with(relinkPrefix)) {
+                        const auto payload = result->context.substr(relinkPrefix.size());
+                        const auto separator = payload.rfind(':');
+                        try {
+                            const auto sessionId = payload.substr(0, separator);
+                            const auto textureIndex = static_cast<std::size_t>(
+                                std::stoull(payload.substr(separator + 1)));
+                            if (const auto target = findSession(sessionId);
+                                target && textureIndex < sessions[*target]->document.model().textures.size()) {
+                                auto &targetSession = *sessions[*target];
+                                const auto handle = targetSession.document.textureHandle(textureIndex);
+                                auto storedPath = result->path.string();
+                                if (!targetSession.path.empty()) {
+                                    const auto relative = result->path.lexically_relative(
+                                        targetSession.path.parent_path());
+                                    if (!relative.empty() && relative.native().front() != '.')
+                                        storedPath = relative.generic_string();
+                                }
+                                const auto success = relinkTexture(targetSession, handle, storedPath);
+                                setStatus(targetSession,
+                                          success ? "テクスチャを再リンクしました"
+                                                  : "テクスチャの再リンクに失敗しました",
+                                          success ? UiStatusKind::success : UiStatusKind::error,
+                                          success ? std::chrono::seconds(4)
+                                                  : std::chrono::milliseconds::zero(),
+                                          !success);
+                                activeSession = *target;
+                            }
+                        } catch (const std::exception &error) {
+                            log::error(error.what());
+                        }
+                    } else if (const auto opened = loadSession(result->path))
                         activeSession = *opened;
                 }
             } catch (const std::exception &error) {

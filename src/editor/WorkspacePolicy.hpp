@@ -11,11 +11,14 @@ struct DocumentSession;
 
 enum class EditorWorkspace { model, rig, morph, physics, inspect };
 
+enum class PhysicsOverlayMode { context, all, selectedOnly };
+
 struct WorkspaceViewportProfile {
     bool showBones{};
     bool showPhysics{};
     float boneOpacity{0.8F};
-    float physicsOpacity{0.75F};
+    float physicsOpacity{0.25F};
+    PhysicsOverlayMode physicsMode{PhysicsOverlayMode::context};
 };
 
 struct WorkspacePolicy {

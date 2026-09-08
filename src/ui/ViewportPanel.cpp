@@ -4,6 +4,7 @@
 #include "UiSemantics.hpp"
 
 #include "../editor/EditorSelectionController.hpp"
+#include "../editor/EditorSelectionQueries.hpp"
 #include "../editor/ViewportCapabilities.hpp"
 #include "../render/Camera.hpp"
 #include "../render/GpuModelRenderer.hpp"
@@ -309,6 +310,18 @@ void appendUnique(std::vector<SelectionItem> &items,
         items.push_back(item);
 }
 
+void selectRelatedItems(DocumentSession &session, EditorWorkspace &workspace,
+                        std::vector<SelectionItem> items) {
+    if (items.empty()) {
+        session.ui.status = "関連する対象がありません";
+        return;
+    }
+    selectPrimary(session, workspace, items.front(), SelectionOrigin::reference);
+    for (std::size_t index = 1; index < items.size(); ++index)
+        addSelection(session, workspace, items[index], SelectionOrigin::reference);
+    session.ui.status = std::to_string(items.size()) + "件を選択しました";
+}
+
 void hoverTooltip(const DocumentSession &session, const SelectionItem &item) {
     ImGui::BeginTooltip();
     if (item.kind == SelectionKind::material) {
@@ -414,26 +427,26 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 *showDiagnostics = true;
         }
     }
+    const auto targetPicking = session.ui.morphOffsetTarget.picking;
+    const auto targetMode = [&] {
+        switch (session.ui.morphOffsetTarget.expectedKind) {
+        case SelectionKind::vertex:
+            return ViewportSelectionMode::vertex;
+        case SelectionKind::bone:
+            return ViewportSelectionMode::bone;
+        case SelectionKind::material:
+            return ViewportSelectionMode::material;
+        case SelectionKind::rigidBody:
+            return ViewportSelectionMode::rigidBody;
+        default:
+            return ViewportSelectionMode::material;
+        }
+    }();
     const auto modeButton = [&](const char *label, ViewportSelectionMode mode) {
-        const auto targetPicking = session.ui.morphOffsetTarget.picking;
-        const auto targetMode = [&] {
-            switch (session.ui.morphOffsetTarget.expectedKind) {
-            case SelectionKind::vertex:
-                return ViewportSelectionMode::vertex;
-            case SelectionKind::bone:
-                return ViewportSelectionMode::bone;
-            case SelectionKind::material:
-                return ViewportSelectionMode::material;
-            case SelectionKind::rigidBody:
-                return ViewportSelectionMode::rigidBody;
-            default:
-                return ViewportSelectionMode::material;
-            }
-        }();
         const auto supported = policy.allows(mode) ||
                                (targetPicking && mode == targetMode);
         if (!supported)
-            ImGui::BeginDisabled();
+            return;
         if (ImGui::RadioButton(label, session.ui.selectionMode == mode)) {
             session.ui.selectionMode = mode;
             if (mode == ViewportSelectionMode::bone)
@@ -442,25 +455,36 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 mode == ViewportSelectionMode::joint)
                 setPhysicsOverlay(session, profile, true);
         }
-        if (!supported)
-            ImGui::EndDisabled();
         ImGui::SameLine();
     };
-    modeButton("頂点", ViewportSelectionMode::vertex);
-    modeButton("面", ViewportSelectionMode::face);
-    modeButton("材質", ViewportSelectionMode::material);
-    modeButton("ボーン", ViewportSelectionMode::bone);
-    modeButton("剛体", ViewportSelectionMode::rigidBody);
+    const auto normalMorphWorkspace = activeWorkspace == EditorWorkspace::morph &&
+                                      !targetPicking;
+    if (normalMorphWorkspace) {
+        ImGui::TextDisabled("モーフはアウトライナーから選択");
+        ImGui::SameLine();
+    } else {
+        modeButton("頂点", ViewportSelectionMode::vertex);
+        modeButton("面", ViewportSelectionMode::face);
+        modeButton("材質", ViewportSelectionMode::material);
+        modeButton("ボーン", ViewportSelectionMode::bone);
+        modeButton("剛体", ViewportSelectionMode::rigidBody);
+    }
     const auto jointSupported = policy.allows(ViewportSelectionMode::joint);
-    if (!jointSupported)
-        ImGui::BeginDisabled();
-    if (ImGui::RadioButton("ジョイント", session.ui.selectionMode == ViewportSelectionMode::joint)) {
+    if (jointSupported && ImGui::RadioButton("ジョイント", session.ui.selectionMode == ViewportSelectionMode::joint)) {
         session.ui.selectionMode = ViewportSelectionMode::joint;
         setPhysicsOverlay(session, profile, true);
     }
-    if (!jointSupported)
-        ImGui::EndDisabled();
-    ImGui::SameLine();
+    if (jointSupported)
+        ImGui::SameLine();
+    if (targetPicking) {
+        const auto targetLabel = session.ui.morphOffsetTarget.expectedKind == SelectionKind::bone
+                                     ? "対象選択: ボーン"
+                                 : session.ui.morphOffsetTarget.expectedKind == SelectionKind::rigidBody
+                                     ? "対象選択: 剛体"
+                                     : "対象選択";
+        ImGui::TextDisabled("%s", targetLabel);
+        ImGui::SameLine();
+    }
     ImGui::TextDisabled("|");
     ImGui::SameLine();
     ui::checkbox(ui::UiSemanticId::viewportXray, "X-Ray", &session.ui.xray);
@@ -516,6 +540,19 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     if (ui::checkbox(ui::UiSemanticId::viewportShowPhysics, "物理表示",
                      &session.ui.showPhysics))
         setPhysicsOverlay(session, profile, session.ui.showPhysics);
+    if (profile != nullptr) {
+        static constexpr const char *physicsModes[]{"文脈", "全て", "選択のみ"};
+        const auto modeIndex = static_cast<std::size_t>(profile->physicsMode);
+        ImGui::SameLine();
+        if (ImGui::BeginCombo("##physics-overlay-mode",
+                              physicsModes[std::min(modeIndex, std::size(physicsModes) - 1U)])) {
+            for (std::size_t index = 0; index < std::size(physicsModes); ++index) {
+                if (ImGui::Selectable(physicsModes[index], index == modeIndex))
+                    profile->physicsMode = static_cast<PhysicsOverlayMode>(index);
+            }
+            ImGui::EndCombo();
+        }
+    }
     ImGui::SameLine();
     ImGui::TextDisabled("?");
     if (ImGui::IsItemHovered()) {
@@ -792,6 +829,43 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         }
     }
     if (session.ui.showPhysics) {
+        const auto bodySelected = [&](std::size_t index) {
+            return isSelected(session, SelectionKind::rigidBody,
+                              session.document.rigidBodyHandle(index));
+        };
+        const auto jointSelected = [&](std::size_t index) {
+            return isSelected(session, SelectionKind::joint,
+                              session.document.jointHandle(index));
+        };
+        const auto bodyRelated = [&](std::size_t index) {
+            for (std::size_t joint = 0; joint < model.joints.size(); ++joint) {
+                if (!jointSelected(joint))
+                    continue;
+                const auto &value = model.joints[joint];
+                if (value.bodyA == static_cast<std::int32_t>(index) ||
+                    value.bodyB == static_cast<std::int32_t>(index))
+                    return true;
+            }
+            return false;
+        };
+        const auto jointRelated = [&](const mmd::PmxJoint &joint) {
+            for (std::size_t body = 0; body < model.rigidBodies.size(); ++body)
+                if (bodySelected(body) &&
+                    (joint.bodyA == static_cast<std::int32_t>(body) ||
+                     joint.bodyB == static_cast<std::int32_t>(body)))
+                    return true;
+            return false;
+        };
+        const auto opacityFor = [&](bool selected, bool related) {
+            const auto mode = profile == nullptr
+                                  ? PhysicsOverlayMode::context
+                                  : profile->physicsMode;
+            if (mode == PhysicsOverlayMode::selectedOnly)
+                return selected ? 1.0F : (related ? 0.55F : 0.0F);
+            if (mode == PhysicsOverlayMode::all)
+                return selected ? 1.0F : (profile == nullptr ? 0.25F : profile->physicsOpacity);
+            return selected ? 1.0F : (related ? 0.65F : (profile == nullptr ? 0.2F : profile->physicsOpacity));
+        };
         for (std::size_t index = 0; index < model.rigidBodies.size(); ++index) {
             const auto &body = model.rigidBodies[index];
             const auto point = project(body.position, bounds, origin, available,
@@ -802,9 +876,12 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             const auto selected = isSelected(
                 session, SelectionKind::rigidBody,
                 session.document.rigidBodyHandle(index));
+            const auto opacity = opacityFor(selected, bodyRelated(index));
+            if (opacity <= 0.0F)
+                continue;
             const auto color = selected ? IM_COL32(255, 225, 90, 255)
                                         : IM_COL32(180, 230, 255,
-                                                   static_cast<int>(255.0F * (profile != nullptr ? profile->physicsOpacity : 0.75F)));
+                                                   static_cast<int>(255.0F * opacity));
             if (body.shape == 1)
                 draw->AddRect({point.x - radius, point.y - radius}, {point.x + radius, point.y + radius},
                               color, 0.0F, ImDrawFlags_None, selected ? 3.0F : 1.0F);
@@ -820,9 +897,12 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             const auto selected = isSelected(
                 session, SelectionKind::joint,
                 session.document.jointHandle(index));
+            const auto opacity = opacityFor(selected, jointRelated(joint));
+            if (opacity <= 0.0F)
+                continue;
             const auto color = selected ? IM_COL32(255, 225, 90, 255)
                                         : IM_COL32(180, 255, 180,
-                                                   static_cast<int>(255.0F * (profile != nullptr ? profile->physicsOpacity : 0.75F)));
+                                                   static_cast<int>(255.0F * opacity));
             draw->AddLine(
                 project(model.rigidBodies[static_cast<std::size_t>(joint.bodyA)].position,
                         bounds, origin, available, session.ui),
@@ -1065,6 +1145,32 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                               SelectionOrigin::reference);
                 session.ui.textureIndex = index;
                 session.ui.clearDrafts();
+            }
+        }
+        if (!session.selection.items().empty()) {
+            const auto selected = session.selection.items().front();
+            if (selected.kind == SelectionKind::bone) {
+                if (ImGui::MenuItem("子ボーンを選択"))
+                    selectRelatedItems(session, activeWorkspace,
+                                       childBones(session, selected));
+                if (ImGui::MenuItem("ウェイト頂点を選択"))
+                    selectRelatedItems(session, activeWorkspace,
+                                       weightedVertices(session, selected));
+            } else if (selected.kind == SelectionKind::material) {
+                if (ImGui::MenuItem("面を選択"))
+                    selectRelatedItems(session, activeWorkspace,
+                                       facesForMaterial(session, selected));
+                if (ImGui::MenuItem("頂点を選択"))
+                    selectRelatedItems(session, activeWorkspace,
+                                       verticesForMaterial(session, selected));
+            } else if (selected.kind == SelectionKind::rigidBody) {
+                if (ImGui::MenuItem("接続ジョイントを選択"))
+                    selectRelatedItems(session, activeWorkspace,
+                                       jointsForRigidBody(session, selected));
+            } else if (selected.kind == SelectionKind::joint) {
+                if (ImGui::MenuItem("接続剛体を選択"))
+                    selectRelatedItems(session, activeWorkspace,
+                                       rigidBodiesForJoint(session, selected));
             }
         }
         if ((!session.ui.hiddenMaterials.empty() ||

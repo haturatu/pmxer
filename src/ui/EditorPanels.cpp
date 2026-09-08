@@ -38,6 +38,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace pmxer {
@@ -125,6 +126,67 @@ bool selectIndex(const char *label, std::size_t count, std::size_t &index) {
     const auto changed = ImGui::InputInt(label, &value);
     value = std::clamp(value, 0, static_cast<int>(count - 1));
     index = static_cast<std::size_t>(value);
+    return changed;
+}
+
+std::string morphOffsetBrowserLabel(const mmd::PmxModel &model,
+                                    const mmd::PmxMorph &morph,
+                                    std::size_t index) {
+    const auto target = morph.offsets[index].index;
+    if ((morph.type == 0U || morph.type == 9U) && target >= 0 &&
+        static_cast<std::size_t>(target) < model.morphs.size())
+        return "モーフ " + (model.morphs[static_cast<std::size_t>(target)].name.empty()
+                                 ? "#" + std::to_string(target)
+                                 : model.morphs[static_cast<std::size_t>(target)].name);
+    if (morph.type == 2U && target >= 0 &&
+        static_cast<std::size_t>(target) < model.bones.size())
+        return "ボーン " + (model.bones[static_cast<std::size_t>(target)].name.empty()
+                                 ? "#" + std::to_string(target)
+                                 : model.bones[static_cast<std::size_t>(target)].name);
+    if (morph.type == 8U && target < 0)
+        return "材質 全材質";
+    if (morph.type == 8U && static_cast<std::size_t>(target) < model.materials.size())
+        return "材質 " + model.materials[static_cast<std::size_t>(target)].name;
+    if (morph.type == 10U && target >= 0 &&
+        static_cast<std::size_t>(target) < model.rigidBodies.size())
+        return "剛体 " + model.rigidBodies[static_cast<std::size_t>(target)].name;
+    return (morph.type == 2U ? "ボーン " : "頂点 ") + std::to_string(target);
+}
+
+bool drawMorphOffsetBrowser(DocumentSession &session, const mmd::PmxModel &model,
+                            const mmd::PmxMorph &morph, std::size_t &index) {
+    if (morph.offsets.empty())
+        return false;
+    index = std::min(index, morph.offsets.size() - 1U);
+    ImGui::InputTextWithHint("対象検索", "名前または番号",
+                             session.ui.morphOffsetSearch.data(),
+                             session.ui.morphOffsetSearch.size());
+    const std::string_view query(session.ui.morphOffsetSearch.data());
+    std::vector<std::size_t> visible;
+    for (std::size_t offset = 0; offset < morph.offsets.size(); ++offset) {
+        const auto label = morphOffsetBrowserLabel(model, morph, offset);
+        if (query.empty() || label.find(query) != std::string::npos ||
+            std::to_string(offset).find(query) != std::string::npos)
+            visible.push_back(offset);
+    }
+    bool changed = false;
+    if (ImGui::BeginChild("##morph-offset-browser-advanced", ImVec2(0.0F, 180.0F),
+                          ImGuiChildFlags_Borders)) {
+        ImGuiListClipper clipper;
+        clipper.Begin(static_cast<int>(visible.size()));
+        while (clipper.Step()) {
+            for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+                const auto offset = visible[static_cast<std::size_t>(row)];
+                const auto label = morphOffsetBrowserLabel(model, morph, offset) +
+                                   "##advanced-offset-" + std::to_string(offset);
+                if (ImGui::Selectable(label.c_str(), index == offset)) {
+                    index = offset;
+                    changed = true;
+                }
+            }
+        }
+    }
+    ImGui::EndChild();
     return changed;
 }
 
@@ -823,7 +885,8 @@ void drawMorphPanel(DocumentSession &session, bool *open) {
     ImGui::Text("オフセット: %zu", draft.offsets.size());
     bool offsetDirty = false;
     if (!draft.offsets.empty()) {
-        if (selectIndex("オフセット番号", draft.offsets.size(), session.ui.morphOffsetIndex))
+        if (drawMorphOffsetBrowser(session, model, draft,
+                                   session.ui.morphOffsetIndex))
             offsetDirty = true;
         auto &offset = draft.offsets[session.ui.morphOffsetIndex];
         switch (draft.type) {
@@ -1171,7 +1234,8 @@ void drawPhysicsPanel(DocumentSession &session, bool *open) {
     ImGui::End();
 }
 
-void drawDiagnosticsPanel(DocumentSession &session, GpuModelRenderer *renderer,
+void drawDiagnosticsPanel(DocumentSession &session, FileDialog &fileDialog,
+                          GpuModelRenderer *renderer,
                           EditorWorkspace &workspace, bool *open) {
     if (ImGui::Begin("診断", open)) {
         if (session.derived.diagnosticsRevision != session.revision) {
@@ -1223,6 +1287,15 @@ void drawDiagnosticsPanel(DocumentSession &session, GpuModelRenderer *renderer,
                                       SelectionOrigin::diagnostics);
                         session.ui.textureIndex = texture.textureIndex;
                     }
+                    ImGui::SameLine();
+                    const auto relinkButton = "再リンク##texture-resource" +
+                                              std::to_string(texture.textureIndex);
+                    if (ImGui::SmallButton(relinkButton.c_str()) &&
+                        !fileDialog.busy())
+                        (void)fileDialog.open(
+                            texture.resolvedPath.parent_path(),
+                            "relink-texture:" + session.recoveryId + ":" +
+                                std::to_string(texture.textureIndex));
                 }
             }
         }
@@ -1433,7 +1506,7 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
     if (workspace.showPhysics)
         drawPhysicsPanel(session, &workspace.showPhysics);
     if (workspace.showDiagnostics)
-        drawDiagnosticsPanel(session, renderer, workspace.active,
+        drawDiagnosticsPanel(session, fileDialog, renderer, workspace.active,
                              &workspace.showDiagnostics);
     if (workspace.showReferences)
         drawReferencePanel(session, &workspace.showReferences);

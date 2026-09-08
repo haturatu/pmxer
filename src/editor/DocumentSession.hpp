@@ -31,6 +31,8 @@ inline std::string makeRecoveryId() {
 
 class PreviewController;
 
+enum class UiStatusKind;
+
 struct OutlinerViewState {
     std::array<char, 128> query{};
 };
@@ -73,7 +75,12 @@ struct EditorUiState {
     std::string motionPath;
     std::string posePath;
     std::string status;
+    std::string statusObserved;
+    UiStatusKind statusKind{};
+    std::chrono::steady_clock::time_point statusExpiresAt{};
+    bool statusSticky{};
     std::array<OutlinerViewState, 5> outliner{};
+    std::array<char, 128> morphOffsetSearch{};
     std::optional<SelectionItem> pendingOutlinerReveal;
     bool previewPlaying{};
     bool morphOffsetDirty{};
