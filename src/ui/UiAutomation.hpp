@@ -4,9 +4,15 @@
 #include <functional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace pmxer {
+
+struct AutomationResult {
+    bool success{true};
+    std::string error;
+};
 
 struct AutomationItem {
     std::string window;
@@ -26,7 +32,7 @@ struct AutomationItem {
     int width{};
     int height{};
     std::function<void()> click;
-    std::function<void(std::string_view)> set;
+    std::function<AutomationResult(std::string_view)> set;
 };
 
 class UiAutomationRegistry {
@@ -37,6 +43,9 @@ class UiAutomationRegistry {
     void registerItem(AutomationItem item);
     void setStateJson(std::string state);
     void setKeyHandler(std::function<std::string(std::string_view)> handler);
+    void setInputHandler(
+        std::function<AutomationResult(std::string_view, std::string_view,
+                                       std::string_view)> handler);
 
     [[nodiscard]] std::string handle(std::string_view request);
 
@@ -52,8 +61,12 @@ class UiAutomationRegistry {
 
     std::vector<Window> windows_;
     std::vector<AutomationItem> items_;
+    std::unordered_map<std::string, std::size_t> itemIndices_;
     std::string stateJson_;
     std::function<std::string(std::string_view)> keyHandler_;
+    std::function<AutomationResult(std::string_view, std::string_view,
+                                   std::string_view)>
+        inputHandler_;
 };
 
 class UiAutomationServer {
@@ -73,6 +86,9 @@ class UiAutomationServer {
     struct Connection {
         int descriptor{-1};
         std::string input;
+        std::string output;
+        std::size_t outputOffset{};
+        bool responseReady{};
     };
 
     int listener_{-1};

@@ -50,6 +50,24 @@ std::string shellQuote(std::string_view value) {
 }
 
 #if !defined(_WIN32)
+void configureNoSignal(int descriptor) {
+#if defined(SO_NOSIGPIPE)
+    int noSignal = 1;
+    (void)setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSignal,
+                     sizeof(noSignal));
+#else
+    (void)descriptor;
+#endif
+}
+
+int sendFlags() {
+#if defined(MSG_NOSIGNAL)
+    return MSG_NOSIGNAL;
+#else
+    return 0;
+#endif
+}
+
 std::string connectAndRequest(const UiCommand &command) {
     const auto path = command.socket.empty() ? automation::defaultSocketPath()
                                              : command.socket;
@@ -57,6 +75,7 @@ std::string connectAndRequest(const UiCommand &command) {
     const auto descriptor = socket(AF_UNIX, SOCK_STREAM, 0);
     if (descriptor < 0)
         return "{\"ok\":false,\"error\":\"socket_create_failed\"}";
+    configureNoSignal(descriptor);
     sockaddr_un address{};
     if (name.size() >= sizeof(address.sun_path)) {
         close(descriptor);
@@ -74,7 +93,7 @@ std::string connectAndRequest(const UiCommand &command) {
     const char *data = request.data();
     std::size_t remaining = request.size();
     while (remaining != 0U) {
-        const auto count = send(descriptor, data, remaining, 0);
+        const auto count = send(descriptor, data, remaining, sendFlags());
         if (count <= 0) {
             close(descriptor);
             return "{\"ok\":false,\"error\":\"request_failed\"}";
@@ -122,7 +141,7 @@ int captureScreenshot(const std::string &path) {
     const auto command = "screencapture -x " + shellQuote(path);
     return std::system(command.c_str()) == 0 ? 0 : 3;
 #else
-    const auto command = "spectacle -b -n -o " + shellQuote(path);
+    const auto command = "spectacle --active-window -b -n -o " + shellQuote(path);
     return std::system(command.c_str()) == 0 ? 0 : 3;
 #endif
 }

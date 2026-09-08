@@ -102,6 +102,7 @@ struct EditorUiState {
     std::chrono::steady_clock::time_point viewportHoverUpdated{};
     std::vector<SelectionItem> hiddenMaterials;
     std::vector<SelectionItem> isolatedMaterials;
+    std::optional<SelectionItem> automationPendingOutlinerSelection;
     const mmd::AnimatedModelFrame *previewFrame{};
 
     void clearDrafts() {

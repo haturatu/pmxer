@@ -130,9 +130,11 @@ void configureUiParser(Parser &parser) {
         .default_value(5.0F)
         .scan<'g', float>();
     parser.add_argument("operation")
-        .help("tree, state, click, set, key, wait, screenshot, frame, sessions")
+        .help("tree, state, click, set, key, wait, screenshot, frame, sessions, real input")
         .choices("tree", "state", "click", "set", "key", "wait",
-                 "screenshot", "frame", "sessions");
+                 "screenshot", "frame", "sessions", "mouse", "mouse-move",
+                 "mouse-down", "mouse-up", "key-down", "key-up", "text",
+                 "text-input", "wheel");
     parser.add_argument("target")
         .help("automation item, key, or screenshot path")
         .nargs(argparse::nargs_pattern::optional);
@@ -358,12 +360,20 @@ ParseResult parseUi(int argc, char *const argv[], int first) {
             throw std::runtime_error("timeout must be greater than zero");
         if (command.operation == "click" || command.operation == "set" ||
             command.operation == "key" || command.operation == "wait" ||
-            command.operation == "screenshot") {
+            command.operation == "screenshot" || command.operation == "mouse" ||
+            command.operation == "mouse-move" || command.operation == "mouse-down" ||
+            command.operation == "mouse-up" || command.operation == "key-down" ||
+            command.operation == "key-up" || command.operation == "text" ||
+            command.operation == "text-input" || command.operation == "wheel") {
             if (command.target.empty())
                 throw std::runtime_error("ui command requires a target");
         }
         if (command.operation == "set" && !parser.is_used("value"))
             throw std::runtime_error("ui set requires a value");
+        if ((command.operation == "mouse" ||
+             command.operation == "mouse-move" ||
+             command.operation == "wheel") && !parser.is_used("value"))
+            throw std::runtime_error("ui input requires a value");
         if (command.socket.empty())
             command.socket = automation::defaultSocketPath();
         return Invocation{{}, std::move(command)};

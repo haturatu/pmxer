@@ -20,6 +20,8 @@
 namespace pmxer {
 namespace {
 
+[[maybe_unused]] constexpr std::size_t maximumRequestSize = 1024U * 1024U;
+
 std::string jsonString(std::string_view request, std::string_view key) {
     const auto quotedKey = automation::escapeJson(key);
     const auto keyPosition = request.find(quotedKey);
@@ -122,6 +124,7 @@ void closeDescriptor(int &descriptor) {
 void UiAutomationRegistry::beginFrame() {
     windows_.clear();
     items_.clear();
+    itemIndices_.clear();
 }
 
 void UiAutomationRegistry::registerWindow(std::string id, std::string label,
@@ -133,7 +136,11 @@ void UiAutomationRegistry::registerWindow(std::string id, std::string label,
 void UiAutomationRegistry::registerItem(AutomationItem item) {
     if (item.id.empty())
         return;
-    items_.push_back(std::move(item));
+    const auto [iterator, inserted] = itemIndices_.emplace(item.id, items_.size());
+    if (inserted)
+        items_.push_back(std::move(item));
+    else
+        items_[iterator->second] = std::move(item);
 }
 
 void UiAutomationRegistry::setStateJson(std::string state) {
@@ -143,6 +150,12 @@ void UiAutomationRegistry::setStateJson(std::string state) {
 void UiAutomationRegistry::setKeyHandler(
     std::function<std::string(std::string_view)> handler) {
     keyHandler_ = std::move(handler);
+}
+
+void UiAutomationRegistry::setInputHandler(
+    std::function<AutomationResult(std::string_view, std::string_view,
+                                    std::string_view)> handler) {
+    inputHandler_ = std::move(handler);
 }
 
 std::string UiAutomationRegistry::handle(std::string_view request) {
@@ -184,9 +197,23 @@ std::string UiAutomationRegistry::handle(std::string_view request) {
     if (command == "key") {
         if (!keyHandler_)
             return errorJson("key_input_unavailable");
-        const auto key = jsonString(request, "key");
+        const auto key = jsonString(request, "target");
         const auto response = keyHandler_(key);
         return response.empty() ? "{\"ok\":true}" : response;
+    }
+    if (command == "mouse" || command == "mouse-move" ||
+        command == "mouse-down" || command == "mouse-up" ||
+        command == "key-down" || command == "key-up" ||
+        command == "text" || command == "text-input" || command == "wheel") {
+        if (!inputHandler_)
+            return errorJson("real_input_unavailable");
+        const auto result = inputHandler_(
+            command, jsonString(request, "target"),
+            jsonString(request, "value"));
+        return result.success
+                   ? "{\"ok\":true}"
+                   : errorJson(result.error.empty() ? "input_failed"
+                                                     : result.error);
     }
 
     const auto target = jsonString(request, "target");
@@ -213,19 +240,25 @@ std::string UiAutomationRegistry::handle(std::string_view request) {
         result += "]}";
         return result;
     }
-    if (!found->visible || !found->enabled)
+    if (!found->enabled)
         return errorJson("widget_unavailable");
     if (command == "click") {
         if (!found->click)
             return errorJson("widget_not_clickable");
         found->click();
-        return "{\"ok\":true}";
+        return found->visible ? "{\"ok\":true}"
+                              : "{\"ok\":true,\"pending\":true}";
     }
+    if (!found->visible)
+        return errorJson("widget_unavailable");
     if (command == "set") {
         if (!found->set)
             return errorJson("widget_not_editable");
-        found->set(jsonString(request, "value"));
-        return "{\"ok\":true}";
+        const auto result = found->set(jsonString(request, "value"));
+        return result.success
+                   ? "{\"ok\":true}"
+                   : errorJson(result.error.empty() ? "edit_failed"
+                                                     : result.error);
     }
     return errorJson("unknown_command");
 }
@@ -304,56 +337,95 @@ void UiAutomationServer::processPending(
             close(descriptor);
             continue;
         }
-        connections_.push_back(Connection{descriptor, {}});
+#if defined(SO_NOSIGPIPE)
+        int noSignal = 1;
+        (void)setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSignal,
+                         sizeof(noSignal));
+#endif
+        Connection connection;
+        connection.descriptor = descriptor;
+        connections_.push_back(std::move(connection));
     }
 
     for (auto iterator = connections_.begin(); iterator != connections_.end();) {
-        bool finished = false;
-        char buffer[4096];
-        for (;;) {
-            const auto count = recv(iterator->descriptor, buffer, sizeof(buffer),
-                                    0);
-            if (count > 0) {
-                iterator->input.append(buffer, static_cast<std::size_t>(count));
-                if (iterator->input.find('\n') != std::string::npos) {
-                    finished = true;
+        if (!iterator->responseReady) {
+            bool inputFinished = false;
+            char buffer[4096];
+            for (;;) {
+                const auto count = recv(iterator->descriptor, buffer,
+                                        sizeof(buffer), 0);
+                if (count > 0) {
+                    const auto bytes = static_cast<std::size_t>(count);
+                    if (iterator->input.size() + bytes > maximumRequestSize) {
+                        iterator->output = errorJson("request_too_large");
+                        iterator->output.push_back('\n');
+                        iterator->responseReady = true;
+                        break;
+                    }
+                    iterator->input.append(buffer, bytes);
+                    if (iterator->input.find('\n') != std::string::npos) {
+                        inputFinished = true;
+                        break;
+                    }
+                    continue;
+                }
+                if (count == 0) {
+                    inputFinished = true;
                     break;
                 }
-                continue;
-            }
-            if (count == 0) {
-                finished = true;
+                if (errno == EAGAIN || errno == EWOULDBLOCK)
+                    break;
+                inputFinished = true;
                 break;
             }
-            if (errno == EAGAIN || errno == EWOULDBLOCK)
-                break;
-            finished = true;
-            break;
+            if (inputFinished && !iterator->responseReady) {
+                const auto lineEnd = iterator->input.find('\n');
+                if (lineEnd == std::string::npos) {
+                    iterator->output = errorJson("incomplete_request");
+                } else {
+                    const auto request = iterator->input.substr(0, lineEnd);
+                    try {
+                        iterator->output = handler(request);
+                    } catch (const std::exception &error) {
+                        iterator->output = errorJson(error.what());
+                    }
+                }
+                iterator->output.push_back('\n');
+                iterator->responseReady = true;
+            }
         }
-        if (!finished) {
+        if (!iterator->responseReady) {
             ++iterator;
             continue;
         }
-        const auto lineEnd = iterator->input.find('\n');
-        const auto request = iterator->input.substr(0, lineEnd);
-        std::string response;
-        try {
-            response = handler(request);
-        } catch (const std::exception &error) {
-            response = errorJson(error.what());
-        }
-        response.push_back('\n');
-        const char *data = response.data();
-        std::size_t remaining = response.size();
-        while (remaining != 0U) {
-            const auto count = send(iterator->descriptor, data, remaining, 0);
-            if (count <= 0)
+        bool sendFailed = false;
+        while (iterator->outputOffset < iterator->output.size()) {
+            const auto *data = iterator->output.data() +
+                               static_cast<std::ptrdiff_t>(
+                                   iterator->outputOffset);
+            const auto remaining = iterator->output.size() -
+                                    iterator->outputOffset;
+            int flags = 0;
+#if defined(MSG_NOSIGNAL)
+            flags |= MSG_NOSIGNAL;
+#endif
+            const auto count = send(iterator->descriptor, data, remaining,
+                                    flags);
+            if (count > 0) {
+                iterator->outputOffset += static_cast<std::size_t>(count);
+                continue;
+            }
+            if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
                 break;
-            data += count;
-            remaining -= static_cast<std::size_t>(count);
+            sendFailed = true;
+            break;
         }
-        closeDescriptor(iterator->descriptor);
-        iterator = connections_.erase(iterator);
+        if (sendFailed || iterator->outputOffset == iterator->output.size()) {
+            closeDescriptor(iterator->descriptor);
+            iterator = connections_.erase(iterator);
+        } else {
+            ++iterator;
+        }
     }
 #endif
 }
