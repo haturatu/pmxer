@@ -92,6 +92,7 @@ target_link_libraries(pmxer_command_line PUBLIC mmd::core PRIVATE argparse::argp
 
 add_library(pmxer_commands
   src/commands/CommandOutput.cpp
+  src/commands/UiCommand.cpp
 )
 target_include_directories(pmxer_commands PUBLIC src)
 target_link_libraries(pmxer_commands PUBLIC pmxer_editor mmd::core)

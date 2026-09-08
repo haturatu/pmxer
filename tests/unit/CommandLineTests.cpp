@@ -96,5 +96,33 @@ int main() {
     char *invalidRendererArguments[] = {name, invalidRenderer};
     const auto invalidRendererResult = pmxer::parseInvocation(2, invalidRendererArguments);
     assert(!invalidRendererResult.error.empty());
+
+    char uiCommand[] = "ui";
+    char treeOperation[] = "tree";
+    char *uiArguments[] = {name, uiCommand, treeOperation};
+    const auto ui = pmxer::parseInvocation(3, uiArguments);
+    assert(ui.error.empty());
+    assert(ui.invocation.has_value());
+    assert(std::holds_alternative<pmxer::UiCommand>(ui.invocation->command));
+    assert(std::get<pmxer::UiCommand>(ui.invocation->command).operation == "tree");
+
+    char setOperation[] = "set";
+    char target[] = "inspector/material.name";
+    char value[] = "制服";
+    char *uiSetArguments[] = {name, uiCommand, setOperation, target, value};
+    const auto uiSet = pmxer::parseInvocation(5, uiSetArguments);
+    assert(uiSet.error.empty());
+    const auto &setCommand = std::get<pmxer::UiCommand>(uiSet.invocation->command);
+    assert(setCommand.target == target);
+    assert(setCommand.value == value);
+
+    char automationOption[] = "--automation=/tmp/pmxer-test.sock";
+    char *automationArguments[] = {name, automationOption, firstModel};
+    const auto automation = pmxer::parseInvocation(3, automationArguments);
+    assert(automation.error.empty());
+    const auto &editWithAutomation =
+        std::get<pmxer::EditCommand>(automation.invocation->command);
+    assert(editWithAutomation.automation);
+    assert(editWithAutomation.automationSocket == "/tmp/pmxer-test.sock");
     return 0;
 }
