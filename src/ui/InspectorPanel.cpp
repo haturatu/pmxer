@@ -620,18 +620,43 @@ void readOnlyInspector(DocumentSession &session,
 } // namespace
 
 void drawInspectorPanel(DocumentSession &session, GpuModelRenderer *renderer,
-                        bool *open) {
+                        EditorWorkspace activeWorkspace, bool *open) {
   if (!ImGui::Begin("インスペクター", open)) {
     ImGui::End();
     return;
   }
   if (session.selection.items().empty()) {
-    ImGui::TextUnformatted(
-        "Outlinerまたはビューポートで対象を選択してください");
+    switch (activeWorkspace) {
+    case EditorWorkspace::model:
+        ImGui::TextUnformatted("モデル");
+        ImGui::TextUnformatted("材質またはテクスチャを");
+        ImGui::TextUnformatted("アウトライナーから選択してください");
+        break;
+    case EditorWorkspace::rig:
+        ImGui::TextUnformatted("リグ");
+        ImGui::TextUnformatted("頂点またはボーンを選択してください");
+        break;
+    case EditorWorkspace::morph:
+        ImGui::TextUnformatted("モーフ");
+        ImGui::TextUnformatted("モーフをアウトライナーから選択してください");
+        break;
+    case EditorWorkspace::physics:
+        ImGui::TextUnformatted("物理");
+        ImGui::TextUnformatted("剛体、ジョイント、ソフトボディを選択してください");
+        break;
+    case EditorWorkspace::inspect:
+        ImGui::TextUnformatted("Outlinerまたはビューポートで対象を選択してください");
+        break;
+    }
     ImGui::End();
     return;
   }
   const auto selected = session.selection.items().front();
+  if (!workspacePolicy(activeWorkspace).allows(selected.kind)) {
+    ImGui::TextDisabled("このワークスペースでは選択対象を編集できません");
+    ImGui::End();
+    return;
+  }
   ImGui::Text("%s", kindName(selected.kind));
   if (session.selection.items().size() > 1U) {
     ImGui::SameLine();

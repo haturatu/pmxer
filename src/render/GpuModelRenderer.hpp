@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <vector>
 
 struct SDL_GPUCommandBuffer;
 struct SDL_GPUGraphicsPipeline;
@@ -26,6 +27,19 @@ struct GpuTexturePreview {
     std::uint32_t height{};
 };
 
+enum class TextureResourceState { loaded, missing, decodeFailed, uploadFailed };
+
+struct TextureResourceStatus {
+    TextureResourceState state{TextureResourceState::missing};
+    std::filesystem::path resolvedPath;
+};
+
+struct RendererResourceStatus {
+    std::size_t missingTextureCount{};
+    std::size_t failedTextureCount{};
+    std::vector<TextureResourceStatus> textures;
+};
+
 class GpuModelRenderer {
   public:
     GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path shaderDirectory,
@@ -40,6 +54,8 @@ class GpuModelRenderer {
     [[nodiscard]] GpuTexturePreview
     texturePreview(const DocumentSession &session,
                    std::size_t index) const noexcept;
+    [[nodiscard]] RendererResourceStatus
+    resourceStatus(const DocumentSession &session) const;
 
     bool prepare(SDL_GPUCommandBuffer *commands, const mmd::PmxModel &model,
                  const mmd::AnimatedModelFrame *frame, std::uint64_t revision,

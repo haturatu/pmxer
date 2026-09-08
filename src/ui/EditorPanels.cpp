@@ -1,6 +1,7 @@
 #include "EditorPanels.hpp"
 #include "InspectorPanel.hpp"
 #include "OutlinerPanel.hpp"
+#include "UiSemantics.hpp"
 
 #include "../editor/DocumentSession.hpp"
 #include "../editor/DiffController.hpp"
@@ -10,6 +11,7 @@
 #include "../editor/RecoveryController.hpp"
 #include "../editor/SaveController.hpp"
 #include "../editor/ValidationController.hpp"
+#include "../editor/WorkspacePolicy.hpp"
 #include "../editor/tools/PhysicsTool.hpp"
 #include "../editor/tools/ModelMergeTool.hpp"
 #include "../editor/tools/SdefTool.hpp"
@@ -17,6 +19,7 @@
 #include "../editor/tools/TextureTool.hpp"
 #include "../platform/FileDialog.hpp"
 #include "../preview/PreviewController.hpp"
+#include "../render/GpuModelRenderer.hpp"
 #include "ViewportPanel.hpp"
 
 #include <imgui.h>
@@ -1160,7 +1163,8 @@ void drawPhysicsPanel(DocumentSession &session, bool *open) {
     ImGui::End();
 }
 
-void drawDiagnosticsPanel(DocumentSession &session, bool *open) {
+void drawDiagnosticsPanel(DocumentSession &session, GpuModelRenderer *renderer,
+                          bool *open) {
     if (ImGui::Begin("診断", open)) {
         if (session.derived.diagnosticsRevision != session.revision) {
             session.derived.diagnostics = validateForEditing(session.document.model());
@@ -1181,6 +1185,25 @@ void drawDiagnosticsPanel(DocumentSession &session, bool *open) {
         }
         if (session.derived.diagnostics.issues.empty())
             ImGui::TextUnformatted("問題はありません");
+        if (renderer != nullptr) {
+            const auto resources = renderer->resourceStatus(session);
+            if (resources.missingTextureCount != 0U || resources.failedTextureCount != 0U) {
+                ImGui::SeparatorText("テクスチャリソース");
+                ImGui::Text("欠落 %zu / 失敗 %zu", resources.missingTextureCount,
+                            resources.failedTextureCount);
+                for (const auto &texture : resources.textures) {
+                    if (texture.state == TextureResourceState::loaded)
+                        continue;
+                    const auto state = texture.state == TextureResourceState::missing
+                                           ? "欠落"
+                                           : texture.state == TextureResourceState::decodeFailed
+                                                 ? "デコード失敗"
+                                                 : "GPU転送失敗";
+                    ImGui::TextWrapped("[%s] %s", state,
+                                      texture.resolvedPath.string().c_str());
+                }
+            }
+        }
     }
     ImGui::End();
 }
@@ -1215,32 +1238,140 @@ void drawReferencePanel(DocumentSession &session, bool *open) {
 void activateWorkspace(DocumentSession &session, WorkspaceUiState &workspace,
                        EditorWorkspace value) {
     workspace.active = value;
-    if (value == EditorWorkspace::model) {
-        session.ui.selectionMode = ViewportSelectionMode::material;
-    } else if (value == EditorWorkspace::rig) {
-        session.ui.selectionMode = ViewportSelectionMode::bone;
-        session.ui.showBones = true;
-    } else if (value == EditorWorkspace::physics) {
-        session.ui.selectionMode = ViewportSelectionMode::rigidBody;
-        session.ui.showPhysics = true;
-    } else if (value == EditorWorkspace::inspect) {
+    applyWorkspacePolicy(session, workspacePolicy(value));
+    if (value == EditorWorkspace::inspect)
         workspace.showDiagnostics = true;
-    }
 }
 
 void workspaceButton(const char *label, EditorWorkspace value,
-                     DocumentSession &session, WorkspaceUiState &workspace) {
+                     ui::UiSemanticId semanticId, DocumentSession *session,
+                     WorkspaceUiState &workspace) {
     const auto active = workspace.active == value;
     if (active)
         ImGui::PushStyleColor(ImGuiCol_Button,
                               ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-    if (ImGui::Button(label))
-        activateWorkspace(session, workspace, value);
+    if (ui::button(semanticId, label, session != nullptr) && session != nullptr)
+        activateWorkspace(*session, workspace, value);
     if (active)
         ImGui::PopStyleColor();
 }
 
 } // namespace
+
+void drawMainMenu(DocumentSession *session, FileDialog &fileDialog,
+                  WorkspaceUiState &workspace) {
+    const auto hasSession = session != nullptr;
+    if (hasSession) {
+        if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Z,
+                            ImGuiInputFlags_RouteGlobal))
+            (void)session->undo();
+        if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Y,
+                            ImGuiInputFlags_RouteGlobal))
+            (void)session->redo();
+        if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S,
+                            ImGuiInputFlags_RouteGlobal)) {
+            if (session->path.empty())
+                (void)fileDialog.save({}, session->recoveryId);
+            else
+                session->ui.status = saveDocument(*session).success
+                                          ? "保存しました"
+                                          : "保存に失敗しました";
+        }
+        if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S,
+                            ImGuiInputFlags_RouteGlobal))
+            (void)fileDialog.save(session->path, session->recoveryId);
+    }
+    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_O,
+                        ImGuiInputFlags_RouteGlobal) && !fileDialog.busy())
+        (void)fileDialog.open(hasSession ? session->path.parent_path()
+                                         : std::filesystem::path{});
+
+    if (!ImGui::BeginMainMenuBar())
+        return;
+    if (ImGui::BeginMenu("ファイル")) {
+        if (ImGui::MenuItem("開く…", "Ctrl+O") && !fileDialog.busy())
+            (void)fileDialog.open(hasSession ? session->path.parent_path()
+                                             : std::filesystem::path{});
+        if (ImGui::MenuItem("保存", "Ctrl+S", false, hasSession)) {
+            if (session->path.empty())
+                (void)fileDialog.save({}, session->recoveryId);
+            else
+                session->ui.status = saveDocument(*session).success
+                                          ? "保存しました"
+                                          : "保存に失敗しました";
+        }
+        if (ImGui::MenuItem("名前を付けて保存…", "Ctrl+Shift+S", false,
+                            hasSession && !fileDialog.busy()))
+            (void)fileDialog.save(session->path, session->recoveryId);
+        if (ImGui::MenuItem("閉じる", "Ctrl+W", false, hasSession))
+            workspace.requestCloseDocument = true;
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("編集")) {
+        if (ImGui::MenuItem("元に戻す", "Ctrl+Z", false,
+                            hasSession && session->commands.undoCount() != 0))
+            (void)session->undo();
+        if (ImGui::MenuItem("やり直す", "Ctrl+Y", false,
+                            hasSession && session->commands.redoCount() != 0))
+            (void)session->redo();
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("表示")) {
+        if (ImGui::MenuItem("物理プレビュー", nullptr,
+                            hasSession ? session->previewPhysics : false,
+                            hasSession))
+            session->previewPhysics = !session->previewPhysics;
+        if (ImGui::MenuItem("IKプレビュー", nullptr,
+                            hasSession ? session->previewIk : false,
+                            hasSession))
+            session->previewIk = !session->previewIk;
+        if (ImGui::BeginMenu("パネル")) {
+            ImGui::MenuItem("ドキュメント", nullptr, &workspace.showDocuments);
+            ImGui::MenuItem("ビューポート", nullptr, &workspace.showViewport);
+            ImGui::MenuItem("アウトライナー", nullptr, &workspace.showOutliner);
+            ImGui::MenuItem("インスペクター", nullptr, &workspace.showInspector);
+            ImGui::SeparatorText("高度なパネル");
+            ImGui::MenuItem("モデル", nullptr, &workspace.showModel);
+            ImGui::MenuItem("頂点", nullptr, &workspace.showVertex);
+            ImGui::MenuItem("材質", nullptr, &workspace.showMaterial);
+            ImGui::MenuItem("テクスチャ", nullptr, &workspace.showTexture);
+            ImGui::MenuItem("ボーン", nullptr, &workspace.showBone);
+            ImGui::MenuItem("モーフ", nullptr, &workspace.showMorph);
+            ImGui::MenuItem("表示枠", nullptr, &workspace.showDisplayFrame);
+            ImGui::MenuItem("物理", nullptr, &workspace.showPhysics);
+            ImGui::MenuItem("診断", nullptr, &workspace.showDiagnostics);
+            ImGui::MenuItem("参照", nullptr, &workspace.showReferences);
+            ImGui::MenuItem("差分", nullptr, &workspace.showDiff);
+            ImGui::EndMenu();
+        }
+        if (ImGui::MenuItem("レイアウトをリセット")) {
+            ImGui::ClearIniSettings();
+            workspace.resetPanels();
+            workspace.resetLayout = true;
+        }
+        ImGui::EndMenu();
+    }
+    ImGui::Separator();
+    workspaceButton("モデル", EditorWorkspace::model,
+                    ui::UiSemanticId::workspaceModel, session, workspace);
+    ImGui::SameLine();
+    workspaceButton("リグ", EditorWorkspace::rig,
+                    ui::UiSemanticId::workspaceRig, session, workspace);
+    ImGui::SameLine();
+    workspaceButton("モーフ", EditorWorkspace::morph,
+                    ui::UiSemanticId::workspaceMorph, session, workspace);
+    ImGui::SameLine();
+    workspaceButton("物理", EditorWorkspace::physics,
+                    ui::UiSemanticId::workspacePhysics, session, workspace);
+    ImGui::SameLine();
+    workspaceButton("検査", EditorWorkspace::inspect,
+                    ui::UiSemanticId::workspaceInspect, session, workspace);
+    if (!workspace.status.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", workspace.status.c_str());
+    }
+    ImGui::EndMainMenuBar();
+}
 
 void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
                       GpuModelRenderer *renderer,
@@ -1252,90 +1383,15 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
     }
     auto &preview = updatePreview(session);
     if (workspace.showViewport)
-        drawViewportPanel(session, preview.frame ? &*preview.frame : nullptr, &workspace.showViewport);
+        drawViewportPanel(session, preview.frame ? &*preview.frame : nullptr, renderer,
+                          &workspace.showDiagnostics, &workspace.showViewport,
+                          workspace.active);
     else
         session.ui.viewportVisible = false;
-    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Z, ImGuiInputFlags_RouteGlobal))
-        (void)session.undo();
-    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Y, ImGuiInputFlags_RouteGlobal))
-        (void)session.redo();
-    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal)) {
-        if (session.path.empty())
-            (void)fileDialog.save({}, session.recoveryId);
-        else
-            session.ui.status = saveDocument(session).success ? "保存しました" : "保存に失敗しました";
-    }
-    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S, ImGuiInputFlags_RouteGlobal))
-        (void)fileDialog.save(session.path, session.recoveryId);
-    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_O, ImGuiInputFlags_RouteGlobal))
-        (void)fileDialog.open(session.path.empty() ? std::filesystem::path{} : session.path.parent_path());
-    if (ImGui::BeginMainMenuBar()) {
-        if (ImGui::BeginMenu("ファイル")) {
-            if (ImGui::MenuItem("開く…", "Ctrl+O") && !fileDialog.busy())
-                (void)fileDialog.open(session.path.empty() ? std::filesystem::path{} : session.path.parent_path());
-            if (ImGui::MenuItem("保存", "Ctrl+S")) {
-                if (session.path.empty())
-                    (void)fileDialog.save({}, session.recoveryId);
-                else
-                    session.ui.status = saveDocument(session).success ? "保存しました" : "保存に失敗しました";
-            }
-            if (ImGui::MenuItem("名前を付けて保存…", "Ctrl+Shift+S") && !fileDialog.busy())
-                (void)fileDialog.save(session.path, session.recoveryId);
-            if (ImGui::MenuItem("閉じる", "Ctrl+W"))
-                workspace.requestCloseDocument = true;
-            ImGui::EndMenu();
-        }
-        if (ImGui::BeginMenu("編集")) {
-            if (ImGui::MenuItem("元に戻す", "Ctrl+Z", false, session.commands.undoCount() != 0))
-                (void)session.undo();
-            if (ImGui::MenuItem("やり直す", "Ctrl+Y", false, session.commands.redoCount() != 0))
-                (void)session.redo();
-            ImGui::EndMenu();
-        }
-        if (ImGui::BeginMenu("表示")) {
-            ImGui::MenuItem("物理プレビュー", nullptr, &session.previewPhysics);
-            ImGui::MenuItem("IKプレビュー", nullptr, &session.previewIk);
-            if (ImGui::BeginMenu("パネル")) {
-                ImGui::MenuItem("ドキュメント", nullptr, &workspace.showDocuments);
-                ImGui::MenuItem("ビューポート", nullptr, &workspace.showViewport);
-                ImGui::MenuItem("アウトライナー", nullptr, &workspace.showOutliner);
-                ImGui::MenuItem("インスペクター", nullptr, &workspace.showInspector);
-                ImGui::SeparatorText("高度なパネル");
-                ImGui::MenuItem("モデル", nullptr, &workspace.showModel);
-                ImGui::MenuItem("頂点", nullptr, &workspace.showVertex);
-                ImGui::MenuItem("材質", nullptr, &workspace.showMaterial);
-                ImGui::MenuItem("テクスチャ", nullptr, &workspace.showTexture);
-                ImGui::MenuItem("ボーン", nullptr, &workspace.showBone);
-                ImGui::MenuItem("モーフ", nullptr, &workspace.showMorph);
-                ImGui::MenuItem("表示枠", nullptr, &workspace.showDisplayFrame);
-                ImGui::MenuItem("物理", nullptr, &workspace.showPhysics);
-                ImGui::MenuItem("診断", nullptr, &workspace.showDiagnostics);
-                ImGui::MenuItem("参照", nullptr, &workspace.showReferences);
-                ImGui::MenuItem("差分", nullptr, &workspace.showDiff);
-                ImGui::EndMenu();
-            }
-            if (ImGui::MenuItem("レイアウトをリセット")) {
-                workspace.resetPanels();
-                workspace.resetLayout = true;
-            }
-            ImGui::EndMenu();
-        }
-        ImGui::Separator();
-        workspaceButton("モデル", EditorWorkspace::model, session, workspace);
-        ImGui::SameLine();
-        workspaceButton("リグ", EditorWorkspace::rig, session, workspace);
-        ImGui::SameLine();
-        workspaceButton("モーフ", EditorWorkspace::morph, session, workspace);
-        ImGui::SameLine();
-        workspaceButton("物理", EditorWorkspace::physics, session, workspace);
-        ImGui::SameLine();
-        workspaceButton("検査", EditorWorkspace::inspect, session, workspace);
-        ImGui::EndMainMenuBar();
-    }
     if (workspace.showOutliner)
         drawOutlinerPanel(session, workspace, &workspace.showOutliner);
     if (workspace.showInspector)
-        drawInspectorPanel(session, renderer, &workspace.showInspector);
+        drawInspectorPanel(session, renderer, workspace.active, &workspace.showInspector);
     if (workspace.showModel)
         drawModelPanel(session, fileDialog, &workspace.showModel);
     if (workspace.showVertex)
@@ -1353,7 +1409,7 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
     if (workspace.showPhysics)
         drawPhysicsPanel(session, &workspace.showPhysics);
     if (workspace.showDiagnostics)
-        drawDiagnosticsPanel(session, &workspace.showDiagnostics);
+        drawDiagnosticsPanel(session, renderer, &workspace.showDiagnostics);
     if (workspace.showReferences)
         drawReferencePanel(session, &workspace.showReferences);
     if (workspace.showDiff)

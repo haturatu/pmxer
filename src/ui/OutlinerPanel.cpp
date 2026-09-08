@@ -1,6 +1,7 @@
 #include "OutlinerPanel.hpp"
 
 #include "../editor/DocumentSession.hpp"
+#include "../editor/WorkspacePolicy.hpp"
 #include "EditorPanels.hpp"
 
 #include <imgui.h>
@@ -257,14 +258,15 @@ void drawOutlinerPanel(DocumentSession &session, WorkspaceUiState &workspace,
   const std::string_view filter(workspace.search.data());
   const auto &model = session.document.model();
 
-  const auto showModel = workspace.active == EditorWorkspace::model ||
-                         workspace.active == EditorWorkspace::inspect;
-  const auto showRig = workspace.active == EditorWorkspace::rig ||
-                       workspace.active == EditorWorkspace::inspect;
-  const auto showMorph = workspace.active == EditorWorkspace::morph ||
-                         workspace.active == EditorWorkspace::inspect;
-  const auto showPhysics = workspace.active == EditorWorkspace::physics ||
-                           workspace.active == EditorWorkspace::inspect;
+  const auto policy = workspacePolicy(workspace.active);
+  const auto showModel = policy.allows(SelectionKind::material) ||
+                         policy.allows(SelectionKind::texture);
+  const auto showRig = policy.allows(SelectionKind::vertex) ||
+                       policy.allows(SelectionKind::bone);
+  const auto showMorph = policy.allows(SelectionKind::morph);
+  const auto showPhysics = policy.allows(SelectionKind::rigidBody) ||
+                           policy.allows(SelectionKind::joint) ||
+                           policy.allows(SelectionKind::softBody);
 
   if (showModel &&
       ImGui::CollapsingHeader("材質", ImGuiTreeNodeFlags_DefaultOpen))

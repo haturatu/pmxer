@@ -1,8 +1,11 @@
 #include "ViewportPanel.hpp"
 #include "ViewportGizmo.hpp"
 #include "ViewportPicking.hpp"
+#include "UiSemantics.hpp"
 
+#include "../editor/ViewportCapabilities.hpp"
 #include "../render/Camera.hpp"
+#include "../render/GpuModelRenderer.hpp"
 
 #include <imgui.h>
 
@@ -211,13 +214,33 @@ bool drawViewAxis(EditorUiState &ui, ImDrawList *draw, ImVec2 origin,
 
 } // namespace
 
-void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *frame, bool *open) {
+void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *frame,
+                        GpuModelRenderer *renderer, bool *showDiagnostics,
+                        bool *open, EditorWorkspace activeWorkspace) {
     session.ui.viewportVisible = false;
     if (!ImGui::Begin("ビューポート", open, ImGuiWindowFlags_NoBackground)) {
         ImGui::End();
         return;
     }
+    const auto capabilities = transformCapabilities(session);
+    const auto policy = workspacePolicy(activeWorkspace);
+    if (renderer != nullptr) {
+        const auto resources = renderer->resourceStatus(session);
+        if (resources.missingTextureCount != 0U || resources.failedTextureCount != 0U) {
+            ImGui::TextColored({1.0F, 0.72F, 0.25F, 1.0F},
+                               "⚠ テクスチャ %zu件を読み込めません",
+                               resources.missingTextureCount + resources.failedTextureCount);
+            ImGui::SameLine();
+            ImGui::TextDisabled("フォールバック材質で表示しています");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("詳細##texture-diagnostics") && showDiagnostics != nullptr)
+                *showDiagnostics = true;
+        }
+    }
     const auto modeButton = [&](const char *label, ViewportSelectionMode mode) {
+        const auto supported = policy.allows(mode);
+        if (!supported)
+            ImGui::BeginDisabled();
         if (ImGui::RadioButton(label, session.ui.selectionMode == mode)) {
             session.ui.selectionMode = mode;
             if (mode == ViewportSelectionMode::bone)
@@ -226,6 +249,8 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 mode == ViewportSelectionMode::joint)
                 session.ui.showPhysics = true;
         }
+        if (!supported)
+            ImGui::EndDisabled();
         ImGui::SameLine();
     };
     modeButton("頂点", ViewportSelectionMode::vertex);
@@ -233,24 +258,48 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     modeButton("材質", ViewportSelectionMode::material);
     modeButton("ボーン", ViewportSelectionMode::bone);
     modeButton("剛体", ViewportSelectionMode::rigidBody);
+    const auto jointSupported = policy.allows(ViewportSelectionMode::joint);
+    if (!jointSupported)
+        ImGui::BeginDisabled();
     if (ImGui::RadioButton("ジョイント", session.ui.selectionMode == ViewportSelectionMode::joint)) {
         session.ui.selectionMode = ViewportSelectionMode::joint;
         session.ui.showPhysics = true;
     }
+    if (!jointSupported)
+        ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::TextDisabled("|");
     ImGui::SameLine();
-    ImGui::Checkbox("X-Ray", &session.ui.xray);
-    const auto toolButton = [&](const char *label, ViewportTool tool) {
-        if (ImGui::RadioButton(label, session.ui.viewportTool == tool))
+    ui::checkbox(ui::UiSemanticId::viewportXray, "X-Ray", &session.ui.xray);
+    const auto toolButton = [&](const char *label, ViewportTool tool,
+                                ui::UiSemanticId semanticId, bool supported,
+                                const char *tooltip) {
+        if (ui::radioButton(semanticId, label,
+                            session.ui.viewportTool == tool, supported))
             session.ui.viewportTool = tool;
+        if (!supported && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::BeginTooltip();
+            ImGui::TextUnformatted(tooltip);
+            ImGui::EndTooltip();
+        }
         ImGui::SameLine();
     };
-    toolButton("選択", ViewportTool::select);
-    toolButton("移動", ViewportTool::move);
-    toolButton("回転", ViewportTool::rotate);
-    if (ImGui::RadioButton("拡縮", session.ui.viewportTool == ViewportTool::scale))
+    if (ImGui::RadioButton("選択", session.ui.viewportTool == ViewportTool::select))
+        session.ui.viewportTool = ViewportTool::select;
+    ImGui::SameLine();
+    toolButton("移動", ViewportTool::move, ui::UiSemanticId::viewportToolMove,
+               capabilities.move, "選択対象は移動編集に対応していません");
+    toolButton("回転", ViewportTool::rotate, ui::UiSemanticId::viewportToolRotate,
+               capabilities.rotate, "PMXボーンには直接編集可能な回転値がありません");
+    if (ui::radioButton(ui::UiSemanticId::viewportToolScale, "拡縮",
+                        session.ui.viewportTool == ViewportTool::scale,
+                        capabilities.scale))
         session.ui.viewportTool = ViewportTool::scale;
+    if (!capabilities.scale && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::BeginTooltip();
+        ImGui::TextUnformatted("選択対象は拡縮編集に対応していません");
+        ImGui::EndTooltip();
+    }
     ImGui::SameLine();
     ImGui::TextDisabled("|");
     ImGui::SameLine();
@@ -261,9 +310,9 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     if (ImGui::Button(session.ui.orthographic ? "平行" : "透視"))
         session.ui.orthographic = !session.ui.orthographic;
     ImGui::SameLine();
-    ImGui::Checkbox("ボーン表示", &session.ui.showBones);
+    ui::checkbox(ui::UiSemanticId::viewportShowBones, "ボーン表示", &session.ui.showBones);
     ImGui::SameLine();
-    ImGui::Checkbox("物理表示", &session.ui.showPhysics);
+    ui::checkbox(ui::UiSemanticId::viewportShowPhysics, "物理表示", &session.ui.showPhysics);
     ImGui::SameLine();
     ImGui::TextDisabled("?");
     if (ImGui::IsItemHovered()) {
@@ -433,30 +482,42 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     if (hovered && ImGui::IsKeyPressed(ImGuiKey_Keypad5))
         session.ui.orthographic = !session.ui.orthographic;
     if (hovered && !ImGui::GetIO().WantTextInput) {
-        if (ImGui::IsKeyPressed(ImGuiKey_1))
+        if (ImGui::IsKeyPressed(ImGuiKey_1) && policy.allows(ViewportSelectionMode::vertex))
             session.ui.selectionMode = ViewportSelectionMode::vertex;
-        if (ImGui::IsKeyPressed(ImGuiKey_2))
+        if (ImGui::IsKeyPressed(ImGuiKey_2) && policy.allows(ViewportSelectionMode::face))
             session.ui.selectionMode = ViewportSelectionMode::face;
-        if (ImGui::IsKeyPressed(ImGuiKey_3))
+        if (ImGui::IsKeyPressed(ImGuiKey_3) && policy.allows(ViewportSelectionMode::material))
             session.ui.selectionMode = ViewportSelectionMode::material;
-        if (ImGui::IsKeyPressed(ImGuiKey_4)) {
+        if (ImGui::IsKeyPressed(ImGuiKey_4) && policy.allows(ViewportSelectionMode::bone)) {
             session.ui.selectionMode = ViewportSelectionMode::bone;
             session.ui.showBones = true;
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_5)) {
+        if (ImGui::IsKeyPressed(ImGuiKey_5) && policy.allows(ViewportSelectionMode::rigidBody)) {
             session.ui.selectionMode = ViewportSelectionMode::rigidBody;
             session.ui.showPhysics = true;
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_6)) {
+        if (ImGui::IsKeyPressed(ImGuiKey_6) && policy.allows(ViewportSelectionMode::joint)) {
             session.ui.selectionMode = ViewportSelectionMode::joint;
             session.ui.showPhysics = true;
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_G))
-            session.ui.viewportTool = ViewportTool::move;
-        if (ImGui::IsKeyPressed(ImGuiKey_R))
-            session.ui.viewportTool = ViewportTool::rotate;
-        if (ImGui::IsKeyPressed(ImGuiKey_S))
-            session.ui.viewportTool = ViewportTool::scale;
+        if (ImGui::IsKeyPressed(ImGuiKey_G)) {
+            if (capabilities.move)
+                session.ui.viewportTool = ViewportTool::move;
+            else
+                session.ui.status = "選択対象は移動編集に対応していません";
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_R)) {
+            if (capabilities.rotate)
+                session.ui.viewportTool = ViewportTool::rotate;
+            else
+                session.ui.status = "選択対象は回転編集に対応していません";
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_S)) {
+            if (capabilities.scale)
+                session.ui.viewportTool = ViewportTool::scale;
+            else
+                session.ui.status = "選択対象は拡縮編集に対応していません";
+        }
         if (ImGui::IsKeyPressed(ImGuiKey_Escape))
             session.ui.viewportTool = ViewportTool::select;
         if (ImGui::IsKeyPressed(ImGuiKey_A)) {

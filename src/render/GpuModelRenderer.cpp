@@ -41,6 +41,7 @@ struct alignas(16) MaterialUniforms {
     std::array<float, 4> toonAdd{};
     std::array<float, 4> edgeColor{};
     std::array<float, 4> materialModes{};
+    std::array<float, 4> textureFlags{};
 };
 
 FrameUniforms makeUniforms(const EditorUiState &ui, float aspect) {
@@ -76,6 +77,23 @@ std::array<std::uint8_t, 64U * 4U> makeSharedToonFallback(std::size_t index) {
             result[row * 4U + channel] = static_cast<std::uint8_t>(
                 shadow[channel] + range * eased / (63U * 63U));
         }
+        result[row * 4U + 3U] = 255;
+    }
+    return result;
+}
+
+std::array<std::uint8_t, 2U * 2U * 4U> makeNeutralTexture() {
+    return {{184, 190, 198, 255, 132, 138, 146, 255,
+             132, 138, 146, 255, 184, 190, 198, 255}};
+}
+
+std::array<std::uint8_t, 64U * 4U> makeNeutralToonFallback() {
+    std::array<std::uint8_t, 64U * 4U> result{};
+    for (std::size_t row = 0; row < 64U; ++row) {
+        const auto value = static_cast<std::uint8_t>(96U + row * 159U / 63U);
+        result[row * 4U] = value;
+        result[row * 4U + 1U] = value;
+        result[row * 4U + 2U] = value;
         result[row * 4U + 3U] = 255;
     }
     return result;
@@ -199,8 +217,12 @@ struct GpuModelRenderer::Impl {
     SDL_GPUSampler *sphereSampler{};
     SDL_GPUSampler *toonSampler{};
     SDL_GPUTexture *defaultTexture{};
+    SDL_GPUTexture *neutralTexture{};
+    SDL_GPUTexture *blackTexture{};
+    SDL_GPUTexture *toonFallbackTexture{};
     std::vector<SDL_GPUTexture *> textures;
     std::vector<std::array<std::uint32_t, 2>> textureSizes;
+    std::vector<TextureResourceStatus> textureStatus;
     std::array<SDL_GPUTexture *, 10> sharedToons{};
     std::vector<SDL_GPUTexture *> retiredTextures;
     std::vector<SDL_GPUTransferBuffer *> transfers;
@@ -251,6 +273,18 @@ struct GpuModelRenderer::Impl {
             retiredTextures.push_back(defaultTexture);
             defaultTexture = nullptr;
         }
+        if (neutralTexture != nullptr) {
+            retiredTextures.push_back(neutralTexture);
+            neutralTexture = nullptr;
+        }
+        if (blackTexture != nullptr) {
+            retiredTextures.push_back(blackTexture);
+            blackTexture = nullptr;
+        }
+        if (toonFallbackTexture != nullptr) {
+            retiredTextures.push_back(toonFallbackTexture);
+            toonFallbackTexture = nullptr;
+        }
     }
 
     void releaseRetiredTextures() {
@@ -284,17 +318,30 @@ struct GpuModelRenderer::Impl {
             toonSampler = createSampler(SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE);
         const unsigned char white[] = {255, 255, 255, 255};
         defaultTexture = uploadTexture(device, commands, white, 1, 1, transfers);
-        if (defaultTexture == nullptr || baseSampler == nullptr || sphereSampler == nullptr || toonSampler == nullptr)
+        const auto neutral = makeNeutralTexture();
+        neutralTexture = uploadTexture(device, commands, neutral.data(), 2, 2, transfers);
+        const unsigned char black[] = {0, 0, 0, 255};
+        blackTexture = uploadTexture(device, commands, black, 1, 1, transfers);
+        const auto toonFallback = makeNeutralToonFallback();
+        toonFallbackTexture = uploadTexture(device, commands, toonFallback.data(), 1, 64, transfers);
+        if (defaultTexture == nullptr || neutralTexture == nullptr || blackTexture == nullptr ||
+            toonFallbackTexture == nullptr || baseSampler == nullptr || sphereSampler == nullptr ||
+            toonSampler == nullptr)
             return false;
 
         textures.resize(model.textures.size(), nullptr);
         textureSizes.resize(model.textures.size());
+        textureStatus.assign(model.textures.size(), {});
         for (std::size_t index = 0; index < model.textures.size(); ++index) {
             const auto path = mmd::pmx::resolveTexturePath(model, index);
-            if (!std::filesystem::exists(path))
+            textureStatus[index].resolvedPath = path;
+            if (path.empty() || !std::filesystem::exists(path)) {
+                textureStatus[index].state = TextureResourceState::missing;
                 continue;
+            }
             const auto image = decodeImage(path);
             if (!image) {
+                textureStatus[index].state = TextureResourceState::decodeFailed;
                 const auto message = std::string{"Texture decode failed: "} + path.generic_string() + ": " + image.error;
                 log::warn(message.c_str());
                 continue;
@@ -303,6 +350,9 @@ struct GpuModelRenderer::Impl {
                                             static_cast<int>(image.width), static_cast<int>(image.height), transfers);
             if (textures[index] != nullptr)
                 textureSizes[index] = {image.width, image.height};
+            textureStatus[index].state = textures[index] != nullptr
+                                             ? TextureResourceState::loaded
+                                             : TextureResourceState::uploadFailed;
         }
         for (std::size_t index = 0; index < sharedToons.size(); ++index) {
             const auto number = index + 1U;
@@ -465,6 +515,23 @@ GpuTexturePreview GpuModelRenderer::texturePreview(
             impl_->textureSizes[index][1]};
 }
 
+RendererResourceStatus GpuModelRenderer::resourceStatus(
+    const DocumentSession &session) const {
+    RendererResourceStatus result;
+    if (impl_ == nullptr || impl_->model != &session.document.model() ||
+        impl_->resourceRevision != session.resourceRevision)
+        return result;
+    result.textures = impl_->textureStatus;
+    for (const auto &texture : result.textures) {
+        if (texture.state == TextureResourceState::missing)
+            ++result.missingTextureCount;
+        else if (texture.state == TextureResourceState::decodeFailed ||
+                 texture.state == TextureResourceState::uploadFailed)
+            ++result.failedTextureCount;
+    }
+    return result;
+}
+
 bool GpuModelRenderer::prepare(SDL_GPUCommandBuffer *commands, const mmd::PmxModel &model,
                                const mmd::AnimatedModelFrame *frame, std::uint64_t revision,
                                std::uint64_t resourceRevision, std::uint64_t frameRevision,
@@ -603,19 +670,40 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
             static_cast<float>(material.sphereMode),
             static_cast<float>(material.toonMode), 0.0F,
             selected ? 0.32F : (hovered ? 0.18F : 0.0F)};
-        const auto textureFor = [&](std::int32_t index) -> SDL_GPUTexture * {
-            return index >= 0 && static_cast<std::size_t>(index) < impl_->textures.size() &&
-                           impl_->textures[static_cast<std::size_t>(index)] != nullptr
-                       ? impl_->textures[static_cast<std::size_t>(index)]
-                       : impl_->defaultTexture;
+        const auto textureLoaded = [&](std::int32_t index) {
+            return index >= 0 && static_cast<std::size_t>(index) < impl_->textureStatus.size() &&
+                   impl_->textureStatus[static_cast<std::size_t>(index)].state ==
+                       TextureResourceState::loaded;
         };
+        const auto baseTextureFor = [&](std::int32_t index) -> SDL_GPUTexture * {
+            if (index < 0)
+                return impl_->defaultTexture;
+            return textureLoaded(index) ? impl_->textures[static_cast<std::size_t>(index)]
+                                        : impl_->neutralTexture;
+        };
+        const auto sphereTextureFor = [&](std::int32_t index) -> SDL_GPUTexture * {
+            if (index < 0)
+                return impl_->defaultTexture;
+            return textureLoaded(index)
+                       ? impl_->textures[static_cast<std::size_t>(index)]
+                       : (material.sphereMode == 2U ? impl_->blackTexture
+                                                    : impl_->defaultTexture);
+        };
+        const auto toonTextureFor = [&](std::int32_t index) -> SDL_GPUTexture * {
+            return textureLoaded(index) ? impl_->textures[static_cast<std::size_t>(index)]
+                                        : impl_->toonFallbackTexture;
+        };
+        uniforms.textureFlags[0] = material.textureIndex >= 0 &&
+                                           !textureLoaded(material.textureIndex)
+                                       ? 1.0F
+                                       : 0.0F;
         const std::array<SDL_GPUTextureSamplerBinding, 3> bindings{{
-            {textureFor(material.textureIndex), impl_->baseSampler},
-            {textureFor(material.sphereTextureIndex), impl_->sphereSampler},
-            {material.toonMode == 0 ? textureFor(material.toonTextureIndex)
+            {baseTextureFor(material.textureIndex), impl_->baseSampler},
+            {sphereTextureFor(material.sphereTextureIndex), impl_->sphereSampler},
+            {material.toonMode == 0 ? toonTextureFor(material.toonTextureIndex)
                                     : (material.toonTextureIndex >= 0 && material.toonTextureIndex < 10
                                            ? impl_->sharedToons[static_cast<std::size_t>(material.toonTextureIndex)]
-                                           : impl_->defaultTexture),
+                                           : impl_->toonFallbackTexture),
              impl_->toonSampler},
         }};
         SDL_BindGPUFragmentSamplers(pass, 0, bindings.data(), static_cast<Uint32>(bindings.size()));

@@ -1,14 +1,15 @@
 #pragma once
 
+#include "../editor/WorkspacePolicy.hpp"
+
 #include <array>
+#include <string>
 
 namespace pmxer {
 
 class DocumentSession;
 class FileDialog;
 class GpuModelRenderer;
-
-enum class EditorWorkspace { model, rig, morph, physics, inspect };
 
 struct WorkspaceUiState {
     EditorWorkspace active{EditorWorkspace::model};
@@ -29,6 +30,7 @@ struct WorkspaceUiState {
     bool showDiff{};
     bool resetLayout{};
     bool requestCloseDocument{};
+    std::string status;
     std::array<char, 128> search{};
 
     void resetPanels() noexcept {
@@ -38,6 +40,9 @@ struct WorkspaceUiState {
         showReferences = showDiff = false;
     }
 };
+
+void drawMainMenu(DocumentSession *session, FileDialog &fileDialog,
+                  WorkspaceUiState &workspace);
 
 void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
                       GpuModelRenderer *renderer,
