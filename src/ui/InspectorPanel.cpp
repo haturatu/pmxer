@@ -129,6 +129,44 @@ const char *kindName(SelectionKind kind) {
   return "選択";
 }
 
+std::string selectionSummary(const DocumentSession &session) {
+  if (session.selection.items().empty())
+    return "選択なし";
+  const auto &selected = session.selection.items().front();
+  std::string name;
+  if (selected.kind == SelectionKind::material) {
+    if (const auto *value = session.document.resolve(
+            selectionHandle<mmd::MaterialTag>(session.document, selected)))
+      name = value->name;
+  } else if (selected.kind == SelectionKind::bone) {
+    if (const auto *value = session.document.resolve(
+            selectionHandle<mmd::BoneTag>(session.document, selected)))
+      name = value->name;
+  } else if (selected.kind == SelectionKind::morph) {
+    if (const auto *value = session.document.resolve(
+            selectionHandle<mmd::MorphTag>(session.document, selected)))
+      name = value->name;
+  } else if (selected.kind == SelectionKind::rigidBody) {
+    if (const auto *value = session.document.resolve(
+            selectionHandle<mmd::RigidBodyTag>(session.document, selected)))
+      name = value->name;
+  } else if (selected.kind == SelectionKind::joint) {
+    if (const auto *value = session.document.resolve(
+            selectionHandle<mmd::JointTag>(session.document, selected)))
+      name = value->name;
+  } else if (selected.kind == SelectionKind::texture) {
+    if (const auto *value = session.document.resolve(
+            selectionHandle<mmd::TextureTag>(session.document, selected)))
+      name = value->storedPath;
+  }
+  auto result = std::string{kindName(selected.kind)};
+  if (!name.empty())
+    result += " \"" + name + "\"";
+  if (session.selection.items().size() > 1U)
+    result += " +" + std::to_string(session.selection.items().size() - 1U);
+  return result;
+}
+
 void texturePreviewCard(const DocumentSession &session, const char *label,
                         std::int32_t index,
                         GpuModelRenderer *renderer) {
@@ -645,9 +683,8 @@ void drawStatusBar(DocumentSession &session, bool &showDiagnostics,
                 .c_str()))
       showDiagnostics = true;
     ImGui::SameLine();
-    if (ImGui::SmallButton(
-            ("選択 " + std::to_string(session.selection.items().size()))
-                .c_str()))
+    const auto selected = selectionSummary(session);
+    if (ImGui::SmallButton(selected.c_str()))
       showReferences = true;
     ImGui::SameLine();
     if (ImGui::SmallButton("差分"))

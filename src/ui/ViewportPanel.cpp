@@ -171,6 +171,44 @@ void hoverTooltip(const DocumentSession &session, const SelectionItem &item) {
     ImGui::EndTooltip();
 }
 
+bool drawViewAxis(EditorUiState &ui, ImDrawList *draw, ImVec2 origin,
+                  ImVec2 size) {
+    const ImVec2 center{origin.x + size.x - 42.0F, origin.y + 42.0F};
+    const std::array<ImVec2, 3> points{{{center.x - 18.0F, center.y + 15.0F},
+                                        {center.x + 18.0F, center.y + 15.0F},
+                                        {center.x, center.y - 18.0F}}};
+    static constexpr const char *labels[]{"X", "Y", "Z"};
+    static constexpr ImU32 colors[]{IM_COL32(235, 90, 90, 240),
+                                     IM_COL32(100, 215, 120, 240),
+                                     IM_COL32(90, 145, 245, 240)};
+    const auto mouse = ImGui::GetIO().MousePos;
+    bool clicked{};
+    for (std::size_t index = 0; index < points.size(); ++index) {
+        const auto dx = mouse.x - points[index].x;
+        const auto dy = mouse.y - points[index].y;
+        const auto hovered = dx * dx + dy * dy <= 12.0F * 12.0F;
+        draw->AddCircleFilled(points[index], 12.0F, hovered ? IM_COL32_WHITE : colors[index]);
+        const auto textSize = ImGui::CalcTextSize(labels[index]);
+        draw->AddText({points[index].x - textSize.x * 0.5F,
+                       points[index].y - textSize.y * 0.5F},
+                      hovered ? colors[index] : IM_COL32(20, 24, 30, 255), labels[index]);
+        if (!hovered || !ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            continue;
+        if (index == 0U) {
+            ui.cameraYaw = 1.5707963F;
+            ui.cameraPitch = 0.0F;
+        } else if (index == 1U) {
+            ui.cameraYaw = 0.0F;
+            ui.cameraPitch = 1.5697963F;
+        } else {
+            ui.cameraYaw = 0.0F;
+            ui.cameraPitch = 0.0F;
+        }
+        clicked = true;
+    }
+    return clicked;
+}
+
 } // namespace
 
 void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *frame, bool *open) {
@@ -487,6 +525,8 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     }
     const CameraState camera{session.ui.cameraTarget, session.ui.cameraYaw, session.ui.cameraPitch,
                              session.ui.cameraDistance, session.ui.orthographic};
+    if (drawViewAxis(session.ui, draw, origin, available))
+        session.ui.boxSelecting = false;
     if (hovered && ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
         const auto picked = pickViewport(session, vertices, camera, origin,
                                          available, mouse);
