@@ -141,6 +141,7 @@ template <typename Label>
 void drawMultiSelectList(DocumentSession &session, SelectionKind kind,
                          std::size_t count, Label label,
                          std::string_view filter, WorkspaceUiState &workspace,
+                         bool &revealBlockedByFilter,
                          float height = 180.0F) {
   if (!ImGui::BeginChild("##items", ImVec2(0.0F, height),
                          ImGuiChildFlags_Borders)) {
@@ -166,6 +167,10 @@ void drawMultiSelectList(DocumentSession &session, SelectionKind kind,
         break;
       }
     }
+    if (!pendingRow && !filter.empty())
+      revealBlockedByFilter = true;
+    else if (!pendingRow && filter.empty())
+      session.ui.pendingOutlinerReveal.reset();
   }
   MultiSelectContext context{&session, &workspace, kind, mapping};
   ImGuiSelectionExternalStorage storage;
@@ -289,7 +294,7 @@ void drawBoneNode(DocumentSession &session, WorkspaceUiState &workspace,
 }
 
 void drawBoneTree(DocumentSession &session, WorkspaceUiState &workspace,
-                  std::string_view filter) {
+                  std::string_view filter, bool &revealBlockedByFilter) {
   const auto &bones = session.document.model().bones;
   std::vector<std::vector<std::size_t>> children(bones.size());
   std::vector<std::size_t> roots;
@@ -323,6 +328,10 @@ void drawBoneTree(DocumentSession &session, WorkspaceUiState &workspace,
         filterResult.forceOpen[parentIndex] = true;
         current = parentIndex;
       }
+    } else if (target && !filter.empty()) {
+      revealBlockedByFilter = true;
+    } else if (!target && filter.empty()) {
+      session.ui.pendingOutlinerReveal.reset();
     }
   }
   for (const auto root : roots)
@@ -334,6 +343,12 @@ void drawBoneTree(DocumentSession &session, WorkspaceUiState &workspace,
                    session.ui.pendingOutlinerReveal, revealed);
   if (revealed)
     session.ui.pendingOutlinerReveal.reset();
+}
+
+bool pendingRevealFor(const DocumentSession &session,
+                      SelectionKind kind) noexcept {
+  return session.ui.pendingOutlinerReveal.has_value() &&
+         session.ui.pendingOutlinerReveal->kind == kind;
 }
 
 std::string indexedName(std::string_view name, std::size_t index) {
@@ -349,7 +364,11 @@ void drawOutlinerPanel(DocumentSession &session, WorkspaceUiState &workspace,
     return;
   }
   auto &query = session.ui.outliner[workspaceIndex(workspace.active)].query;
-  ImGui::SetNextItemWidth(-1.0F);
+  const auto clearWidth = ImGui::CalcTextSize("×").x +
+                          ImGui::GetStyle().FramePadding.x * 2.0F;
+  const auto spacing = ImGui::GetStyle().ItemSpacing.x;
+  ImGui::SetNextItemWidth(std::max(
+      80.0F, ImGui::GetContentRegionAvail().x - clearWidth - spacing));
   ImGui::InputTextWithHint("##search", "検索", query.data(), query.size());
   ImGui::SameLine();
   if (ImGui::SmallButton("×##clear-outliner-search"))
@@ -366,38 +385,51 @@ void drawOutlinerPanel(DocumentSession &session, WorkspaceUiState &workspace,
   const auto showPhysics = policy.allows(SelectionKind::rigidBody) ||
                            policy.allows(SelectionKind::joint) ||
                            policy.allows(SelectionKind::softBody);
+  bool revealBlockedByFilter = false;
 
+  if (showModel && pendingRevealFor(session, SelectionKind::material))
+    ImGui::SetNextItemOpen(true, ImGuiCond_Always);
   if (showModel &&
       ImGui::CollapsingHeader("材質", ImGuiTreeNodeFlags_DefaultOpen))
     drawMultiSelectList(
         session, SelectionKind::material, model.materials.size(),
         [&](std::size_t i) { return indexedName(model.materials[i].name, i); },
-        filter, workspace);
+        filter, workspace, revealBlockedByFilter);
+  if (showRig && pendingRevealFor(session, SelectionKind::bone))
+    ImGui::SetNextItemOpen(true, ImGuiCond_Always);
   if (showRig &&
       ImGui::CollapsingHeader("ボーン", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (ImGui::BeginChild("##bone-tree", ImVec2(0.0F, 260.0F),
                           ImGuiChildFlags_Borders))
-      drawBoneTree(session, workspace, filter);
+      drawBoneTree(session, workspace, filter, revealBlockedByFilter);
     ImGui::EndChild();
   }
+  if (showMorph && pendingRevealFor(session, SelectionKind::morph))
+    ImGui::SetNextItemOpen(true, ImGuiCond_Always);
   if (showMorph &&
       ImGui::CollapsingHeader("モーフ", ImGuiTreeNodeFlags_DefaultOpen))
     drawMultiSelectList(
         session, SelectionKind::morph, model.morphs.size(),
         [&](std::size_t i) { return indexedName(model.morphs[i].name, i); },
-        filter, workspace);
+        filter, workspace, revealBlockedByFilter);
+  if (showRig && pendingRevealFor(session, SelectionKind::vertex))
+    ImGui::SetNextItemOpen(true, ImGuiCond_Always);
   if (showRig && ImGui::CollapsingHeader("頂点"))
     drawMultiSelectList(
         session, SelectionKind::vertex, model.vertices.size(),
         [](std::size_t i) { return "頂点 " + std::to_string(i); }, filter,
-        workspace, 260.0F);
+        workspace, revealBlockedByFilter, 260.0F);
+  if (showModel && pendingRevealFor(session, SelectionKind::texture))
+    ImGui::SetNextItemOpen(true, ImGuiCond_Always);
   if (showModel && ImGui::CollapsingHeader("テクスチャ"))
     drawMultiSelectList(
         session, SelectionKind::texture, model.textures.size(),
         [&](std::size_t i) {
           return indexedName(model.textures[i].storedPath, i);
         },
-        filter, workspace);
+        filter, workspace, revealBlockedByFilter);
+  if (showPhysics && pendingRevealFor(session, SelectionKind::rigidBody))
+    ImGui::SetNextItemOpen(true, ImGuiCond_Always);
   if (showPhysics &&
       ImGui::CollapsingHeader("剛体", ImGuiTreeNodeFlags_DefaultOpen))
     drawMultiSelectList(
@@ -405,20 +437,24 @@ void drawOutlinerPanel(DocumentSession &session, WorkspaceUiState &workspace,
         [&](std::size_t i) {
           return indexedName(model.rigidBodies[i].name, i);
         },
-        filter, workspace);
+        filter, workspace, revealBlockedByFilter);
+  if (showPhysics && pendingRevealFor(session, SelectionKind::joint))
+    ImGui::SetNextItemOpen(true, ImGuiCond_Always);
   if (showPhysics && ImGui::CollapsingHeader("ジョイント"))
     drawMultiSelectList(
         session, SelectionKind::joint, model.joints.size(),
         [&](std::size_t i) { return indexedName(model.joints[i].name, i); },
-        filter, workspace);
+        filter, workspace, revealBlockedByFilter);
+  if (showPhysics && pendingRevealFor(session, SelectionKind::softBody))
+    ImGui::SetNextItemOpen(true, ImGuiCond_Always);
   if (showPhysics && ImGui::CollapsingHeader("ソフトボディ"))
     drawMultiSelectList(
         session, SelectionKind::softBody, model.softBodies.size(),
         [&](std::size_t i) {
           return indexedName(model.softBodies[i].name, i);
         },
-        filter, workspace);
-  if (session.ui.pendingOutlinerReveal) {
+        filter, workspace, revealBlockedByFilter);
+  if (revealBlockedByFilter) {
     ImGui::Separator();
     ImGui::TextDisabled("選択中の項目は検索条件で非表示です");
     if (ImGui::SmallButton("検索をクリア##outliner-reveal"))
