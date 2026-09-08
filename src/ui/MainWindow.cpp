@@ -610,7 +610,6 @@ int runApplication(const EditCommand &options) {
             if (ImGui::Begin("ドキュメント", &workspace.showDocuments)) {
                 if (ImGui::BeginTabBar("document-tabs")) {
                     for (std::size_t i = 0; i < sessions.size(); ++i) {
-                        const auto &path = sessions[i]->path;
                         const auto title = documentTabTitle(sessions, i) +
                                            (sessions[i]->modified ? " *" : "");
                         const auto label = title + "###document-" + sessions[i]->recoveryId;
