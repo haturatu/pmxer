@@ -173,6 +173,15 @@ int main() {
     assert(pmxer::selectMorphOffsetTarget(morphTargetSession,
                                           targetVertexItem));
     assert(morphTargetSession.ui.morphAddTarget == targetVertexItem);
+    auto morphWorkspace = pmxer::EditorWorkspace::morph;
+    morphTargetSession.ui.selectionMode = pmxer::ViewportSelectionMode::bone;
+    assert(pmxer::selectAllForMode(
+        morphTargetSession, morphWorkspace,
+        morphTargetSession.ui.selectionMode,
+        pmxer::SelectionOrigin::viewport));
+    assert(morphTargetSession.selection.items().size() == 1U);
+    assert(morphTargetSession.selection.items().front().kind ==
+           pmxer::SelectionKind::morph);
 
     const auto layoutPath = std::filesystem::temp_directory_path() / "pmxer-workspace-layout-test.ini";
     assert(pmxer::saveWorkspaceLayout(layoutPath, "[Window][pmxer]\nPos=0,0\n"));
