@@ -18,6 +18,7 @@
 #include <cstring>
 #include <filesystem>
 #include <iterator>
+#include <limits>
 #include <optional>
 #include <string>
 
@@ -536,16 +537,17 @@ SelectionKind morphOffsetTargetKind(std::uint8_t type) noexcept {
 bool morphIndexCombo(const char *label, DocumentSession &session,
                      std::int32_t &index, mmd::MorphHandle excluded) {
   const auto &model = session.document.model();
+  constexpr auto noSelection = std::numeric_limits<std::size_t>::max();
   const auto current = index >= 0 && static_cast<std::size_t>(index) < model.morphs.size() &&
                                session.document.morphHandle(static_cast<std::size_t>(index)) != excluded
                            ? static_cast<std::size_t>(index)
-                           : std::size_t{-1};
-  const auto preview = current == std::size_t{-1}
+                           : noSelection;
+  const auto preview = current == noSelection
                            ? "未選択"
                            : model.morphs[current].name.c_str();
   bool changed{};
   if (ImGui::BeginCombo(label, preview)) {
-    if (ImGui::Selectable("未選択", current == std::size_t{-1})) {
+    if (ImGui::Selectable("未選択", current == noSelection)) {
       index = -1;
       changed = true;
     }
