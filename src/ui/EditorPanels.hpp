@@ -7,7 +7,10 @@ namespace pmxer {
 class DocumentSession;
 class FileDialog;
 
+enum class EditorWorkspace { model, rig, morph, physics, inspect };
+
 struct WorkspaceUiState {
+    EditorWorkspace active{EditorWorkspace::model};
     bool showDocuments{true};
     bool showViewport{true};
     bool showOutliner{true};

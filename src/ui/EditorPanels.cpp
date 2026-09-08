@@ -1201,6 +1201,34 @@ void drawReferencePanel(DocumentSession &session, bool *open) {
     ImGui::End();
 }
 
+void activateWorkspace(DocumentSession &session, WorkspaceUiState &workspace,
+                       EditorWorkspace value) {
+    workspace.active = value;
+    if (value == EditorWorkspace::model) {
+        session.ui.selectionMode = ViewportSelectionMode::material;
+    } else if (value == EditorWorkspace::rig) {
+        session.ui.selectionMode = ViewportSelectionMode::bone;
+        session.ui.showBones = true;
+    } else if (value == EditorWorkspace::physics) {
+        session.ui.selectionMode = ViewportSelectionMode::rigidBody;
+        session.ui.showPhysics = true;
+    } else if (value == EditorWorkspace::inspect) {
+        workspace.showDiagnostics = true;
+    }
+}
+
+void workspaceButton(const char *label, EditorWorkspace value,
+                     DocumentSession &session, WorkspaceUiState &workspace) {
+    const auto active = workspace.active == value;
+    if (active)
+        ImGui::PushStyleColor(ImGuiCol_Button,
+                              ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+    if (ImGui::Button(label))
+        activateWorkspace(session, workspace, value);
+    if (active)
+        ImGui::PopStyleColor();
+}
+
 } // namespace
 
 void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog, WorkspaceUiState &workspace) {
@@ -1279,6 +1307,16 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog, Workspac
             }
             ImGui::EndMenu();
         }
+        ImGui::Separator();
+        workspaceButton("モデル", EditorWorkspace::model, session, workspace);
+        ImGui::SameLine();
+        workspaceButton("リグ", EditorWorkspace::rig, session, workspace);
+        ImGui::SameLine();
+        workspaceButton("モーフ", EditorWorkspace::morph, session, workspace);
+        ImGui::SameLine();
+        workspaceButton("物理", EditorWorkspace::physics, session, workspace);
+        ImGui::SameLine();
+        workspaceButton("検査", EditorWorkspace::inspect, session, workspace);
         ImGui::EndMainMenuBar();
     }
     if (workspace.showOutliner)

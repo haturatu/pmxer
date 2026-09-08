@@ -71,7 +71,7 @@ struct EditorUiState {
     float viewportWidth{};
     float viewportHeight{};
     bool viewportVisible{};
-    ViewportSelectionMode selectionMode{ViewportSelectionMode::bone};
+    ViewportSelectionMode selectionMode{ViewportSelectionMode::material};
     ViewportTool viewportTool{ViewportTool::select};
     bool localTransform{};
     bool snapTransform{};

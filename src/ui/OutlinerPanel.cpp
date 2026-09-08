@@ -257,45 +257,65 @@ void drawOutlinerPanel(DocumentSession &session, WorkspaceUiState &workspace,
   const std::string_view filter(workspace.search.data());
   const auto &model = session.document.model();
 
-  if (ImGui::CollapsingHeader("材質", ImGuiTreeNodeFlags_DefaultOpen))
+  const auto showModel = workspace.active == EditorWorkspace::model ||
+                         workspace.active == EditorWorkspace::inspect;
+  const auto showRig = workspace.active == EditorWorkspace::rig ||
+                       workspace.active == EditorWorkspace::inspect;
+  const auto showMorph = workspace.active == EditorWorkspace::morph ||
+                         workspace.active == EditorWorkspace::inspect;
+  const auto showPhysics = workspace.active == EditorWorkspace::physics ||
+                           workspace.active == EditorWorkspace::inspect;
+
+  if (showModel &&
+      ImGui::CollapsingHeader("材質", ImGuiTreeNodeFlags_DefaultOpen))
     drawMultiSelectList(
         session, SelectionKind::material, model.materials.size(),
         [&](std::size_t i) { return indexedName(model.materials[i].name, i); },
         filter);
-  if (ImGui::CollapsingHeader("ボーン", ImGuiTreeNodeFlags_DefaultOpen)) {
+  if (showRig &&
+      ImGui::CollapsingHeader("ボーン", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (ImGui::BeginChild("##bone-tree", ImVec2(0.0F, 260.0F),
                           ImGuiChildFlags_Borders))
       drawBoneTree(session, filter);
     ImGui::EndChild();
   }
-  if (ImGui::CollapsingHeader("モーフ"))
+  if (showMorph &&
+      ImGui::CollapsingHeader("モーフ", ImGuiTreeNodeFlags_DefaultOpen))
     drawMultiSelectList(
         session, SelectionKind::morph, model.morphs.size(),
         [&](std::size_t i) { return indexedName(model.morphs[i].name, i); },
         filter);
-  if (ImGui::CollapsingHeader("頂点"))
+  if (showRig && ImGui::CollapsingHeader("頂点"))
     drawMultiSelectList(
         session, SelectionKind::vertex, model.vertices.size(),
         [](std::size_t i) { return "頂点 " + std::to_string(i); }, filter,
         260.0F);
-  if (ImGui::CollapsingHeader("テクスチャ"))
+  if (showModel && ImGui::CollapsingHeader("テクスチャ"))
     drawMultiSelectList(
         session, SelectionKind::texture, model.textures.size(),
         [&](std::size_t i) {
           return indexedName(model.textures[i].storedPath, i);
         },
         filter);
-  if (ImGui::CollapsingHeader("剛体"))
+  if (showPhysics &&
+      ImGui::CollapsingHeader("剛体", ImGuiTreeNodeFlags_DefaultOpen))
     drawMultiSelectList(
         session, SelectionKind::rigidBody, model.rigidBodies.size(),
         [&](std::size_t i) {
           return indexedName(model.rigidBodies[i].name, i);
         },
         filter);
-  if (ImGui::CollapsingHeader("ジョイント"))
+  if (showPhysics && ImGui::CollapsingHeader("ジョイント"))
     drawMultiSelectList(
         session, SelectionKind::joint, model.joints.size(),
         [&](std::size_t i) { return indexedName(model.joints[i].name, i); },
+        filter);
+  if (showPhysics && ImGui::CollapsingHeader("ソフトボディ"))
+    drawMultiSelectList(
+        session, SelectionKind::softBody, model.softBodies.size(),
+        [&](std::size_t i) {
+          return indexedName(model.softBodies[i].name, i);
+        },
         filter);
   ImGui::End();
 }
