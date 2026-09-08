@@ -80,10 +80,16 @@ int main() {
     pmxer::DocumentSession recovered(sampleModel());
     recovered.commands.markDirty();
     const auto recoveredHandle = recovered.document.vertexHandle(0);
+    const auto recoveredMaterial = recovered.document.materialHandle(0);
+    recovered.selection.set({pmxer::SelectionKind::material, recoveredMaterial.domain,
+                             recoveredMaterial.id, recoveredMaterial.generation});
     auto recoveredVertex = *recovered.document.resolve(recoveredHandle);
     recoveredVertex.position[0] = 4.0F;
     assert(pmxer::editVertex(recovered, recoveredHandle, recoveredVertex).success);
     assert(recovered.undo());
+    assert(recovered.selection.contains({pmxer::SelectionKind::material,
+                                         recoveredMaterial.domain, recoveredMaterial.id,
+                                         recoveredMaterial.generation}));
     assert(recovered.modified);
     assert(recovered.commands.isModified());
     assert(recovered.redo());

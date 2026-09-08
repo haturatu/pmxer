@@ -32,6 +32,13 @@ struct WorkspaceUiState {
     bool requestCloseDocument{};
     std::string status;
     std::array<char, 128> search{};
+    std::array<WorkspaceViewportProfile, 5> viewportProfiles{
+        defaultViewportProfile(EditorWorkspace::model),
+        defaultViewportProfile(EditorWorkspace::rig),
+        defaultViewportProfile(EditorWorkspace::morph),
+        defaultViewportProfile(EditorWorkspace::physics),
+        defaultViewportProfile(EditorWorkspace::inspect),
+    };
 
     void resetPanels() noexcept {
         showDocuments = showViewport = showOutliner = showInspector = true;

@@ -12,6 +12,7 @@ class GpuModelRenderer;
 void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *frame = nullptr,
                        GpuModelRenderer *renderer = nullptr,
                        bool *showDiagnostics = nullptr, bool *open = nullptr,
-                       EditorWorkspace activeWorkspace = EditorWorkspace::inspect);
+                       EditorWorkspace &activeWorkspace,
+                       WorkspaceViewportProfile *profile);
 
 } // namespace pmxer

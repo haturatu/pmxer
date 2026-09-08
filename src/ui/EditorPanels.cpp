@@ -7,6 +7,7 @@
 #include "../editor/DiffController.hpp"
 #include "../editor/EditorDiagnostics.hpp"
 #include "../editor/EditorOperations.hpp"
+#include "../editor/EditorSelectionController.hpp"
 #include "../editor/ReferenceInspector.hpp"
 #include "../editor/RecoveryController.hpp"
 #include "../editor/SaveController.hpp"
@@ -285,7 +286,10 @@ bool chooseIndex(const char *label, std::size_t count, std::int32_t &index) {
     return old != index;
 }
 
-std::optional<SelectionKind> toSelectionKind(mmd::ReferenceObjectKind kind) {
+std::optional<SelectionKind> toSelectionKind(const mmd::ValidationIssue &issue) {
+    if (issue.location.field == "storedPath")
+        return SelectionKind::texture;
+    const auto kind = issue.location.kind;
     switch (kind) {
     case mmd::ReferenceObjectKind::vertex:
         return SelectionKind::vertex;
@@ -662,7 +666,8 @@ void drawMaterialPanel(DocumentSession &session, bool *open) {
     ImGui::End();
 }
 
-void drawTexturePanel(DocumentSession &session, bool *open) {
+void drawTexturePanel(DocumentSession &session, EditorWorkspace &workspace,
+                      bool *open) {
     const auto &model = session.document.model();
     if (!ImGui::Begin("テクスチャ", open)) {
         ImGui::End();
@@ -670,7 +675,10 @@ void drawTexturePanel(DocumentSession &session, bool *open) {
     }
     if (selectIndex("番号", model.textures.size(), session.ui.textureIndex)) {
         const auto handle = session.document.textureHandle(session.ui.textureIndex);
-        session.selection.set({SelectionKind::texture, handle.domain, handle.id, handle.generation});
+        selectPrimary(session, workspace,
+                      {SelectionKind::texture, handle.domain, handle.id,
+                       handle.generation},
+                      SelectionOrigin::outliner);
     }
     if (!model.textures.empty()) {
         const auto texture = session.document.textureHandle(session.ui.textureIndex);
@@ -1164,23 +1172,25 @@ void drawPhysicsPanel(DocumentSession &session, bool *open) {
 }
 
 void drawDiagnosticsPanel(DocumentSession &session, GpuModelRenderer *renderer,
-                          bool *open) {
+                          EditorWorkspace &workspace, bool *open) {
     if (ImGui::Begin("診断", open)) {
         if (session.derived.diagnosticsRevision != session.revision) {
-            session.derived.diagnostics = validateForEditing(session.document.model());
+            session.derived.diagnostics = validateForEditing(session.document);
             session.derived.diagnosticsRevision = session.revision;
         }
         for (std::size_t index = 0; index < session.derived.diagnostics.issues.size(); ++index) {
         const auto &issue = session.derived.diagnostics.issues[index];
         const auto level = validationSeverityName(issue.severity);
         ImGui::TextWrapped("[%s] %s: %s", level.c_str(), issue.object.c_str(), issue.message.c_str());
-        const auto selectable = toSelectionKind(issue.location.kind);
+        const auto selectable = toSelectionKind(issue);
         if (selectable && issue.location.id != 0) {
             ImGui::SameLine();
             const auto button = "選択##診断" + std::to_string(index);
             if (ImGui::SmallButton(button.c_str()))
-                session.selection.set(
-                    {*selectable, session.document.domain(), issue.location.id, issue.location.generation});
+                selectPrimary(session, workspace,
+                              {*selectable, session.document.domain(),
+                               issue.location.id, issue.location.generation},
+                              SelectionOrigin::diagnostics);
         }
         }
         if (session.derived.diagnostics.issues.empty())
@@ -1239,6 +1249,8 @@ void activateWorkspace(DocumentSession &session, WorkspaceUiState &workspace,
                        EditorWorkspace value) {
     workspace.active = value;
     applyWorkspacePolicy(session, workspacePolicy(value));
+    applyViewportProfile(session,
+                         workspace.viewportProfiles[workspaceIndex(value)]);
     if (value == EditorWorkspace::inspect)
         workspace.showDiagnostics = true;
 }
@@ -1385,7 +1397,8 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
     if (workspace.showViewport)
         drawViewportPanel(session, preview.frame ? &*preview.frame : nullptr, renderer,
                           &workspace.showDiagnostics, &workspace.showViewport,
-                          workspace.active);
+                          workspace.active,
+                          &workspace.viewportProfiles[workspaceIndex(workspace.active)]);
     else
         session.ui.viewportVisible = false;
     if (workspace.showOutliner)
@@ -1399,7 +1412,7 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
     if (workspace.showMaterial)
         drawMaterialPanel(session, &workspace.showMaterial);
     if (workspace.showTexture)
-        drawTexturePanel(session, &workspace.showTexture);
+        drawTexturePanel(session, workspace, &workspace.showTexture);
     if (workspace.showBone)
         drawBonePanel(session, &workspace.showBone);
     if (workspace.showMorph)
@@ -1409,7 +1422,8 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
     if (workspace.showPhysics)
         drawPhysicsPanel(session, &workspace.showPhysics);
     if (workspace.showDiagnostics)
-        drawDiagnosticsPanel(session, renderer, &workspace.showDiagnostics);
+        drawDiagnosticsPanel(session, renderer, workspace,
+                             &workspace.showDiagnostics);
     if (workspace.showReferences)
         drawReferencePanel(session, &workspace.showReferences);
     if (workspace.showDiff)

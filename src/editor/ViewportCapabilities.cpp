@@ -48,4 +48,24 @@ TransformCapabilities transformCapabilities(const DocumentSession &session) noex
     return result;
 }
 
+ActionAvailability actionAvailability(EditorAction action,
+                                      const DocumentSession &session) noexcept {
+    const auto capabilities = transformCapabilities(session);
+    switch (action) {
+    case EditorAction::viewportMove:
+        return {capabilities.move, capabilities.move ? SupportLevel::supported
+                                                       : SupportLevel::unsupported,
+                "選択対象は移動編集に対応していません"};
+    case EditorAction::viewportRotate:
+        return {capabilities.rotate, capabilities.rotate ? SupportLevel::supported
+                                                          : SupportLevel::unsupported,
+                "選択対象は回転編集に対応していません"};
+    case EditorAction::viewportScale:
+        return {capabilities.scale, capabilities.scale ? SupportLevel::supported
+                                                        : SupportLevel::unsupported,
+                "選択対象は拡縮編集に対応していません"};
+    }
+    return {};
+}
+
 } // namespace pmxer

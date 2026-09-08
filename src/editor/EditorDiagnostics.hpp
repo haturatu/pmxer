@@ -4,7 +4,6 @@
 
 namespace pmxer {
 
-[[nodiscard]] mmd::ValidationResult validateForEditing(const mmd::PmxModel &model);
+[[nodiscard]] mmd::ValidationResult validateForEditing(const mmd::PmxDocument &document);
 
 } // namespace pmxer
-

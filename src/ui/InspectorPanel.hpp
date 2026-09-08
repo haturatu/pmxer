@@ -8,7 +8,7 @@ class DocumentSession;
 class GpuModelRenderer;
 
 void drawInspectorPanel(DocumentSession &session, GpuModelRenderer *renderer,
-                        EditorWorkspace workspace, bool *open);
+                        EditorWorkspace &workspace, bool *open);
 void drawStatusBar(DocumentSession &session, bool &showDiagnostics,
                    bool &showReferences, bool &showDiff);
 

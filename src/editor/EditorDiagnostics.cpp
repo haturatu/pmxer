@@ -16,6 +16,13 @@ void warning(mmd::ValidationResult &result, std::string object, std::string mess
                              std::move(message), {}});
 }
 
+void warningAt(mmd::ValidationResult &result, std::string object,
+               std::string message, mmd::ValidationLocation location) {
+    result.issues.push_back({mmd::ValidationSeverity::warning,
+                             mmd::ValidationCode::generic, std::move(object),
+                             std::move(message), std::move(location)});
+}
+
 template <typename Value>
 void checkNames(mmd::ValidationResult &result, const std::vector<Value> &values, const char *label) {
     std::set<std::string> names;
@@ -29,7 +36,8 @@ void checkNames(mmd::ValidationResult &result, const std::vector<Value> &values,
 
 } // namespace
 
-mmd::ValidationResult validateForEditing(const mmd::PmxModel &model) {
+mmd::ValidationResult validateForEditing(const mmd::PmxDocument &document) {
+    const auto &model = document.model();
     auto result = mmd::pmx::validate(model);
     checkNames(result, model.materials, "material");
     checkNames(result, model.bones, "bone");
@@ -64,15 +72,22 @@ mmd::ValidationResult validateForEditing(const mmd::PmxModel &model) {
     for (std::size_t i = 0; i < model.textures.size(); ++i) {
         const auto &texture = model.textures[i];
         const auto path = std::filesystem::path(texture.storedPath);
+        const auto handle = document.textureHandle(i);
+        const mmd::ValidationLocation location{
+            mmd::ReferenceObjectKind::material, handle.id, handle.generation,
+            "storedPath", 0};
         if (path.is_absolute())
-            warning(result, "texture", "絶対パスが保存されています");
+            warningAt(result, "texture", "絶対パスが保存されています", location);
         if (!texture.storedPath.empty() && !std::filesystem::exists(mmd::pmx::resolveTexturePath(model, i)))
-            warning(result, "texture", "テクスチャが見つかりません");
+            warningAt(result, "texture",
+                      "テクスチャが見つかりません: " +
+                          mmd::pmx::resolveTexturePath(model, i).string(),
+                      location);
         auto folded = texture.storedPath;
         std::transform(folded.begin(), folded.end(), folded.begin(),
                        [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
         if (!folded.empty() && !lowerTextureNames.insert(std::move(folded)).second)
-            warning(result, "texture", "大文字小文字だけが異なるテクスチャパスがあります");
+            warningAt(result, "texture", "大文字小文字だけが異なるテクスチャパスがあります", location);
     }
     for (const auto &morph : model.morphs)
         if (morph.offsets.empty())

@@ -47,19 +47,45 @@ bool WorkspacePolicy::allows(ViewportSelectionMode mode) const noexcept {
 }
 
 WorkspacePolicy workspacePolicy(EditorWorkspace workspace) noexcept {
+    const auto profile = defaultViewportProfile(workspace);
     switch (workspace) {
     case EditorWorkspace::model:
-        return {workspace, ViewportSelectionMode::material, false, false};
+        return {workspace, ViewportSelectionMode::material, false, false, profile};
     case EditorWorkspace::rig:
-        return {workspace, ViewportSelectionMode::bone, true, false};
+        return {workspace, ViewportSelectionMode::bone, true, false, profile};
     case EditorWorkspace::morph:
-        return {workspace, ViewportSelectionMode::material, false, false};
+        return {workspace, ViewportSelectionMode::material, false, false, profile};
     case EditorWorkspace::physics:
-        return {workspace, ViewportSelectionMode::rigidBody, false, true};
+        return {workspace, ViewportSelectionMode::rigidBody, false, true, profile};
     case EditorWorkspace::inspect:
-        return {workspace, std::nullopt, true, true};
+        return {workspace, std::nullopt, false, false, profile};
     }
-    return {EditorWorkspace::model, ViewportSelectionMode::material, false, false};
+    return {EditorWorkspace::model, ViewportSelectionMode::material, false, false,
+            defaultViewportProfile(EditorWorkspace::model)};
+}
+
+WorkspaceViewportProfile defaultViewportProfile(EditorWorkspace workspace) noexcept {
+    switch (workspace) {
+    case EditorWorkspace::rig:
+        return {true, false, 0.8F, 0.75F};
+    case EditorWorkspace::physics:
+        return {false, true, 0.8F, 0.75F};
+    case EditorWorkspace::model:
+    case EditorWorkspace::morph:
+    case EditorWorkspace::inspect:
+        return {false, false, 0.8F, 0.75F};
+    }
+    return {};
+}
+
+std::size_t workspaceIndex(EditorWorkspace workspace) noexcept {
+    return static_cast<std::size_t>(workspace);
+}
+
+void applyViewportProfile(DocumentSession &session,
+                          const WorkspaceViewportProfile &profile) {
+    session.ui.showBones = profile.showBones;
+    session.ui.showPhysics = profile.showPhysics;
 }
 
 void applyWorkspacePolicy(DocumentSession &session, const WorkspacePolicy &policy) {
@@ -70,13 +96,13 @@ void applyWorkspacePolicy(DocumentSession &session, const WorkspacePolicy &polic
             retained.push_back(item);
     session.selection.set(std::move(retained));
     session.ui.clearDrafts();
+    session.ui.morphOffsetTarget = {};
     session.ui.viewportHover.reset();
     session.ui.viewportHoverFace.reset();
     session.ui.viewportHoverRevision = std::numeric_limits<std::uint64_t>::max();
     session.ui.viewportHoverFrameRevision = std::numeric_limits<std::uint64_t>::max();
     session.ui.viewportTool = ViewportTool::select;
-    session.ui.showBones = policy.showBones;
-    session.ui.showPhysics = policy.showPhysics;
+    applyViewportProfile(session, policy.viewportProfile);
     if (!policy.allows(session.ui.selectionMode) && policy.defaultViewportMode)
         session.ui.selectionMode = *policy.defaultViewportMode;
 }

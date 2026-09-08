@@ -30,6 +30,13 @@ inline std::string makeRecoveryId() {
 
 class PreviewController;
 
+struct MorphOffsetTargetState {
+    bool picking{};
+    std::size_t offsetIndex{};
+    SelectionKind expectedKind{SelectionKind::vertex};
+    std::optional<SelectionItem> target;
+};
+
 struct EditorUiState {
     std::size_t vertexIndex{};
     std::size_t materialIndex{};
@@ -98,6 +105,7 @@ struct EditorUiState {
     SelectionItem gizmoSelection{};
     std::array<float, 16> gizmoMatrix{};
     std::optional<SelectionItem> viewportHover;
+    MorphOffsetTargetState morphOffsetTarget;
     std::optional<std::size_t> viewportHoverFace;
     mmd::Float3 viewportHoverPosition{};
     float viewportHoverMouseX{};
@@ -182,8 +190,14 @@ struct DocumentSession {
         if (!commands.undo(document))
             return false;
         modified = commands.isModified();
-        selection.clear();
+        selection.retainAlive(document);
         ui.clearDrafts();
+        ui.morphOffsetTarget = {};
+        ui.gizmoDragging = false;
+        ui.gizmoSelection = {};
+        ui.viewportHover.reset();
+        ui.viewportHoverFace.reset();
+        ui.viewportPickCache.clear();
         changes.topologyChanged = true;
         changes.physicsChanged = true;
         changes.texturesChanged = true;
@@ -196,8 +210,14 @@ struct DocumentSession {
         if (!commands.redo(document))
             return false;
         modified = commands.isModified();
-        selection.clear();
+        selection.retainAlive(document);
         ui.clearDrafts();
+        ui.morphOffsetTarget = {};
+        ui.gizmoDragging = false;
+        ui.gizmoSelection = {};
+        ui.viewportHover.reset();
+        ui.viewportHoverFace.reset();
+        ui.viewportPickCache.clear();
         changes.topologyChanged = true;
         changes.physicsChanged = true;
         changes.texturesChanged = true;
