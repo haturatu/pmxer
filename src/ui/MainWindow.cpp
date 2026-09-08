@@ -591,8 +591,9 @@ int runApplication(const EditCommand &options) {
                     const auto scale = ImGui::GetDrawData()->FramebufferScale.x;
                     if (!sessions.empty() && activeSession < sessions.size()) {
                         auto &session = *sessions[activeSession];
-                        gpuModelRenderer->render(commands, modelPass, session.document.model(), session.ui.previewFrame,
-                                                 session.ui, scale, width, height);
+                        gpuModelRenderer->render(commands, modelPass, session,
+                                                 session.ui.previewFrame, scale,
+                                                 width, height);
                     }
                     SDL_EndGPURenderPass(modelPass);
                 }

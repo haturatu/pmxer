@@ -66,6 +66,8 @@ float4 mainPS(VertexOutput input) : SV_Target0 {
         else
             color *= sphereColor.rgb * sphereMultiply.rgb + sphereAdd.rgb;
     }
+    color = lerp(color, float3(1.0, 0.62, 0.08),
+                 saturate(materialModes.w));
     float3 lighting = light.xxx;
     const float2 toonUv = float2(0.5, 1.0 - lightValue);
     const float4 toonColor = toonTexture.Sample(toonSampler, toonUv);

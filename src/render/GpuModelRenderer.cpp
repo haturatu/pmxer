@@ -81,6 +81,11 @@ std::array<std::uint8_t, 64U * 4U> makeSharedToonFallback(std::size_t index) {
     return result;
 }
 
+bool containsItem(const std::vector<SelectionItem> &items,
+                  const SelectionItem &item) {
+    return std::find(items.begin(), items.end(), item) != items.end();
+}
+
 bool uploadBuffer(SDL_GPUDevice *device, SDL_GPUCommandBuffer *commands, SDL_GPUBuffer *buffer,
                   const void *data, std::size_t size, std::vector<SDL_GPUTransferBuffer *> &transfers) {
     if (size == 0)
@@ -497,9 +502,12 @@ bool GpuModelRenderer::prepare(SDL_GPUCommandBuffer *commands, const mmd::PmxMod
 }
 
 void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass *pass,
-                              const mmd::PmxModel &model, const mmd::AnimatedModelFrame *frame,
-                              const EditorUiState &ui, float framebufferScale, std::uint32_t framebufferWidth,
+                              const DocumentSession &session,
+                              const mmd::AnimatedModelFrame *frame,
+                              float framebufferScale, std::uint32_t framebufferWidth,
                               std::uint32_t framebufferHeight) {
+    const auto &model = session.document.model();
+    const auto &ui = session.ui;
     if (!available() || commands == nullptr || pass == nullptr || impl_->vertexBuffer == nullptr ||
         impl_->indexBuffer == nullptr || impl_->indexCount == 0 || !ui.viewportVisible)
         return;
@@ -528,6 +536,16 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
         const auto count = std::min(available, static_cast<std::size_t>(material.indexCount));
         if (count == 0)
             continue;
+        const auto handle = session.document.materialHandle(materialIndex);
+        const SelectionItem item{SelectionKind::material, handle.domain,
+                                 handle.id, handle.generation};
+        const auto hidden = containsItem(ui.hiddenMaterials, item);
+        const auto isolated = !ui.isolatedMaterials.empty() &&
+                              !containsItem(ui.isolatedMaterials, item);
+        if (hidden || isolated) {
+            indexBegin += count;
+            continue;
+        }
         const auto *animated = frame != nullptr && materialIndex < frame->materials.size()
                                    ? &frame->materials[materialIndex]
                                    : nullptr;
@@ -549,8 +567,12 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
             uniforms.toonAdd = {animated->toonAdd[0], animated->toonAdd[1], animated->toonAdd[2],
                                 animated->toonAdd[3]};
         }
-        uniforms.materialModes = {static_cast<float>(material.sphereMode), static_cast<float>(material.toonMode),
-                                  0.0F, 0.0F};
+        const auto hovered = ui.viewportHover && *ui.viewportHover == item;
+        const auto selected = session.selection.contains(item);
+        uniforms.materialModes = {
+            static_cast<float>(material.sphereMode),
+            static_cast<float>(material.toonMode), 0.0F,
+            selected ? 0.32F : (hovered ? 0.18F : 0.0F)};
         const auto textureFor = [&](std::int32_t index) -> SDL_GPUTexture * {
             return index >= 0 && static_cast<std::size_t>(index) < impl_->textures.size() &&
                            impl_->textures[static_cast<std::size_t>(index)] != nullptr
@@ -606,7 +628,6 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
         SDL_DrawGPUIndexedPrimitives(pass, static_cast<Uint32>(impl_->indexCount - indexBegin), 1,
                                      static_cast<Uint32>(indexBegin), 0, 0);
     }
-    (void)model;
 }
 
 } // namespace pmxer

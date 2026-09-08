@@ -92,6 +92,8 @@ struct EditorUiState {
     std::uint64_t viewportHoverRevision{std::numeric_limits<std::uint64_t>::max()};
     std::uint64_t viewportHoverFrameRevision{std::numeric_limits<std::uint64_t>::max()};
     std::chrono::steady_clock::time_point viewportHoverUpdated{};
+    std::vector<SelectionItem> hiddenMaterials;
+    std::vector<SelectionItem> isolatedMaterials;
     const mmd::AnimatedModelFrame *previewFrame{};
 
     void clearDrafts() {

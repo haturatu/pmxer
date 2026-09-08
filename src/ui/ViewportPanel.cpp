@@ -81,6 +81,20 @@ bool isSelected(const DocumentSession &session, SelectionKind kind,
         {kind, handle.domain, handle.id, handle.generation});
 }
 
+std::vector<SelectionItem> selectedMaterials(const DocumentSession &session) {
+    std::vector<SelectionItem> result;
+    for (const auto &item : session.selection.items())
+        if (item.kind == SelectionKind::material)
+            result.push_back(item);
+    return result;
+}
+
+void appendUnique(std::vector<SelectionItem> &items,
+                  const SelectionItem &item) {
+    if (std::find(items.begin(), items.end(), item) == items.end())
+        items.push_back(item);
+}
+
 void hoverTooltip(const DocumentSession &session, const SelectionItem &item) {
     ImGui::BeginTooltip();
     if (item.kind == SelectionKind::material) {
@@ -278,6 +292,25 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             session.ui.viewportTool = ViewportTool::select;
         if (ImGui::IsKeyPressed(ImGuiKey_Z) && ImGui::GetIO().KeyAlt)
             session.ui.xray = !session.ui.xray;
+        if (ImGui::IsKeyPressed(ImGuiKey_H)) {
+            if (ImGui::GetIO().KeyAlt) {
+                session.ui.hiddenMaterials.clear();
+                session.ui.isolatedMaterials.clear();
+            } else {
+                const auto materials = selectedMaterials(session);
+                if (ImGui::GetIO().KeyShift) {
+                    session.ui.hiddenMaterials.clear();
+                    session.ui.isolatedMaterials = materials;
+                } else {
+                    for (const auto &item : materials)
+                        appendUnique(session.ui.hiddenMaterials, item);
+                }
+            }
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Slash)) {
+            session.ui.hiddenMaterials.clear();
+            session.ui.isolatedMaterials = selectedMaterials(session);
+        }
     }
 
     if (session.ui.showBones) {
@@ -392,6 +425,18 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     const CameraState camera{session.ui.cameraTarget, session.ui.cameraYaw, session.ui.cameraPitch,
                              session.ui.cameraDistance, session.ui.orthographic};
     const auto mouse = ImGui::GetIO().MousePos;
+    if (hovered && ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+        const auto picked = pickViewport(session, vertices, camera, origin,
+                                         available, mouse);
+        if (picked) {
+            if (!session.selection.contains(picked->item))
+                selectViewportItem(session, picked->item, picked->index);
+            session.ui.viewportHover = picked->item;
+            session.ui.viewportHoverFace = picked->face;
+            session.ui.viewportHoverPosition = picked->position;
+            ImGui::OpenPopup("viewport-context");
+        }
+    }
     if (clicked) {
         const auto picked = pickViewport(session, vertices, camera, origin,
                                          available, mouse);
@@ -459,6 +504,51 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                             7.0F, IM_COL32(255, 255, 255, 245), 0, 2.0F);
         }
         hoverTooltip(session, *session.ui.viewportHover);
+    }
+    if (ImGui::BeginPopup("viewport-context")) {
+        if (ImGui::MenuItem("選択対象へフォーカス")) {
+            if (const auto position = selectedPosition(session))
+                session.ui.cameraTarget = *position;
+            else
+                session.ui.cameraTarget = session.ui.viewportHoverPosition;
+        }
+        const auto materials = selectedMaterials(session);
+        if (!materials.empty()) {
+            ImGui::Separator();
+            if (ImGui::MenuItem("選択材質を隠す")) {
+                for (const auto &item : materials)
+                    appendUnique(session.ui.hiddenMaterials, item);
+                session.ui.status = "選択材質を非表示にしました";
+            }
+            if (ImGui::MenuItem("選択材質だけ表示")) {
+                session.ui.hiddenMaterials.clear();
+                session.ui.isolatedMaterials = materials;
+                session.ui.status = "選択材質を分離表示しました";
+            }
+            const auto *material = session.document.resolve(
+                selectionHandle<mmd::MaterialTag>(session.document,
+                                                   materials.front()));
+            if (material != nullptr && material->textureIndex >= 0 &&
+                static_cast<std::size_t>(material->textureIndex) <
+                    model.textures.size() &&
+                ImGui::MenuItem("テクスチャへ移動")) {
+                const auto index =
+                    static_cast<std::size_t>(material->textureIndex);
+                const auto texture = session.document.textureHandle(index);
+                session.selection.set({SelectionKind::texture, texture.domain,
+                                       texture.id, texture.generation});
+                session.ui.textureIndex = index;
+                session.ui.clearDrafts();
+            }
+        }
+        if ((!session.ui.hiddenMaterials.empty() ||
+             !session.ui.isolatedMaterials.empty()) &&
+            ImGui::MenuItem("すべて表示")) {
+            session.ui.hiddenMaterials.clear();
+            session.ui.isolatedMaterials.clear();
+            session.ui.status = "すべての材質を表示しました";
+        }
+        ImGui::EndPopup();
     }
     drawViewportGizmo(session, makeCameraMatrices(camera, available.x / available.y), origin, available);
     ImGui::End();
