@@ -2,15 +2,19 @@
 #include "../../src/editor/EditorOperations.hpp"
 #include "../../src/editor/RecoveryController.hpp"
 #include "../../src/editor/SaveController.hpp"
+#include "../../src/editor/ViewportCapabilities.hpp"
+#include "../../src/editor/WorkspacePolicy.hpp"
 #include "../../src/render/Camera.hpp"
 #include "../../src/render/Picking.hpp"
 #include "../../src/preview/PreviewController.hpp"
+#include "../../src/ui/WorkspaceLayout.hpp"
 
 #include <mmd/pmx.hpp>
 
 #include <cassert>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <utility>
 
 namespace {
@@ -90,6 +94,60 @@ int main() {
     assert(!recovered.modified);
 
     pmxer::DocumentSession session(sampleModel());
+    const auto modelPolicy = pmxer::workspacePolicy(pmxer::EditorWorkspace::model);
+    assert(modelPolicy.allows(pmxer::SelectionKind::material));
+    assert(!modelPolicy.allows(pmxer::SelectionKind::bone));
+    assert(pmxer::workspacePolicy(pmxer::EditorWorkspace::physics)
+               .allows(pmxer::SelectionKind::softBody));
+    assert(pmxer::workspacePolicy(pmxer::EditorWorkspace::inspect)
+               .allows(pmxer::SelectionKind::bone));
+    const auto boneForPolicy = session.document.boneHandle(0);
+    const auto materialForPolicy = session.document.materialHandle(0);
+    session.selection.set(std::vector<pmxer::SelectionItem>{
+        {pmxer::SelectionKind::bone, boneForPolicy.domain, boneForPolicy.id, boneForPolicy.generation},
+        {pmxer::SelectionKind::material, materialForPolicy.domain, materialForPolicy.id,
+         materialForPolicy.generation}});
+    pmxer::applyWorkspacePolicy(session, pmxer::workspacePolicy(pmxer::EditorWorkspace::rig));
+    assert(session.selection.items().size() == 1U);
+    assert(session.selection.items().front().kind == pmxer::SelectionKind::bone);
+    assert(session.ui.showBones);
+    assert(!session.ui.showPhysics);
+    const auto capabilities = pmxer::transformCapabilities(session);
+    assert(capabilities.move);
+    assert(!capabilities.rotate);
+    assert(!capabilities.scale);
+    pmxer::applyWorkspacePolicy(session, pmxer::workspacePolicy(pmxer::EditorWorkspace::physics));
+    assert(session.selection.items().empty());
+    assert(!session.ui.showBones);
+    assert(session.ui.showPhysics);
+
+    const auto layoutPath = std::filesystem::temp_directory_path() / "pmxer-workspace-layout-test.ini";
+    assert(pmxer::saveWorkspaceLayout(layoutPath, "[Window][pmxer]\nPos=0,0\n"));
+    pmxer::WorkspaceLayout layout;
+    assert(pmxer::loadWorkspaceLayout(layoutPath, layout) ==
+           pmxer::WorkspaceLayoutLoadResult::loaded);
+    assert(layout.version == pmxer::kWorkspaceLayoutVersion);
+    assert(layout.imguiIni.find("[Window]") != std::string::npos);
+    {
+        std::ofstream legacy(layoutPath, std::ios::trunc);
+        legacy << "[Window][legacy]\nPos=0,0\n";
+    }
+    assert(pmxer::loadWorkspaceLayout(layoutPath, layout) ==
+           pmxer::WorkspaceLayoutLoadResult::legacy);
+    {
+        std::ofstream unsupported(layoutPath, std::ios::trunc);
+        unsupported << "PMXER_WORKSPACE_LAYOUT 1\n[Window][old]\n";
+    }
+    assert(pmxer::loadWorkspaceLayout(layoutPath, layout) ==
+           pmxer::WorkspaceLayoutLoadResult::unsupportedVersion);
+    {
+        std::ofstream corrupt(layoutPath, std::ios::trunc);
+        corrupt << "PMXER_WORKSPACE_LAYOUT nope\n[Window][broken]\n";
+    }
+    assert(pmxer::loadWorkspaceLayout(layoutPath, layout) ==
+           pmxer::WorkspaceLayoutLoadResult::corrupt);
+    std::filesystem::remove(layoutPath);
+
     assert(session.document.validate().valid());
     const auto handle = session.document.vertexHandle(0);
     assert(!session.document.referencesTo(session.document.boneHandle(0)).empty());
