@@ -131,9 +131,19 @@ std::optional<Bounds> selectionBounds(const DocumentSession &session) {
         return std::nullopt;
     const auto &model = session.document.model();
     Bounds bounds;
-    const auto includeMorph = [&](const mmd::PmxMorph &morph) {
+    std::vector<bool> morphStack(model.morphs.size());
+    const auto includeMorph = [&](auto &&self, std::size_t morphIndex) -> void {
+        if (morphIndex >= model.morphs.size() || morphStack[morphIndex])
+            return;
+        morphStack[morphIndex] = true;
+        const auto &morph = model.morphs[morphIndex];
         for (const auto &offset : morph.offsets) {
             switch (morph.type) {
+            case 0:
+            case 9:
+                if (offset.index >= 0)
+                    self(self, static_cast<std::size_t>(offset.index));
+                break;
             case 1:
             case 3:
             case 4:
@@ -147,8 +157,12 @@ std::optional<Bounds> selectionBounds(const DocumentSession &session) {
                     includePoint(bounds, model.bones[static_cast<std::size_t>(offset.index)].position);
                 break;
             case 8:
-                if (offset.index >= 0)
+                if (offset.index < 0) {
+                    for (std::size_t material = 0; material < model.materials.size(); ++material)
+                        includeMaterialFaces(bounds, model, material);
+                } else {
                     includeMaterialFaces(bounds, model, static_cast<std::size_t>(offset.index));
+                }
                 break;
             case 10:
                 if (offset.index >= 0 && static_cast<std::size_t>(offset.index) < model.rigidBodies.size()) {
@@ -164,6 +178,7 @@ std::optional<Bounds> selectionBounds(const DocumentSession &session) {
                 break;
             }
         }
+        morphStack[morphIndex] = false;
     };
     for (const auto &selected : session.selection.items()) {
         switch (selected.kind) {
@@ -218,9 +233,13 @@ std::optional<Bounds> selectionBounds(const DocumentSession &session) {
             }
             break;
         case SelectionKind::morph: {
-            const auto *value = session.document.resolve(selectionHandle<mmd::MorphTag>(session.document, selected));
-            if (value != nullptr)
-                includeMorph(*value);
+            const auto handle = selectionHandle<mmd::MorphTag>(session.document, selected);
+            for (std::size_t index = 0; index < model.morphs.size(); ++index) {
+                if (session.document.morphHandle(index) == handle) {
+                    includeMorph(includeMorph, index);
+                    break;
+                }
+            }
             break;
         }
         case SelectionKind::displayFrame:
@@ -288,45 +307,6 @@ void appendUnique(std::vector<SelectionItem> &items,
                   const SelectionItem &item) {
     if (std::find(items.begin(), items.end(), item) == items.end())
         items.push_back(item);
-}
-
-std::vector<SelectionItem> allItemsForMode(const DocumentSession &session) {
-    std::vector<SelectionItem> result;
-    const auto append = [&](SelectionKind kind, std::size_t count, const auto &handleAt) {
-        result.reserve(count);
-        for (std::size_t index = 0; index < count; ++index) {
-            const auto handle = handleAt(index);
-            result.push_back({kind, handle.domain, handle.id, handle.generation});
-        }
-    };
-    const auto &model = session.document.model();
-    switch (session.ui.selectionMode) {
-    case ViewportSelectionMode::vertex:
-        append(SelectionKind::vertex, model.vertices.size(),
-               [&](std::size_t index) { return session.document.vertexHandle(index); });
-        break;
-    case ViewportSelectionMode::face:
-        append(SelectionKind::face, model.indices.size() / 3U,
-               [&](std::size_t index) { return session.document.faceHandle(index); });
-        break;
-    case ViewportSelectionMode::material:
-        append(SelectionKind::material, model.materials.size(),
-               [&](std::size_t index) { return session.document.materialHandle(index); });
-        break;
-    case ViewportSelectionMode::bone:
-        append(SelectionKind::bone, model.bones.size(),
-               [&](std::size_t index) { return session.document.boneHandle(index); });
-        break;
-    case ViewportSelectionMode::rigidBody:
-        append(SelectionKind::rigidBody, model.rigidBodies.size(),
-               [&](std::size_t index) { return session.document.rigidBodyHandle(index); });
-        break;
-    case ViewportSelectionMode::joint:
-        append(SelectionKind::joint, model.joints.size(),
-               [&](std::size_t index) { return session.document.jointHandle(index); });
-        break;
-    }
-    return result;
 }
 
 void hoverTooltip(const DocumentSession &session, const SelectionItem &item) {
@@ -411,6 +391,12 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     }
     if (profile != nullptr)
         applyViewportProfile(session, *profile);
+    if (session.ui.morphOffsetTarget.picking) {
+        if (session.ui.morphOffsetTarget.expectedKind == SelectionKind::bone)
+            session.ui.showBones = true;
+        if (session.ui.morphOffsetTarget.expectedKind == SelectionKind::rigidBody)
+            session.ui.showPhysics = true;
+    }
     const auto moveAvailability = actionAvailability(EditorAction::viewportMove, session);
     const auto rotateAvailability = actionAvailability(EditorAction::viewportRotate, session);
     const auto scaleAvailability = actionAvailability(EditorAction::viewportScale, session);
@@ -748,11 +734,15 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 session.ui.status = std::string(scaleAvailability.reason);
         }
         if (ImGui::IsKeyPressed(ImGuiKey_A)) {
-            if (ImGui::GetIO().KeyAlt)
+            if (activeWorkspace == EditorWorkspace::morph &&
+                session.ui.morphOffsetTarget.picking) {
+                session.ui.status = "モーフオフセット対象を選択中です";
+            } else if (ImGui::GetIO().KeyAlt)
                 session.selection.clear();
-            else
-                session.selection.set(allItemsForMode(session));
-            session.ui.clearDrafts();
+            else if (!selectAllForMode(session, activeWorkspace,
+                                       session.ui.selectionMode,
+                                       SelectionOrigin::viewport))
+                session.ui.status = "このワークスペースでは一括選択できません";
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Z) && ImGui::GetIO().KeyAlt)
             session.ui.xray = !session.ui.xray;

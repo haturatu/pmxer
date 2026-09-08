@@ -4,6 +4,7 @@
 
 #include <limits>
 #include <optional>
+#include <utility>
 
 namespace pmxer {
 namespace {
@@ -106,6 +107,58 @@ void toggleSelection(DocumentSession &session, EditorWorkspace &workspace,
         session.selection.add(item);
     if (origin != SelectionOrigin::morphOffsetTarget)
         session.ui.clearDrafts();
+}
+
+bool selectAllForMode(DocumentSession &session, EditorWorkspace &workspace,
+                      ViewportSelectionMode mode,
+                      SelectionOrigin /*origin*/) {
+    std::vector<SelectionItem> items;
+    const auto &model = session.document.model();
+    const auto append = [&](SelectionKind kind, std::size_t count,
+                            const auto &handleAt) {
+        items.reserve(items.size() + count);
+        for (std::size_t index = 0; index < count; ++index) {
+            const auto handle = handleAt(index);
+            items.push_back(
+                {kind, handle.domain, handle.id, handle.generation});
+        }
+    };
+    if (workspace == EditorWorkspace::morph) {
+        append(SelectionKind::morph, model.morphs.size(),
+               [&](std::size_t index) { return session.document.morphHandle(index); });
+    } else {
+        if (!workspacePolicy(workspace).allows(mode))
+            return false;
+        switch (mode) {
+        case ViewportSelectionMode::vertex:
+            append(SelectionKind::vertex, model.vertices.size(),
+                   [&](std::size_t index) { return session.document.vertexHandle(index); });
+            break;
+        case ViewportSelectionMode::face:
+            append(SelectionKind::face, model.indices.size() / 3U,
+                   [&](std::size_t index) { return session.document.faceHandle(index); });
+            break;
+        case ViewportSelectionMode::material:
+            append(SelectionKind::material, model.materials.size(),
+                   [&](std::size_t index) { return session.document.materialHandle(index); });
+            break;
+        case ViewportSelectionMode::bone:
+            append(SelectionKind::bone, model.bones.size(),
+                   [&](std::size_t index) { return session.document.boneHandle(index); });
+            break;
+        case ViewportSelectionMode::rigidBody:
+            append(SelectionKind::rigidBody, model.rigidBodies.size(),
+                   [&](std::size_t index) { return session.document.rigidBodyHandle(index); });
+            break;
+        case ViewportSelectionMode::joint:
+            append(SelectionKind::joint, model.joints.size(),
+                   [&](std::size_t index) { return session.document.jointHandle(index); });
+            break;
+        }
+    }
+    session.selection.set(std::move(items));
+    session.ui.clearDrafts();
+    return true;
 }
 
 bool selectMorphOffsetTarget(DocumentSession &session, SelectionItem item) {

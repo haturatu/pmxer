@@ -24,6 +24,10 @@ void addSelection(DocumentSession &session, EditorWorkspace &workspace,
                   SelectionItem item, SelectionOrigin origin);
 void toggleSelection(DocumentSession &session, EditorWorkspace &workspace,
                      SelectionItem item, SelectionOrigin origin);
+[[nodiscard]] bool selectAllForMode(DocumentSession &session,
+                                    EditorWorkspace &workspace,
+                                    ViewportSelectionMode mode,
+                                    SelectionOrigin origin);
 [[nodiscard]] bool selectMorphOffsetTarget(DocumentSession &session,
                                            SelectionItem item);
 
