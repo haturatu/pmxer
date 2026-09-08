@@ -16,6 +16,7 @@
 #include <memory>
 #include <utility>
 #include <string>
+#include <vector>
 
 namespace pmxer {
 
@@ -113,6 +114,11 @@ struct EditorUiState {
 };
 
 struct PreviewSession {
+    struct MorphValue {
+        SelectionItem selection;
+        float weight{};
+    };
+
     std::shared_ptr<PreviewController> controller;
     std::optional<mmd::VmdMotion> motion;
     std::optional<mmd::VpdPose> pose;
@@ -122,6 +128,7 @@ struct PreviewSession {
     double accumulator{};
     std::chrono::steady_clock::time_point lastTick{};
     bool clockInitialized{};
+    std::vector<MorphValue> morphValues;
 };
 
 struct DerivedEditorState {

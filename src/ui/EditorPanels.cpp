@@ -55,6 +55,15 @@ PreviewSession &updatePreview(DocumentSession &session) {
             state.controller->setMotion(&*state.motion);
         if (state.pose)
             state.controller->setPose(&*state.pose);
+        std::erase_if(state.morphValues, [&](const auto &preview) {
+            return session.document.resolve(
+                       selectionHandle<mmd::MorphTag>(session.document, preview.selection)) == nullptr;
+        });
+        for (const auto &preview : state.morphValues) {
+            const auto *morph = session.document.resolve(
+                selectionHandle<mmd::MorphTag>(session.document, preview.selection));
+            state.controller->setMorphPreview(morph->name, preview.weight);
+        }
         state.controller->setPhysicsEnabled(session.previewPhysics);
         state.controller->setIkEnabled(session.previewIk);
         replacePreviewFrame(state, state.controller->evaluate());

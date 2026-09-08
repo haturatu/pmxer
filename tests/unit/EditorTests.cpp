@@ -4,6 +4,7 @@
 #include "../../src/editor/SaveController.hpp"
 #include "../../src/render/Camera.hpp"
 #include "../../src/render/Picking.hpp"
+#include "../../src/preview/PreviewController.hpp"
 
 #include <mmd/pmx.hpp>
 
@@ -40,6 +41,22 @@ mmd::PmxModel sampleModel() {
 } // namespace
 
 int main() {
+    auto previewModel = sampleModel();
+    mmd::PmxMorph previewMorph;
+    previewMorph.name = "preview";
+    previewMorph.type = 1;
+    mmd::PmxMorphOffset previewOffset;
+    previewOffset.index = 0;
+    previewOffset.vector3 = {2.0F, 0.0F, 0.0F};
+    previewMorph.offsets.push_back(previewOffset);
+    previewModel.morphs.push_back(previewMorph);
+    pmxer::PreviewController previewController(previewModel);
+    assert(previewController.evaluate().vertices[0].position[0] == 0.0F);
+    previewController.setMorphPreview("preview", 0.5F);
+    assert(previewController.evaluate().vertices[0].position[0] == 1.0F);
+    previewController.clearMorphPreview("preview");
+    assert(previewController.evaluate().vertices[0].position[0] == 0.0F);
+
     const pmxer::CameraState perspective{{0.0F, 0.0F, 0.0F}, 0.0F, 0.0F, 10.0F, false};
     const auto perspectiveCenter =
         pmxer::projectWorldToScreen(perspective, {0.0F, 0.0F, 0.0F}, 0.0F, 0.0F, 800.0F, 600.0F);

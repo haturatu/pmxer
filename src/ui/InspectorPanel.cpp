@@ -3,6 +3,7 @@
 #include "../editor/DocumentSession.hpp"
 #include "../editor/EditorOperations.hpp"
 #include "../editor/ReferenceInspector.hpp"
+#include "../preview/PreviewController.hpp"
 #include "../render/GpuModelRenderer.hpp"
 
 #include <imgui.h>
@@ -455,6 +456,86 @@ void jointInspector(DocumentSession &session, const SelectionItem &selected) {
   }
 }
 
+void refreshPreviewFrame(DocumentSession &session) {
+  auto &preview = session.preview;
+  if (!preview.controller)
+    return;
+  preview.frame = preview.controller->evaluate();
+  ++preview.frameRevision;
+  session.ui.previewFrame = &*preview.frame;
+}
+
+void morphInspector(DocumentSession &session, const SelectionItem &selected) {
+  const auto handle = selectionHandle<mmd::MorphTag>(session.document, selected);
+  const auto *value = session.document.resolve(handle);
+  if (value == nullptr)
+    return;
+  if (!session.ui.morphDraft)
+    session.ui.morphDraft = *value;
+  auto &draft = *session.ui.morphDraft;
+  bool commit{};
+
+  ImGui::SeparatorText("名前");
+  (void)inputText("名前", draft.name);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  (void)inputText("英語名", draft.englishName);
+  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  static constexpr const char *panels[]{"予約", "まゆ", "目", "リップ", "その他"};
+  commit |= enumCombo("表示区分", draft.panel, panels, std::size(panels));
+  static constexpr const char *types[]{"グループ", "頂点", "ボーン", "UV", "追加UV1", "追加UV2",
+                                       "追加UV3", "追加UV4", "材質", "フリップ", "インパルス"};
+  if (draft.offsets.empty()) {
+    commit |= enumCombo("種類", draft.type, types, std::size(types));
+  } else {
+    const auto type = std::min<std::size_t>(draft.type, std::size(types) - 1U);
+    ImGui::Text("種類: %s", types[type]);
+    ImGui::TextDisabled("オフセットがあるモーフの種類は変更できません");
+  }
+  ImGui::Text("オフセット: %zu", draft.offsets.size());
+
+  ImGui::SeparatorText("プレビュー");
+  auto &values = session.preview.morphValues;
+  auto preview = std::find_if(values.begin(), values.end(),
+                              [&](const auto &item) { return item.selection == selected; });
+  float weight = preview == values.end() ? 0.0F : preview->weight;
+  if (ImGui::SliderFloat("ウェイト", &weight, 0.0F, 1.0F, "%.2f")) {
+    if (preview == values.end())
+      values.push_back({selected, weight});
+    else
+      preview->weight = weight;
+    if (session.preview.controller) {
+      session.preview.controller->setMorphPreview(value->name, weight);
+      refreshPreviewFrame(session);
+    }
+  }
+  if (ImGui::Button("このモーフをリセット")) {
+    preview = std::find_if(values.begin(), values.end(),
+                           [&](const auto &item) { return item.selection == selected; });
+    if (preview != values.end())
+      values.erase(preview);
+    if (session.preview.controller) {
+      session.preview.controller->clearMorphPreview(value->name);
+      refreshPreviewFrame(session);
+    }
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("すべてリセット")) {
+    values.clear();
+    if (session.preview.controller) {
+      session.preview.controller->clearMorphPreviews();
+      refreshPreviewFrame(session);
+    }
+  }
+  if (!values.empty())
+    ImGui::TextDisabled("%zu個のモーフを同時プレビュー中", values.size());
+
+  if (commit) {
+    const auto result = editMorph(session, handle, draft);
+    session.ui.status = result.success ? "モーフを更新しました" : result.message;
+    session.ui.morphDraft.reset();
+  }
+}
+
 void readOnlyInspector(DocumentSession &session,
                        const SelectionItem &selected,
                        GpuModelRenderer *renderer) {
@@ -495,13 +576,6 @@ void readOnlyInspector(DocumentSession &session,
                                  ? "✓ 読み込み可能"
                                  : "⚠ ファイルがありません");
     }
-  } else if (selected.kind == SelectionKind::morph) {
-    const auto *morph = session.document.resolve(
-        selectionHandle<mmd::MorphTag>(session.document, selected));
-    if (morph != nullptr) {
-      ImGui::Text("%s", morph->name.c_str());
-      ImGui::Text("オフセット: %zu", morph->offsets.size());
-    }
   }
 }
 
@@ -540,6 +614,9 @@ void drawInspectorPanel(DocumentSession &session, GpuModelRenderer *renderer,
     break;
   case SelectionKind::joint:
     jointInspector(session, selected);
+    break;
+  case SelectionKind::morph:
+    morphInspector(session, selected);
     break;
   default:
     readOnlyInspector(session, selected, renderer);
