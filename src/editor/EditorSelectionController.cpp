@@ -7,11 +7,11 @@ namespace {
 
 void ensureWorkspaceFor(DocumentSession &session, EditorWorkspace &workspace,
                         SelectionKind kind) {
-    if (workspace.active == EditorWorkspace::inspect ||
-        workspacePolicy(workspace.active).allows(kind))
+    if (workspace == EditorWorkspace::inspect ||
+        workspacePolicy(workspace).allows(kind))
         return;
-    workspace.active = preferredWorkspace(kind);
-    applyWorkspacePolicy(session, workspacePolicy(workspace.active));
+    workspace = preferredWorkspace(kind);
+    applyWorkspacePolicy(session, workspacePolicy(workspace));
 }
 
 } // namespace
