@@ -754,7 +754,8 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
     if (session.ui.morphOffsetTarget.target)
       ImGui::TextDisabled("対象ID: %llu", static_cast<unsigned long long>(session.ui.morphOffsetTarget.target->id));
   }
-  if (draft.offsets.empty() && (draft.type == 0 || draft.type == 9)) {
+  ImGui::SeparatorText("新しいオフセット");
+  if (draft.type == 0 || draft.type == 9) {
     auto addIndex = std::int32_t{-1};
     if (session.ui.morphAddTarget) {
       for (std::size_t index = 0; index < session.document.model().morphs.size(); ++index)
@@ -772,9 +773,12 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
       else
         session.ui.morphAddTarget.reset();
     }
-  } else if (draft.offsets.empty() && draft.type != 8) {
+  } else if (draft.type != 8) {
     if (ImGui::Button("ビューポートから対象を選択"))
-      beginMorphOffsetTargetPick(session, handle, 0, draft.type, true);
+      beginMorphOffsetTargetPick(session, handle, draft.offsets.size(),
+                                 draft.type, true);
+  } else {
+    ImGui::TextDisabled("対象材質: 全材質 (-1)");
   }
   const auto addLabel = std::string{"+ "} +
                         types[std::min<std::size_t>(draft.type,
