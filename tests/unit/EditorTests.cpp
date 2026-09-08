@@ -1,4 +1,5 @@
 #include "../../src/editor/DocumentSession.hpp"
+#include "../../src/editor/EditorSelectionController.hpp"
 #include "../../src/editor/EditorOperations.hpp"
 #include "../../src/editor/RecoveryController.hpp"
 #include "../../src/editor/SaveController.hpp"
@@ -107,6 +108,9 @@ int main() {
                .allows(pmxer::SelectionKind::softBody));
     assert(pmxer::workspacePolicy(pmxer::EditorWorkspace::inspect)
                .allows(pmxer::SelectionKind::bone));
+    const auto morphPolicy = pmxer::workspacePolicy(pmxer::EditorWorkspace::morph);
+    assert(!morphPolicy.defaultViewportMode.has_value());
+    assert(!morphPolicy.allows(pmxer::ViewportSelectionMode::material));
     const auto boneForPolicy = session.document.boneHandle(0);
     const auto materialForPolicy = session.document.materialHandle(0);
     session.selection.set(std::vector<pmxer::SelectionItem>{
@@ -126,6 +130,20 @@ int main() {
     assert(session.selection.items().empty());
     assert(!session.ui.showBones);
     assert(session.ui.showPhysics);
+
+    pmxer::DocumentSession synchronized(sampleModel());
+    auto synchronizedWorkspace = pmxer::EditorWorkspace::morph;
+    const auto synchronizedBone = synchronized.document.boneHandle(0);
+    pmxer::selectPrimary(
+        synchronized, synchronizedWorkspace,
+        {pmxer::SelectionKind::bone, synchronizedBone.domain, synchronizedBone.id,
+         synchronizedBone.generation},
+        pmxer::SelectionOrigin::viewport);
+    assert(synchronizedWorkspace == pmxer::EditorWorkspace::rig);
+    assert(synchronized.selection.items().front().kind == pmxer::SelectionKind::bone);
+    assert(pmxer::actionAvailability(pmxer::EditorAction::viewportRotate,
+                                     synchronized)
+               .support == pmxer::SupportLevel::unsupported);
 
     const auto layoutPath = std::filesystem::temp_directory_path() / "pmxer-workspace-layout-test.ini";
     assert(pmxer::saveWorkspaceLayout(layoutPath, "[Window][pmxer]\nPos=0,0\n"));
