@@ -42,6 +42,7 @@ void selectPrimary(DocumentSession &session, EditorWorkspace &workspace,
     ensureWorkspaceFor(session, workspace, item.kind);
     session.selection.set(item);
     session.ui.clearDrafts();
+    session.ui.morphOffsetTarget = {};
 }
 
 void addSelection(DocumentSession &session, EditorWorkspace &workspace,
