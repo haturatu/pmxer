@@ -1,6 +1,6 @@
 #pragma once
 
-#include <mmd/pmx.hpp>
+#include <mmd/document.hpp>
 
 namespace pmxer {
 
