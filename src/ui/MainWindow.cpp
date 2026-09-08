@@ -536,7 +536,8 @@ int runApplication(const EditCommand &options) {
             ImGui::EndPopup();
         }
         if (!sessions.empty() && activeSession < sessions.size())
-            drawEditorPanels(*sessions[activeSession], fileDialog, workspace);
+            drawEditorPanels(*sessions[activeSession], fileDialog,
+                             gpuModelRenderer.get(), workspace);
         else {
             ImGui::Begin("pmxer");
             ImGui::TextUnformatted("PMX ファイルを開いてください");

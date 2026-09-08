@@ -6,6 +6,7 @@ namespace pmxer {
 
 class DocumentSession;
 class FileDialog;
+class GpuModelRenderer;
 
 enum class EditorWorkspace { model, rig, morph, physics, inspect };
 
@@ -38,6 +39,8 @@ struct WorkspaceUiState {
     }
 };
 
-void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog, WorkspaceUiState &workspace);
+void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
+                      GpuModelRenderer *renderer,
+                      WorkspaceUiState &workspace);
 
 } // namespace pmxer

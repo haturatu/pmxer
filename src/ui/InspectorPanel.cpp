@@ -3,6 +3,7 @@
 #include "../editor/DocumentSession.hpp"
 #include "../editor/EditorOperations.hpp"
 #include "../editor/ReferenceInspector.hpp"
+#include "../render/GpuModelRenderer.hpp"
 
 #include <imgui.h>
 
@@ -11,6 +12,7 @@
 #include <cstring>
 #include <filesystem>
 #include <iterator>
+#include <optional>
 #include <string>
 
 namespace pmxer {
@@ -126,8 +128,34 @@ const char *kindName(SelectionKind kind) {
   return "選択";
 }
 
+void texturePreviewCard(const DocumentSession &session, const char *label,
+                        std::int32_t index,
+                        GpuModelRenderer *renderer) {
+  if (index < 0 || renderer == nullptr)
+    return;
+  const auto preview =
+      renderer->texturePreview(session, static_cast<std::size_t>(index));
+  ImGui::TextUnformatted(label);
+  if (preview.texture == nullptr || preview.width == 0U ||
+      preview.height == 0U) {
+    ImGui::TextDisabled("画像を読み込めません");
+    return;
+  }
+  const auto maximum =
+      std::max(1.0F, std::min(220.0F, ImGui::GetContentRegionAvail().x));
+  const auto scale = std::min(maximum / static_cast<float>(preview.width),
+                              maximum / static_cast<float>(preview.height));
+  const ImVec2 size{static_cast<float>(preview.width) * scale,
+                    static_cast<float>(preview.height) * scale};
+  const auto identifier = static_cast<ImTextureID>(
+      reinterpret_cast<std::uintptr_t>(preview.texture));
+  ImGui::Image(ImTextureRef{identifier}, size);
+  ImGui::TextDisabled("%u × %u", preview.width, preview.height);
+}
+
 void materialInspector(DocumentSession &session,
-                       const SelectionItem &selected) {
+                       const SelectionItem &selected,
+                       GpuModelRenderer *renderer) {
   const auto handle =
       selectionHandle<mmd::MaterialTag>(session.document, selected);
   const auto *value = session.document.resolve(handle);
@@ -153,6 +181,7 @@ void materialInspector(DocumentSession &session,
   commit |= ImGui::IsItemDeactivatedAfterEdit();
 
   ImGui::SeparatorText("テクスチャ");
+  texturePreviewCard(session, "基本テクスチャ", draft.textureIndex, renderer);
   static constexpr const char *sphereModes[]{"なし", "乗算", "加算",
                                              "サブテクスチャ"};
   const auto sphere = std::min<std::size_t>(draft.sphereMode, 3U);
@@ -164,6 +193,9 @@ void materialInspector(DocumentSession &session,
       }
     ImGui::EndCombo();
   }
+  if (draft.sphereMode != 0U)
+    texturePreviewCard(session, "球面テクスチャ", draft.sphereTextureIndex,
+                       renderer);
   const char *toonModes[]{"共有", "個別"};
   const auto toon = std::min<std::size_t>(draft.toonMode, 1U);
   if (ImGui::BeginCombo("トゥーン", toonModes[toon])) {
@@ -174,6 +206,9 @@ void materialInspector(DocumentSession &session,
       }
     ImGui::EndCombo();
   }
+  if (draft.toonMode == 0U)
+    texturePreviewCard(session, "個別トゥーン", draft.toonTextureIndex,
+                       renderer);
 
   ImGui::SeparatorText("描画");
   commit |= flagCheckbox("両面", draft.drawFlags, std::uint8_t{0x01U});
@@ -421,17 +456,42 @@ void jointInspector(DocumentSession &session, const SelectionItem &selected) {
 }
 
 void readOnlyInspector(DocumentSession &session,
-                       const SelectionItem &selected) {
+                       const SelectionItem &selected,
+                       GpuModelRenderer *renderer) {
   const auto &model = session.document.model();
   if (selected.kind == SelectionKind::texture) {
     const auto *texture = session.document.resolve(
         selectionHandle<mmd::TextureTag>(session.document, selected));
     if (texture != nullptr) {
-      ImGui::TextWrapped("%s", texture->storedPath.c_str());
-      const auto path = (model.sourcePath.parent_path() / texture->storedPath)
-                            .lexically_normal();
+      const auto handle =
+          selectionHandle<mmd::TextureTag>(session.document, selected);
+      std::optional<std::size_t> textureIndex;
+      for (std::size_t index = 0; index < model.textures.size(); ++index) {
+        if (session.document.textureHandle(index) ==
+            selectionHandle<mmd::TextureTag>(session.document, selected)) {
+          textureIndex = index;
+          texturePreviewCard(session, "プレビュー",
+                             static_cast<std::int32_t>(index), renderer);
+          break;
+        }
+      }
+      if (!session.ui.textureDraft)
+        session.ui.textureDraft = *texture;
+      auto &draft = *session.ui.textureDraft;
+      ImGui::SeparatorText("パス");
+      (void)inputText("保存パス", draft.storedPath);
+      if (ImGui::IsItemDeactivatedAfterEdit()) {
+        const auto result = editTexture(session, handle, draft);
+        session.ui.status =
+            result.success ? "テクスチャを更新しました" : result.message;
+        session.ui.textureDraft.reset();
+        return;
+      }
+      const auto path = textureIndex
+                            ? mmd::pmx::resolveTexturePath(model, *textureIndex)
+                            : std::filesystem::path{};
       ImGui::TextWrapped("%s", path.string().c_str());
-      ImGui::TextUnformatted(std::filesystem::exists(path)
+      ImGui::TextUnformatted(!path.empty() && std::filesystem::exists(path)
                                  ? "✓ 読み込み可能"
                                  : "⚠ ファイルがありません");
     }
@@ -447,7 +507,8 @@ void readOnlyInspector(DocumentSession &session,
 
 } // namespace
 
-void drawInspectorPanel(DocumentSession &session, bool *open) {
+void drawInspectorPanel(DocumentSession &session, GpuModelRenderer *renderer,
+                        bool *open) {
   if (!ImGui::Begin("インスペクター", open)) {
     ImGui::End();
     return;
@@ -466,7 +527,7 @@ void drawInspectorPanel(DocumentSession &session, bool *open) {
   }
   switch (selected.kind) {
   case SelectionKind::material:
-    materialInspector(session, selected);
+    materialInspector(session, selected, renderer);
     break;
   case SelectionKind::bone:
     boneInspector(session, selected);
@@ -481,7 +542,7 @@ void drawInspectorPanel(DocumentSession &session, bool *open) {
     jointInspector(session, selected);
     break;
   default:
-    readOnlyInspector(session, selected);
+    readOnlyInspector(session, selected, renderer);
     break;
   }
   ImGui::End();

@@ -200,7 +200,9 @@ struct GpuModelRenderer::Impl {
     SDL_GPUSampler *toonSampler{};
     SDL_GPUTexture *defaultTexture{};
     std::vector<SDL_GPUTexture *> textures;
+    std::vector<std::array<std::uint32_t, 2>> textureSizes;
     std::array<SDL_GPUTexture *, 10> sharedToons{};
+    std::vector<SDL_GPUTexture *> retiredTextures;
     std::vector<SDL_GPUTransferBuffer *> transfers;
     std::filesystem::path shaderDirectory;
     std::filesystem::path resourceDirectory;
@@ -234,23 +236,36 @@ struct GpuModelRenderer::Impl {
         transfers.clear();
     }
 
-    void clearTextures() {
+    void retireTextures() {
         for (auto *texture : textures)
-            SDL_ReleaseGPUTexture(device, texture);
+            if (texture != nullptr)
+                retiredTextures.push_back(texture);
         textures.clear();
+        textureSizes.clear();
         for (auto *&texture : sharedToons) {
             if (texture != nullptr)
-                SDL_ReleaseGPUTexture(device, texture);
+                retiredTextures.push_back(texture);
             texture = nullptr;
         }
         if (defaultTexture != nullptr) {
-            SDL_ReleaseGPUTexture(device, defaultTexture);
+            retiredTextures.push_back(defaultTexture);
             defaultTexture = nullptr;
         }
     }
 
+    void releaseRetiredTextures() {
+        for (auto *texture : retiredTextures)
+            SDL_ReleaseGPUTexture(device, texture);
+        retiredTextures.clear();
+    }
+
+    void clearTextures() {
+        retireTextures();
+        releaseRetiredTextures();
+    }
+
     bool prepareTextures(SDL_GPUCommandBuffer *commands, const mmd::PmxModel &model) {
-        clearTextures();
+        retireTextures();
         const auto createSampler = [&](SDL_GPUSamplerAddressMode addressMode) {
             SDL_GPUSamplerCreateInfo samplerInfo{};
             samplerInfo.min_filter = SDL_GPU_FILTER_LINEAR;
@@ -273,6 +288,7 @@ struct GpuModelRenderer::Impl {
             return false;
 
         textures.resize(model.textures.size(), nullptr);
+        textureSizes.resize(model.textures.size());
         for (std::size_t index = 0; index < model.textures.size(); ++index) {
             const auto path = mmd::pmx::resolveTexturePath(model, index);
             if (!std::filesystem::exists(path))
@@ -285,6 +301,8 @@ struct GpuModelRenderer::Impl {
             }
             textures[index] = uploadTexture(device, commands, image.rgba.data(),
                                             static_cast<int>(image.width), static_cast<int>(image.height), transfers);
+            if (textures[index] != nullptr)
+                textureSizes[index] = {image.width, image.height};
         }
         for (std::size_t index = 0; index < sharedToons.size(); ++index) {
             const auto number = index + 1U;
@@ -436,6 +454,17 @@ const char *GpuModelRenderer::error() const noexcept {
     return impl_ == nullptr ? "GPU renderer is unavailable" : impl_->errorMessage.c_str();
 }
 
+GpuTexturePreview GpuModelRenderer::texturePreview(
+    const DocumentSession &session, std::size_t index) const noexcept {
+    if (impl_ == nullptr || impl_->model != &session.document.model() ||
+        impl_->resourceRevision != session.resourceRevision ||
+        index >= impl_->textures.size() ||
+        index >= impl_->textureSizes.size())
+        return {};
+    return {impl_->textures[index], impl_->textureSizes[index][0],
+            impl_->textureSizes[index][1]};
+}
+
 bool GpuModelRenderer::prepare(SDL_GPUCommandBuffer *commands, const mmd::PmxModel &model,
                                const mmd::AnimatedModelFrame *frame, std::uint64_t revision,
                                std::uint64_t resourceRevision, std::uint64_t frameRevision,
@@ -460,6 +489,7 @@ bool GpuModelRenderer::prepare(SDL_GPUCommandBuffer *commands, const mmd::PmxMod
     const auto vertexBytes = source.size() * sizeof(GpuVertex);
     const auto indexBytes = model.indices.size() * sizeof(std::uint32_t);
     impl_->clearTransfers();
+    impl_->releaseRetiredTextures();
     if (texturesChanged && !impl_->prepareTextures(commands, model))
         return false;
     const auto ensureBuffer = [&](SDL_GPUBuffer *&buffer, std::size_t &capacity, SDL_GPUBufferUsageFlags usage,

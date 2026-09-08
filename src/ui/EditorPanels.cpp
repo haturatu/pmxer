@@ -1231,7 +1231,9 @@ void workspaceButton(const char *label, EditorWorkspace value,
 
 } // namespace
 
-void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog, WorkspaceUiState &workspace) {
+void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
+                      GpuModelRenderer *renderer,
+                      WorkspaceUiState &workspace) {
     if (session.modified) {
         const auto now = std::chrono::steady_clock::now();
         if (now - session.lastRecovery >= std::chrono::seconds(30) && writeRecovery(session).success)
@@ -1322,7 +1324,7 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog, Workspac
     if (workspace.showOutliner)
         drawOutlinerPanel(session, workspace, &workspace.showOutliner);
     if (workspace.showInspector)
-        drawInspectorPanel(session, &workspace.showInspector);
+        drawInspectorPanel(session, renderer, &workspace.showInspector);
     if (workspace.showModel)
         drawModelPanel(session, fileDialog, &workspace.showModel);
     if (workspace.showVertex)

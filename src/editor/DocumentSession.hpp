@@ -42,6 +42,7 @@ struct EditorUiState {
     std::size_t jointIndex{};
     std::size_t softBodyIndex{};
     std::optional<mmd::PmxVertex> vertexDraft;
+    std::optional<mmd::PmxTexture> textureDraft;
     std::optional<mmd::PmxMetadata> metadataDraft;
     std::optional<mmd::PmxMaterial> materialDraft;
     std::optional<mmd::PmxBone> boneDraft;
@@ -98,6 +99,7 @@ struct EditorUiState {
 
     void clearDrafts() {
         vertexDraft.reset();
+        textureDraft.reset();
         metadataDraft.reset();
         materialDraft.reset();
         boneDraft.reset();
