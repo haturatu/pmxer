@@ -223,6 +223,7 @@ struct GpuModelRenderer::Impl {
     std::vector<SDL_GPUTexture *> textures;
     std::vector<std::array<std::uint32_t, 2>> textureSizes;
     std::vector<TextureResourceStatus> textureStatus;
+    RendererResourceSummary textureSummary;
     std::array<SDL_GPUTexture *, 10> sharedToons{};
     std::vector<SDL_GPUTexture *> retiredTextures;
     std::vector<SDL_GPUTransferBuffer *> transfers;
@@ -354,6 +355,14 @@ struct GpuModelRenderer::Impl {
             textureStatus[index].state = textures[index] != nullptr
                                              ? TextureResourceState::loaded
                                              : TextureResourceState::uploadFailed;
+        }
+        textureSummary = {};
+        for (const auto &status : textureStatus) {
+            if (status.state == TextureResourceState::missing)
+                ++textureSummary.missingTextureCount;
+            else if (status.state == TextureResourceState::decodeFailed ||
+                     status.state == TextureResourceState::uploadFailed)
+                ++textureSummary.failedTextureCount;
         }
         for (std::size_t index = 0; index < sharedToons.size(); ++index) {
             const auto number = index + 1U;
@@ -516,21 +525,21 @@ GpuTexturePreview GpuModelRenderer::texturePreview(
             impl_->textureSizes[index][1]};
 }
 
-RendererResourceStatus GpuModelRenderer::resourceStatus(
-    const DocumentSession &session) const {
-    RendererResourceStatus result;
+RendererResourceSummary GpuModelRenderer::resourceSummary(
+    const DocumentSession &session) const noexcept {
+    RendererResourceSummary result;
     if (impl_ == nullptr || impl_->model != &session.document.model() ||
         impl_->resourceRevision != session.resourceRevision)
         return result;
-    result.textures = impl_->textureStatus;
-    for (const auto &texture : result.textures) {
-        if (texture.state == TextureResourceState::missing)
-            ++result.missingTextureCount;
-        else if (texture.state == TextureResourceState::decodeFailed ||
-                 texture.state == TextureResourceState::uploadFailed)
-            ++result.failedTextureCount;
-    }
-    return result;
+    return impl_->textureSummary;
+}
+
+std::span<const TextureResourceStatus> GpuModelRenderer::resourceStatuses(
+    const DocumentSession &session) const noexcept {
+    if (impl_ == nullptr || impl_->model != &session.document.model() ||
+        impl_->resourceRevision != session.resourceRevision)
+        return {};
+    return impl_->textureStatus;
 }
 
 bool GpuModelRenderer::prepare(SDL_GPUCommandBuffer *commands, const mmd::PmxModel &model,

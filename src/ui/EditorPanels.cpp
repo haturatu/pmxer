@@ -1196,12 +1196,12 @@ void drawDiagnosticsPanel(DocumentSession &session, GpuModelRenderer *renderer,
         if (session.derived.diagnostics.issues.empty())
             ImGui::TextUnformatted("問題はありません");
         if (renderer != nullptr) {
-            const auto resources = renderer->resourceStatus(session);
+            const auto resources = renderer->resourceSummary(session);
             if (resources.missingTextureCount != 0U || resources.failedTextureCount != 0U) {
                 ImGui::SeparatorText("テクスチャリソース");
                 ImGui::Text("欠落 %zu / 失敗 %zu", resources.missingTextureCount,
                             resources.failedTextureCount);
-                for (const auto &texture : resources.textures) {
+                for (const auto &texture : renderer->resourceStatuses(session)) {
                     if (texture.state == TextureResourceState::loaded)
                         continue;
                     const auto state = texture.state == TextureResourceState::missing

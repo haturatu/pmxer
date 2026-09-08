@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <span>
 #include <vector>
 
 struct SDL_GPUCommandBuffer;
@@ -35,10 +36,9 @@ struct TextureResourceStatus {
     std::filesystem::path resolvedPath;
 };
 
-struct RendererResourceStatus {
+struct RendererResourceSummary {
     std::size_t missingTextureCount{};
     std::size_t failedTextureCount{};
-    std::vector<TextureResourceStatus> textures;
 };
 
 class GpuModelRenderer {
@@ -55,8 +55,10 @@ class GpuModelRenderer {
     [[nodiscard]] GpuTexturePreview
     texturePreview(const DocumentSession &session,
                    std::size_t index) const noexcept;
-    [[nodiscard]] RendererResourceStatus
-    resourceStatus(const DocumentSession &session) const;
+    [[nodiscard]] RendererResourceSummary
+    resourceSummary(const DocumentSession &session) const noexcept;
+    [[nodiscard]] std::span<const TextureResourceStatus>
+    resourceStatuses(const DocumentSession &session) const noexcept;
 
     bool prepare(SDL_GPUCommandBuffer *commands, const mmd::PmxModel &model,
                  const mmd::AnimatedModelFrame *frame, std::uint64_t revision,
