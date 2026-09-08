@@ -1,15 +1,18 @@
 #include "ViewportGizmo.hpp"
 
 #include "../editor/DocumentSession.hpp"
+#include "../editor/UiStatus.hpp"
 #include "../editor/EditorOperations.hpp"
 
 #include <ImGuizmo.h>
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cmath>
 #include <optional>
+#include <string>
 
 namespace pmxer {
 namespace {
@@ -93,7 +96,8 @@ void commit(DocumentSession &session, const SelectionItem &selected,
             selectionHandle<mmd::VertexTag>(session.document, selected);
         const auto *resolved = session.document.resolve(handle);
         if (resolved == nullptr) {
-            session.ui.status = "選択した頂点は無効です";
+            setStatus(session, "選択した頂点は無効です", UiStatusKind::error,
+                      std::chrono::milliseconds::zero(), true);
             return;
         }
         auto value = *resolved;
@@ -104,7 +108,8 @@ void commit(DocumentSession &session, const SelectionItem &selected,
             selectionHandle<mmd::BoneTag>(session.document, selected);
         const auto *resolved = session.document.resolve(handle);
         if (resolved == nullptr) {
-            session.ui.status = "選択したボーンは無効です";
+            setStatus(session, "選択したボーンは無効です", UiStatusKind::error,
+                      std::chrono::milliseconds::zero(), true);
             return;
         }
         auto value = *resolved;
@@ -115,7 +120,8 @@ void commit(DocumentSession &session, const SelectionItem &selected,
             selectionHandle<mmd::RigidBodyTag>(session.document, selected);
         const auto *resolved = session.document.resolve(handle);
         if (resolved == nullptr) {
-            session.ui.status = "選択した剛体は無効です";
+            setStatus(session, "選択した剛体は無効です", UiStatusKind::error,
+                      std::chrono::milliseconds::zero(), true);
             return;
         }
         auto value = *resolved;
@@ -131,7 +137,8 @@ void commit(DocumentSession &session, const SelectionItem &selected,
             selectionHandle<mmd::JointTag>(session.document, selected);
         const auto *resolved = session.document.resolve(handle);
         if (resolved == nullptr) {
-            session.ui.status = "選択したジョイントは無効です";
+            setStatus(session, "選択したジョイントは無効です", UiStatusKind::error,
+                      std::chrono::milliseconds::zero(), true);
             return;
         }
         auto value = *resolved;
@@ -144,8 +151,13 @@ void commit(DocumentSession &session, const SelectionItem &selected,
         selected.kind == SelectionKind::bone ||
         selected.kind == SelectionKind::rigidBody ||
         selected.kind == SelectionKind::joint)
-        session.ui.status = result.success ? "ビューポート操作を適用しました"
-                                           : result.message;
+        setStatus(session,
+                  result.success ? std::string{"ビューポート操作を適用しました"}
+                                 : result.message,
+                  result.success ? UiStatusKind::success : UiStatusKind::error,
+                  result.success ? std::chrono::seconds(4)
+                                 : std::chrono::milliseconds::zero(),
+                  !result.success);
 }
 
 } // namespace

@@ -333,7 +333,8 @@ int runApplication(const EditCommand &options) {
                     preview.controller->setPose(nullptr);
                     preview.controller->setMotion(&*preview.motion);
                 }
-                session.ui.status = "モーションを読み込みました";
+                setStatus(session, "モーションを読み込みました",
+                          UiStatusKind::success);
             } else if (extension == ".vpd") {
                 preview.pose = mmd::vpd::load(path);
                 preview.motion.reset();
@@ -342,7 +343,8 @@ int runApplication(const EditCommand &options) {
                     preview.controller->setMotion(nullptr);
                     preview.controller->setPose(&*preview.pose);
                 }
-                session.ui.status = "ポーズを読み込みました";
+                setStatus(session, "ポーズを読み込みました",
+                          UiStatusKind::success);
             }
             if (preview.controller) {
                 preview.frame = preview.controller->evaluate();
@@ -352,7 +354,8 @@ int runApplication(const EditCommand &options) {
             preview.accumulator = 0.0;
             preview.clockInitialized = false;
         } catch (const std::exception &error) {
-            session.ui.status = error.what();
+            setStatus(session, error.what(), UiStatusKind::error,
+                      std::chrono::milliseconds::zero(), true);
             log::error(error.what());
         }
     };
@@ -576,7 +579,8 @@ int runApplication(const EditCommand &options) {
             ImGui::Text("%s に未保存の変更があります。", title.c_str());
             if (ImGui::Button("保存して終了")) {
                 if (session.path.empty()) {
-                    session.ui.status = "保存先を指定してください。終了はキャンセルされました";
+                    setStatus(session, "保存先を指定してください。終了はキャンセルされました",
+                              UiStatusKind::warning, std::chrono::milliseconds::zero(), true);
                     quitRequested = false;
                     quitPromptOpened = false;
                     ImGui::CloseCurrentPopup();
@@ -585,7 +589,8 @@ int runApplication(const EditCommand &options) {
                     quitPromptOpened = false;
                     ImGui::CloseCurrentPopup();
                 } else {
-                    session.ui.status = "保存に失敗しました。終了はキャンセルされました";
+                    setStatus(session, "保存に失敗しました。終了はキャンセルされました",
+                              UiStatusKind::error, std::chrono::milliseconds::zero(), true);
                     quitRequested = false;
                     quitPromptOpened = false;
                     ImGui::CloseCurrentPopup();
@@ -690,7 +695,8 @@ int runApplication(const EditCommand &options) {
                         pendingCloseSession.reset();
                         ImGui::CloseCurrentPopup();
                     } else {
-                        session.ui.status = "保存に失敗しました";
+                        setStatus(session, "保存に失敗しました", UiStatusKind::error,
+                                  std::chrono::milliseconds::zero(), true);
                     }
                 }
                 ImGui::SameLine();

@@ -13,6 +13,8 @@ void setStatus(DocumentSession &session, std::string text,
                UiStatusKind kind = UiStatusKind::info,
                std::chrono::milliseconds lifetime = std::chrono::seconds(4),
                bool sticky = false);
+void setOperationStatus(DocumentSession &session, bool success,
+                        std::string successText, std::string failureText);
 void updateStatusLifetime(DocumentSession &session);
 
 } // namespace pmxer
