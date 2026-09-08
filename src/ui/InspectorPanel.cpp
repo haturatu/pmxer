@@ -820,7 +820,7 @@ void readOnlyInspector(DocumentSession &session,
 
 void drawInspectorPanel(DocumentSession &session, GpuModelRenderer *renderer,
                         WorkspaceUiState &workspace, bool *open) {
-  const auto activeWorkspace = workspace.active;
+  auto &activeWorkspace = workspace.active;
   if (!ImGui::Begin("インスペクター", open)) {
     ImGui::End();
     return;
