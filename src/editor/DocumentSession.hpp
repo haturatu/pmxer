@@ -83,6 +83,11 @@ struct EditorUiState {
     bool showPhysics{};
     bool orthographic{};
     bool gizmoDragging{};
+    bool boxSelecting{};
+    float boxSelectStartX{};
+    float boxSelectStartY{};
+    float boxSelectEndX{};
+    float boxSelectEndY{};
     SelectionItem gizmoSelection{};
     std::array<float, 16> gizmoMatrix{};
     std::optional<SelectionItem> viewportHover;

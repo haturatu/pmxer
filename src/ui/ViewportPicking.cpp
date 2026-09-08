@@ -167,4 +167,66 @@ pickViewport(const DocumentSession &session,
                               std::nullopt, closestPosition};
 }
 
+std::vector<ViewportPickResult>
+pickViewportRectangle(const DocumentSession &session,
+                      const std::vector<mmd::PmxVertex> &vertices,
+                      const CameraState &camera, ImVec2 origin, ImVec2 size,
+                      ImVec2 first, ImVec2 second) {
+    const auto minimum = ImVec2{std::min(first.x, second.x), std::min(first.y, second.y)};
+    const auto maximum = ImVec2{std::max(first.x, second.x), std::max(first.y, second.y)};
+    const auto contains = [&](const mmd::Float3 &position) {
+        const auto point = projectWorldToScreen(camera, position, origin.x, origin.y, size.x, size.y);
+        return point.inFront && point.x >= minimum.x && point.x <= maximum.x &&
+               point.y >= minimum.y && point.y <= maximum.y;
+    };
+    std::vector<ViewportPickResult> result;
+    const auto &model = session.document.model();
+    if (session.ui.selectionMode == ViewportSelectionMode::vertex) {
+        for (std::size_t index = 0; index < vertices.size(); ++index)
+            if (contains(vertices[index].position))
+                result.push_back({itemFor(session, SelectionKind::vertex, index), index, std::nullopt,
+                                  vertices[index].position});
+    } else if (session.ui.selectionMode == ViewportSelectionMode::bone) {
+        for (std::size_t index = 0; index < model.bones.size(); ++index)
+            if (contains(model.bones[index].position))
+                result.push_back({itemFor(session, SelectionKind::bone, index), index, std::nullopt,
+                                  model.bones[index].position});
+    } else if (session.ui.selectionMode == ViewportSelectionMode::rigidBody) {
+        for (std::size_t index = 0; index < model.rigidBodies.size(); ++index)
+            if (contains(model.rigidBodies[index].position))
+                result.push_back({itemFor(session, SelectionKind::rigidBody, index), index, std::nullopt,
+                                  model.rigidBodies[index].position});
+    } else if (session.ui.selectionMode == ViewportSelectionMode::joint) {
+        for (std::size_t index = 0; index < model.joints.size(); ++index)
+            if (contains(model.joints[index].position))
+                result.push_back({itemFor(session, SelectionKind::joint, index), index, std::nullopt,
+                                  model.joints[index].position});
+    } else {
+        std::vector<bool> materials(model.materials.size());
+        for (std::size_t face = 0; face < model.indices.size() / 3U; ++face) {
+            const auto offset = face * 3U;
+            const auto a = static_cast<std::size_t>(model.indices[offset]);
+            const auto b = static_cast<std::size_t>(model.indices[offset + 1U]);
+            const auto c = static_cast<std::size_t>(model.indices[offset + 2U]);
+            if (a >= vertices.size() || b >= vertices.size() || c >= vertices.size())
+                continue;
+            const mmd::Float3 center{(vertices[a].position[0] + vertices[b].position[0] + vertices[c].position[0]) / 3.0F,
+                                     (vertices[a].position[1] + vertices[b].position[1] + vertices[c].position[1]) / 3.0F,
+                                     (vertices[a].position[2] + vertices[b].position[2] + vertices[c].position[2]) / 3.0F};
+            if (!contains(center))
+                continue;
+            if (session.ui.selectionMode == ViewportSelectionMode::face) {
+                result.push_back({itemFor(session, SelectionKind::face, face), face, face, center});
+            } else if (!model.materials.empty()) {
+                const auto material = materialForIndex(model, offset);
+                if (!materials[material]) {
+                    materials[material] = true;
+                    result.push_back({itemFor(session, SelectionKind::material, material), material, face, center});
+                }
+            }
+        }
+    }
+    return result;
+}
+
 } // namespace pmxer

@@ -65,6 +65,13 @@ int main() {
     assert(std::abs(perspectiveCenter.y - 300.0F) < 0.001F);
     assert(!pmxer::projectWorldToScreen(perspective, {0.0F, 0.0F, 20.0F}, 0.0F, 0.0F, 800.0F, 600.0F)
                 .inFront);
+    pmxer::DocumentSession rectangleSession(sampleModel());
+    rectangleSession.ui.selectionMode = pmxer::ViewportSelectionMode::vertex;
+    const auto rectangleSelection = pmxer::pickViewportRectangle(
+        rectangleSession, rectangleSession.document.model().vertices, perspective,
+        {0.0F, 0.0F}, {800.0F, 600.0F}, {390.0F, 290.0F}, {410.0F, 310.0F});
+    assert(rectangleSelection.size() == 2U);
+    assert(rectangleSelection.front().item.kind == pmxer::SelectionKind::vertex);
     auto orthographic = perspective;
     orthographic.orthographic = true;
     const auto orthographicCenter =

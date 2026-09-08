@@ -38,10 +38,16 @@ ImVec2 project(const mmd::PmxVertex &vertex, const Bounds &bounds, ImVec2 origin
 }
 
 void selectViewportItem(DocumentSession &session, SelectionItem item, std::size_t index) {
-    if (ImGui::GetIO().KeyCtrl)
+    if (ImGui::GetIO().KeyCtrl) {
+        if (session.selection.contains(item))
+            session.selection.remove(item);
+        else
+            session.selection.add(item);
+    } else if (ImGui::GetIO().KeyShift) {
         session.selection.add(item);
-    else
+    } else {
         session.selection.set(item);
+    }
     session.ui.clearDrafts();
     if (item.kind == SelectionKind::vertex)
         session.ui.vertexIndex = index;
@@ -190,7 +196,18 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     session.ui.viewportVisible = true;
     ImGui::InvisibleButton("viewport-canvas", available);
     const auto hovered = ImGui::IsItemHovered();
-    const auto clicked = hovered && ImGui::IsItemClicked(ImGuiMouseButton_Left);
+    const auto mouse = ImGui::GetIO().MousePos;
+    if (session.ui.viewportTool == ViewportTool::select && ImGui::IsItemActivated()) {
+        session.ui.boxSelecting = true;
+        session.ui.boxSelectStartX = mouse.x;
+        session.ui.boxSelectStartY = mouse.y;
+        session.ui.boxSelectEndX = mouse.x;
+        session.ui.boxSelectEndY = mouse.y;
+    }
+    if (session.ui.boxSelecting) {
+        session.ui.boxSelectEndX = mouse.x;
+        session.ui.boxSelectEndY = mouse.y;
+    }
     auto *draw = ImGui::GetWindowDrawList();
 
     const auto &model = session.document.model();
@@ -424,7 +441,6 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     }
     const CameraState camera{session.ui.cameraTarget, session.ui.cameraYaw, session.ui.cameraPitch,
                              session.ui.cameraDistance, session.ui.orthographic};
-    const auto mouse = ImGui::GetIO().MousePos;
     if (hovered && ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
         const auto picked = pickViewport(session, vertices, camera, origin,
                                          available, mouse);
@@ -437,11 +453,45 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             ImGui::OpenPopup("viewport-context");
         }
     }
-    if (clicked) {
-        const auto picked = pickViewport(session, vertices, camera, origin,
-                                         available, mouse);
-        if (picked)
-            selectViewportItem(session, picked->item, picked->index);
+    if (session.ui.boxSelecting && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+        const ImVec2 start{session.ui.boxSelectStartX, session.ui.boxSelectStartY};
+        const ImVec2 end{session.ui.boxSelectEndX, session.ui.boxSelectEndY};
+        const auto dx = end.x - start.x;
+        const auto dy = end.y - start.y;
+        if (dx * dx + dy * dy > 16.0F) {
+            const auto picked = pickViewportRectangle(session, vertices, camera, origin,
+                                                      available, start, end);
+            if (!ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift)
+                session.selection.clear();
+            for (const auto &item : picked) {
+                if (ImGui::GetIO().KeyCtrl && session.selection.contains(item.item))
+                    session.selection.remove(item.item);
+                else
+                    session.selection.add(item.item);
+            }
+            if (!picked.empty()) {
+                const auto &first = picked.front();
+                session.ui.clearDrafts();
+                if (first.item.kind == SelectionKind::vertex)
+                    session.ui.vertexIndex = first.index;
+                else if (first.item.kind == SelectionKind::material)
+                    session.ui.materialIndex = first.index;
+                else if (first.item.kind == SelectionKind::bone)
+                    session.ui.boneIndex = first.index;
+                else if (first.item.kind == SelectionKind::rigidBody)
+                    session.ui.rigidBodyIndex = first.index;
+                else if (first.item.kind == SelectionKind::joint)
+                    session.ui.jointIndex = first.index;
+            }
+        } else {
+            const auto picked = pickViewport(session, vertices, camera, origin,
+                                             available, end);
+            if (picked)
+                selectViewportItem(session, picked->item, picked->index);
+            else if (!ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift)
+                session.selection.clear();
+        }
+        session.ui.boxSelecting = false;
     }
     if (!hovered || session.ui.gizmoDragging) {
         session.ui.viewportHover.reset();
@@ -504,6 +554,16 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                             7.0F, IM_COL32(255, 255, 255, 245), 0, 2.0F);
         }
         hoverTooltip(session, *session.ui.viewportHover);
+    }
+    if (session.ui.boxSelecting) {
+        const ImVec2 start{session.ui.boxSelectStartX, session.ui.boxSelectStartY};
+        const ImVec2 end{session.ui.boxSelectEndX, session.ui.boxSelectEndY};
+        if (std::abs(end.x - start.x) > 2.0F || std::abs(end.y - start.y) > 2.0F) {
+            const ImVec2 minimum{std::min(start.x, end.x), std::min(start.y, end.y)};
+            const ImVec2 maximum{std::max(start.x, end.x), std::max(start.y, end.y)};
+            draw->AddRectFilled(minimum, maximum, IM_COL32(80, 150, 255, 35));
+            draw->AddRect(minimum, maximum, IM_COL32(110, 180, 255, 230));
+        }
     }
     if (ImGui::BeginPopup("viewport-context")) {
         if (ImGui::MenuItem("選択対象へフォーカス")) {
