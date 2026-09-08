@@ -2,6 +2,7 @@
 
 #include "CommandStack.hpp"
 #include "Selection.hpp"
+#include "ViewportPickCache.hpp"
 
 #include <mmd/document.hpp>
 #include <mmd/animation.hpp>
@@ -105,6 +106,7 @@ struct EditorUiState {
     std::uint64_t viewportHoverRevision{std::numeric_limits<std::uint64_t>::max()};
     std::uint64_t viewportHoverFrameRevision{std::numeric_limits<std::uint64_t>::max()};
     std::chrono::steady_clock::time_point viewportHoverUpdated{};
+    mutable ViewportPickCache viewportPickCache;
     std::vector<SelectionItem> hiddenMaterials;
     std::vector<SelectionItem> isolatedMaterials;
     const mmd::AnimatedModelFrame *previewFrame{};

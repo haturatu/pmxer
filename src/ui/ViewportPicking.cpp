@@ -21,15 +21,116 @@ bool insideTriangle(ImVec2 point, ImVec2 a, ImVec2 b, ImVec2 c) {
              (first > 0.0F || second > 0.0F || third > 0.0F));
 }
 
-std::size_t materialForIndex(const mmd::PmxModel &model,
-                             std::size_t indexOffset) {
-    std::size_t end{};
-    for (std::size_t index = 0; index < model.materials.size(); ++index) {
-        end += model.materials[index].indexCount;
-        if (indexOffset < end)
-            return index;
+bool cacheMatches(const ViewportPickCache &cache, const DocumentSession &session,
+                  std::size_t vertexCount, const CameraState &camera, ImVec2 origin,
+                  ImVec2 size) {
+    return !cache.grid.empty() && cache.vertices.size() == vertexCount &&
+           cache.revision == session.revision &&
+           cache.frameRevision == session.preview.frameRevision &&
+           cache.cameraYaw == camera.yaw && cache.cameraPitch == camera.pitch &&
+           cache.cameraDistance == camera.distance &&
+           cache.cameraTargetX == camera.target[0] &&
+           cache.cameraTargetY == camera.target[1] &&
+           cache.cameraTargetZ == camera.target[2] &&
+           cache.orthographic == camera.orthographic && cache.originX == origin.x &&
+           cache.originY == origin.y && cache.width == size.x && cache.height == size.y;
+}
+
+ViewportPickCache &ensurePickCache(const DocumentSession &session,
+                                   const std::vector<mmd::PmxVertex> &vertices,
+                                   const CameraState &camera, ImVec2 origin,
+                                   ImVec2 size) {
+    auto &cache = session.ui.viewportPickCache;
+    if (cacheMatches(cache, session, vertices.size(), camera, origin, size))
+        return cache;
+    cache.clear();
+    cache.revision = session.revision;
+    cache.frameRevision = session.preview.frameRevision;
+    cache.cameraYaw = camera.yaw;
+    cache.cameraPitch = camera.pitch;
+    cache.cameraDistance = camera.distance;
+    cache.cameraTargetX = camera.target[0];
+    cache.cameraTargetY = camera.target[1];
+    cache.cameraTargetZ = camera.target[2];
+    cache.orthographic = camera.orthographic;
+    cache.originX = origin.x;
+    cache.originY = origin.y;
+    cache.width = size.x;
+    cache.height = size.y;
+    cache.vertices.reserve(vertices.size());
+    for (const auto &vertex : vertices) {
+        const auto point = projectWorldToScreen(camera, vertex.position, origin.x,
+                                                origin.y, size.x, size.y);
+        cache.vertices.push_back({point.x, point.y, point.depth, point.inFront});
     }
-    return model.materials.empty() ? 0U : model.materials.size() - 1U;
+
+    const auto &model = session.document.model();
+    const auto faceCount = model.indices.size() / 3U;
+    cache.faceMaterial.resize(faceCount);
+    std::size_t material = 0;
+    std::size_t materialEnd = model.materials.empty() ? 0U : model.materials[0].indexCount;
+    for (std::size_t face = 0; face < faceCount; ++face) {
+        const auto offset = face * 3U;
+        while (material + 1U < model.materials.size() && offset >= materialEnd) {
+            ++material;
+            materialEnd += model.materials[material].indexCount;
+        }
+        cache.faceMaterial[face] = material;
+    }
+
+    cache.grid.resize(ViewportPickCache::gridWidth * ViewportPickCache::gridHeight);
+    const auto toCellX = [&](float x) {
+        return static_cast<std::size_t>(std::clamp(
+            (x - origin.x) / std::max(size.x, 1.0F) *
+                static_cast<float>(ViewportPickCache::gridWidth),
+            0.0F, static_cast<float>(ViewportPickCache::gridWidth - 1U)));
+    };
+    const auto toCellY = [&](float y) {
+        return static_cast<std::size_t>(std::clamp(
+            (y - origin.y) / std::max(size.y, 1.0F) *
+                static_cast<float>(ViewportPickCache::gridHeight),
+            0.0F, static_cast<float>(ViewportPickCache::gridHeight - 1U)));
+    };
+    for (std::size_t face = 0; face < faceCount; ++face) {
+        const auto offset = face * 3U;
+        const auto first = static_cast<std::size_t>(model.indices[offset]);
+        const auto second = static_cast<std::size_t>(model.indices[offset + 1U]);
+        const auto third = static_cast<std::size_t>(model.indices[offset + 2U]);
+        if (first >= cache.vertices.size() || second >= cache.vertices.size() ||
+            third >= cache.vertices.size() || !cache.vertices[first].inFront ||
+            !cache.vertices[second].inFront || !cache.vertices[third].inFront)
+            continue;
+        const auto minimumX = std::min({cache.vertices[first].x, cache.vertices[second].x,
+                                        cache.vertices[third].x});
+        const auto maximumX = std::max({cache.vertices[first].x, cache.vertices[second].x,
+                                        cache.vertices[third].x});
+        const auto minimumY = std::min({cache.vertices[first].y, cache.vertices[second].y,
+                                        cache.vertices[third].y});
+        const auto maximumY = std::max({cache.vertices[first].y, cache.vertices[second].y,
+                                        cache.vertices[third].y});
+        for (std::size_t y = toCellY(minimumY); y <= toCellY(maximumY); ++y)
+            for (std::size_t x = toCellX(minimumX); x <= toCellX(maximumX); ++x)
+                cache.grid[y * ViewportPickCache::gridWidth + x].push_back(
+                    static_cast<std::uint32_t>(face));
+    }
+    return cache;
+}
+
+std::vector<std::uint32_t> candidatesAt(const ViewportPickCache &cache,
+                                        ImVec2 origin, ImVec2 size,
+                                        ImVec2 mouse) {
+    if (mouse.x < origin.x || mouse.y < origin.y || mouse.x > origin.x + size.x ||
+        mouse.y > origin.y + size.y)
+        return {};
+    const auto x = static_cast<std::size_t>(std::clamp(
+        (mouse.x - origin.x) / std::max(size.x, 1.0F) *
+            static_cast<float>(ViewportPickCache::gridWidth),
+        0.0F, static_cast<float>(ViewportPickCache::gridWidth - 1U)));
+    const auto y = static_cast<std::size_t>(std::clamp(
+        (mouse.y - origin.y) / std::max(size.y, 1.0F) *
+            static_cast<float>(ViewportPickCache::gridHeight),
+        0.0F, static_cast<float>(ViewportPickCache::gridHeight - 1U)));
+    return cache.grid[y * ViewportPickCache::gridWidth + x];
 }
 
 SelectionItem itemFor(const DocumentSession &session, SelectionKind kind,
@@ -64,11 +165,13 @@ pickViewport(const DocumentSession &session,
              const CameraState &camera, ImVec2 origin, ImVec2 size,
              ImVec2 mouse) {
     const auto &model = session.document.model();
+    const auto &cache = ensurePickCache(session, vertices, camera, origin, size);
     if (session.ui.selectionMode == ViewportSelectionMode::face ||
         session.ui.selectionMode == ViewportSelectionMode::material) {
         std::optional<std::size_t> hit;
         float hitDepth = std::numeric_limits<float>::max();
-        for (std::size_t face = 0; face < model.indices.size() / 3U; ++face) {
+        for (const auto faceValue : candidatesAt(cache, origin, size, mouse)) {
+            const auto face = static_cast<std::size_t>(faceValue);
             const auto offset = face * 3U;
             const auto firstIndex =
                 static_cast<std::size_t>(model.indices[offset]);
@@ -79,15 +182,9 @@ pickViewport(const DocumentSession &session,
             if (firstIndex >= vertices.size() ||
                 secondIndex >= vertices.size() || thirdIndex >= vertices.size())
                 continue;
-            const auto first = projectWorldToScreen(
-                camera, vertices[firstIndex].position, origin.x, origin.y,
-                size.x, size.y);
-            const auto second = projectWorldToScreen(
-                camera, vertices[secondIndex].position, origin.x, origin.y,
-                size.x, size.y);
-            const auto third = projectWorldToScreen(
-                camera, vertices[thirdIndex].position, origin.x, origin.y,
-                size.x, size.y);
+            const auto &first = cache.vertices[firstIndex];
+            const auto &second = cache.vertices[secondIndex];
+            const auto &third = cache.vertices[thirdIndex];
             if (!first.inFront || !second.inFront || !third.inFront)
                 continue;
             const auto depth = (first.depth + second.depth + third.depth) / 3.0F;
@@ -120,7 +217,7 @@ pickViewport(const DocumentSession &session,
                 center};
         if (model.materials.empty())
             return std::nullopt;
-        const auto material = materialForIndex(model, offset);
+        const auto material = cache.faceMaterial[*hit];
         return ViewportPickResult{
             itemFor(session, SelectionKind::material, material), material, *hit,
             center};
@@ -146,8 +243,19 @@ pickViewport(const DocumentSession &session,
     SelectionKind kind{};
     if (session.ui.selectionMode == ViewportSelectionMode::vertex) {
         kind = SelectionKind::vertex;
-        for (std::size_t index = 0; index < vertices.size(); ++index)
-            consider(vertices[index].position, index);
+        for (std::size_t index = 0; index < cache.vertices.size(); ++index) {
+            const auto &point = cache.vertices[index];
+            if (!point.inFront)
+                continue;
+            const auto dx = point.x - mouse.x;
+            const auto dy = point.y - mouse.y;
+            const auto candidate = dx * dx + dy * dy;
+            if (candidate < distanceSquared) {
+                distanceSquared = candidate;
+                closest = index;
+                closestPosition = vertices[index].position;
+            }
+        }
     } else if (session.ui.selectionMode == ViewportSelectionMode::bone) {
         kind = SelectionKind::bone;
         for (std::size_t index = 0; index < model.bones.size(); ++index)
@@ -174,6 +282,7 @@ pickViewportRectangle(const DocumentSession &session,
                       ImVec2 first, ImVec2 second) {
     const auto minimum = ImVec2{std::min(first.x, second.x), std::min(first.y, second.y)};
     const auto maximum = ImVec2{std::max(first.x, second.x), std::max(first.y, second.y)};
+    const auto &cache = ensurePickCache(session, vertices, camera, origin, size);
     const auto contains = [&](const mmd::Float3 &position) {
         const auto point = projectWorldToScreen(camera, position, origin.x, origin.y, size.x, size.y);
         return point.inFront && point.x >= minimum.x && point.x <= maximum.x &&
@@ -182,8 +291,10 @@ pickViewportRectangle(const DocumentSession &session,
     std::vector<ViewportPickResult> result;
     const auto &model = session.document.model();
     if (session.ui.selectionMode == ViewportSelectionMode::vertex) {
-        for (std::size_t index = 0; index < vertices.size(); ++index)
-            if (contains(vertices[index].position))
+        for (std::size_t index = 0; index < cache.vertices.size(); ++index)
+            if (cache.vertices[index].inFront && cache.vertices[index].x >= minimum.x &&
+                cache.vertices[index].x <= maximum.x && cache.vertices[index].y >= minimum.y &&
+                cache.vertices[index].y <= maximum.y)
                 result.push_back({itemFor(session, SelectionKind::vertex, index), index, std::nullopt,
                                   vertices[index].position});
     } else if (session.ui.selectionMode == ViewportSelectionMode::bone) {
@@ -218,7 +329,7 @@ pickViewportRectangle(const DocumentSession &session,
             if (session.ui.selectionMode == ViewportSelectionMode::face) {
                 result.push_back({itemFor(session, SelectionKind::face, face), face, face, center});
             } else if (!model.materials.empty()) {
-                const auto material = materialForIndex(model, offset);
+                const auto material = cache.faceMaterial[face];
                 if (!materials[material]) {
                     materials[material] = true;
                     result.push_back({itemFor(session, SelectionKind::material, material), material, face, center});
