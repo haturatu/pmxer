@@ -7,7 +7,7 @@
 
 namespace pmxer {
 
-class DocumentSession;
+struct DocumentSession;
 class FileDialog;
 class GpuModelRenderer;
 

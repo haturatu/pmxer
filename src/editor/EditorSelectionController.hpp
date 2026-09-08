@@ -5,7 +5,7 @@
 
 namespace pmxer {
 
-class DocumentSession;
+struct DocumentSession;
 
 enum class SelectionOrigin {
     viewport,

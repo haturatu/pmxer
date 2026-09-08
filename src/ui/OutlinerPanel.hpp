@@ -2,7 +2,7 @@
 
 namespace pmxer {
 
-class DocumentSession;
+struct DocumentSession;
 struct WorkspaceUiState;
 
 void drawOutlinerPanel(DocumentSession &session, WorkspaceUiState &workspace,

@@ -872,7 +872,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 selectViewportItem(session, activeWorkspace, picked.front().item,
                                    picked.front().index);
             }
-            if (!targetCaptured) {
+            if (!targetCaptured && activeWorkspace != EditorWorkspace::morph) {
                 std::vector<SelectionItem> selected;
                 selected.reserve(picked.size());
                 for (const auto &item : picked)
@@ -906,6 +906,8 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                     else if (first.item.kind == SelectionKind::joint)
                         session.ui.jointIndex = first.index;
                 }
+            } else if (!targetCaptured && activeWorkspace == EditorWorkspace::morph) {
+                session.ui.status = "モーフ本体を選択したまま、オフセット対象pickを開始してください";
             }
         } else {
             const auto picked = pickViewport(session, vertices, camera, origin,

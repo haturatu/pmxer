@@ -4,7 +4,7 @@
 
 namespace pmxer {
 
-class DocumentSession;
+struct DocumentSession;
 class GpuModelRenderer;
 
 void drawInspectorPanel(DocumentSession &session, GpuModelRenderer *renderer,

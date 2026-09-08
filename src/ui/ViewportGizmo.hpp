@@ -10,7 +10,7 @@
 
 namespace pmxer {
 
-class DocumentSession;
+struct DocumentSession;
 
 [[nodiscard]] std::optional<ImGuizmo::OPERATION>
 operationFor(ViewportTool tool, const TransformCapabilities &capabilities) noexcept;
