@@ -9,9 +9,9 @@ namespace pmxer {
 
 class GpuModelRenderer;
 
-void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *frame = nullptr,
-                       GpuModelRenderer *renderer = nullptr,
-                       bool *showDiagnostics = nullptr, bool *open = nullptr,
+void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *frame,
+                       GpuModelRenderer *renderer,
+                       bool *showDiagnostics, bool *open,
                        EditorWorkspace &activeWorkspace,
                        WorkspaceViewportProfile *profile);
 

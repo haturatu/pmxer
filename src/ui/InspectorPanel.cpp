@@ -238,7 +238,7 @@ void materialInspector(DocumentSession &session,
   if (draft.sphereMode != 0U)
     texturePreviewCard(session, "球面テクスチャ", draft.sphereTextureIndex,
                        renderer);
-  const char *toonModes[]{"共有", "個別"};
+  const char *toonModes[]{"個別テクスチャ", "共有トゥーン"};
   const auto toon = std::min<std::size_t>(draft.toonMode, 1U);
   if (ImGui::BeginCombo("トゥーン", toonModes[toon])) {
     for (std::size_t index = 0; index < 2U; ++index)

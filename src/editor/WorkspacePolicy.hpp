@@ -7,7 +7,7 @@
 
 namespace pmxer {
 
-class DocumentSession;
+struct DocumentSession;
 
 enum class EditorWorkspace { model, rig, morph, physics, inspect };
 

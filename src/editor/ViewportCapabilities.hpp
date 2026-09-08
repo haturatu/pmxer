@@ -6,7 +6,7 @@
 
 namespace pmxer {
 
-class DocumentSession;
+struct DocumentSession;
 
 struct TransformCapabilities {
     bool move{};

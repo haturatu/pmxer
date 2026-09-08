@@ -1211,6 +1211,18 @@ void drawDiagnosticsPanel(DocumentSession &session, GpuModelRenderer *renderer,
                                                  : "GPU転送失敗";
                     ImGui::TextWrapped("[%s] %s", state,
                                       texture.resolvedPath.string().c_str());
+                    ImGui::SameLine();
+                    const auto button = "選択##texture-resource" +
+                                        std::to_string(texture.textureIndex);
+                    if (ImGui::SmallButton(button.c_str()) &&
+                        texture.textureIndex < session.document.model().textures.size()) {
+                        const auto handle = session.document.textureHandle(texture.textureIndex);
+                        selectPrimary(session, workspace,
+                                      {SelectionKind::texture, handle.domain,
+                                       handle.id, handle.generation},
+                                      SelectionOrigin::diagnostics);
+                        session.ui.textureIndex = texture.textureIndex;
+                    }
                 }
             }
         }
@@ -1357,7 +1369,6 @@ void drawMainMenu(DocumentSession *session, FileDialog &fileDialog,
             ImGui::EndMenu();
         }
         if (ImGui::MenuItem("レイアウトをリセット")) {
-            ImGui::ClearIniSettings();
             workspace.resetPanels();
             workspace.resetLayout = true;
         }

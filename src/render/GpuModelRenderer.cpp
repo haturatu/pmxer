@@ -333,6 +333,7 @@ struct GpuModelRenderer::Impl {
         textureSizes.resize(model.textures.size());
         textureStatus.assign(model.textures.size(), {});
         for (std::size_t index = 0; index < model.textures.size(); ++index) {
+            textureStatus[index].textureIndex = index;
             const auto path = mmd::pmx::resolveTexturePath(model, index);
             textureStatus[index].resolvedPath = path;
             if (path.empty() || !std::filesystem::exists(path)) {
@@ -690,6 +691,8 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
                                                     : impl_->defaultTexture);
         };
         const auto toonTextureFor = [&](std::int32_t index) -> SDL_GPUTexture * {
+            if (index < 0)
+                return impl_->defaultTexture;
             return textureLoaded(index) ? impl_->textures[static_cast<std::size_t>(index)]
                                         : impl_->toonFallbackTexture;
         };

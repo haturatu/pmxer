@@ -27,8 +27,6 @@ bool WorkspacePolicy::allows(SelectionKind kind) const noexcept {
 }
 
 bool WorkspacePolicy::allows(ViewportSelectionMode mode) const noexcept {
-    if (workspace == EditorWorkspace::morph && mode == ViewportSelectionMode::material)
-        return true;
     switch (mode) {
     case ViewportSelectionMode::vertex:
         return allows(SelectionKind::vertex);
@@ -54,7 +52,7 @@ WorkspacePolicy workspacePolicy(EditorWorkspace workspace) noexcept {
     case EditorWorkspace::rig:
         return {workspace, ViewportSelectionMode::bone, true, false, profile};
     case EditorWorkspace::morph:
-        return {workspace, ViewportSelectionMode::material, false, false, profile};
+        return {workspace, std::nullopt, false, false, profile};
     case EditorWorkspace::physics:
         return {workspace, ViewportSelectionMode::rigidBody, false, true, profile};
     case EditorWorkspace::inspect:

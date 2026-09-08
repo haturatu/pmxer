@@ -22,6 +22,7 @@ enum class UiSemanticId {
 };
 
 enum class UiSemanticRole { button, checkbox, radio };
+enum class UiSemanticSupport { supported, partial, unsupported };
 
 struct UiSemanticNode {
     UiSemanticId id{};
@@ -29,6 +30,8 @@ struct UiSemanticNode {
     std::string_view label;
     bool enabled{};
     bool checked{};
+    UiSemanticSupport support{UiSemanticSupport::supported};
+    std::string_view reason;
     float minX{};
     float minY{};
     float maxX{};
@@ -43,6 +46,8 @@ bool button(UiSemanticId id, const char *label, bool enabled = true);
 bool checkbox(UiSemanticId id, const char *label, bool *value,
               bool enabled = true);
 bool radioButton(UiSemanticId id, const char *label, bool active,
-                 bool enabled = true);
+                 bool enabled = true,
+                 UiSemanticSupport support = UiSemanticSupport::supported,
+                 std::string_view reason = {});
 
 } // namespace pmxer::ui

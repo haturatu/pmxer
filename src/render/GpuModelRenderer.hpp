@@ -30,6 +30,7 @@ struct GpuTexturePreview {
 enum class TextureResourceState { loaded, missing, decodeFailed, uploadFailed };
 
 struct TextureResourceStatus {
+    std::size_t textureIndex{};
     TextureResourceState state{TextureResourceState::missing};
     std::filesystem::path resolvedPath;
 };

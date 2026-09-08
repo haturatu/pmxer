@@ -8,11 +8,12 @@ namespace {
 std::vector<UiSemanticNode> frameNodes;
 
 void registerItem(UiSemanticId id, UiSemanticRole role, const char *label,
-                  bool enabled, bool checked) {
+                  bool enabled, bool checked, UiSemanticSupport support,
+                  std::string_view reason) {
     const auto minimum = ImGui::GetItemRectMin();
     const auto maximum = ImGui::GetItemRectMax();
-    frameNodes.push_back({id, role, label, enabled, checked, minimum.x, minimum.y,
-                          maximum.x, maximum.y});
+    frameNodes.push_back({id, role, label, enabled, checked, support, reason,
+                          minimum.x, minimum.y, maximum.x, maximum.y});
 }
 
 } // namespace
@@ -56,7 +57,10 @@ bool button(UiSemanticId id, const char *label, bool enabled) {
     if (!enabled)
         ImGui::BeginDisabled();
     const auto clicked = ImGui::Button(label);
-    registerItem(id, UiSemanticRole::button, label, enabled, false);
+    registerItem(id, UiSemanticRole::button, label, enabled, false,
+                 enabled ? UiSemanticSupport::supported
+                         : UiSemanticSupport::unsupported,
+                 enabled ? std::string_view{} : std::string_view{"操作できません"});
     if (!enabled)
         ImGui::EndDisabled();
     ImGui::PopID();
@@ -68,19 +72,25 @@ bool checkbox(UiSemanticId id, const char *label, bool *value, bool enabled) {
     if (!enabled)
         ImGui::BeginDisabled();
     const auto changed = ImGui::Checkbox(label, value);
-    registerItem(id, UiSemanticRole::checkbox, label, enabled, value != nullptr && *value);
+    registerItem(id, UiSemanticRole::checkbox, label, enabled,
+                 value != nullptr && *value,
+                 enabled ? UiSemanticSupport::supported
+                         : UiSemanticSupport::unsupported,
+                 enabled ? std::string_view{} : std::string_view{"操作できません"});
     if (!enabled)
         ImGui::EndDisabled();
     ImGui::PopID();
     return changed;
 }
 
-bool radioButton(UiSemanticId id, const char *label, bool active, bool enabled) {
+bool radioButton(UiSemanticId id, const char *label, bool active, bool enabled,
+                 UiSemanticSupport support, std::string_view reason) {
     ImGui::PushID(name(id).data());
     if (!enabled)
         ImGui::BeginDisabled();
     const auto clicked = ImGui::RadioButton(label, active);
-    registerItem(id, UiSemanticRole::radio, label, enabled, active);
+    registerItem(id, UiSemanticRole::radio, label, enabled, active, support,
+                 reason);
     if (!enabled)
         ImGui::EndDisabled();
     ImGui::PopID();

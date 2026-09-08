@@ -92,6 +92,10 @@ void selectViewportItem(DocumentSession &session, EditorWorkspace &workspace,
                         SelectionItem item, std::size_t index) {
     if (selectMorphOffsetTarget(session, item))
         return;
+    if (workspace == EditorWorkspace::morph) {
+        session.ui.status = "モーフ本体を選択したまま、オフセット対象pickを開始してください";
+        return;
+    }
     if (ImGui::GetIO().KeyCtrl) {
         if (session.selection.contains(item))
             session.selection.remove(item);
@@ -454,7 +458,10 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                                 ui::UiSemanticId semanticId, bool supported,
                                 std::string_view tooltip) {
         if (ui::radioButton(semanticId, label,
-                            session.ui.viewportTool == tool, supported))
+                            session.ui.viewportTool == tool, supported,
+                            supported ? ui::UiSemanticSupport::supported
+                                       : ui::UiSemanticSupport::unsupported,
+                            tooltip))
             session.ui.viewportTool = tool;
         if (!supported && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
             ImGui::BeginTooltip();
@@ -472,7 +479,10 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                rotateAvailability.enabled, rotateAvailability.reason);
     if (ui::radioButton(ui::UiSemanticId::viewportToolScale, "拡縮",
                         session.ui.viewportTool == ViewportTool::scale,
-                        scaleAvailability.enabled))
+                        scaleAvailability.enabled,
+                        scaleAvailability.enabled ? ui::UiSemanticSupport::supported
+                                                  : ui::UiSemanticSupport::unsupported,
+                        scaleAvailability.reason))
         session.ui.viewportTool = ViewportTool::scale;
     if (!scaleAvailability.enabled && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
         ImGui::BeginTooltip();
@@ -984,10 +994,15 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     }
     if (ImGui::BeginPopup("viewport-context")) {
         if (ImGui::MenuItem("選択対象へフォーカス")) {
-            if (const auto position = selectedPosition(session))
-                session.ui.cameraTarget = *position;
-            else
-                session.ui.cameraTarget = session.ui.viewportHoverPosition;
+            if (const auto selected = selectionBounds(session))
+                frameBounds(session.ui, *selected,
+                            available.x / std::max(available.y, 1.0F));
+            else {
+                Bounds hoverBounds;
+                includePoint(hoverBounds, session.ui.viewportHoverPosition);
+                frameBounds(session.ui, hoverBounds,
+                            available.x / std::max(available.y, 1.0F));
+            }
         }
         const auto materials = selectedMaterials(session);
         if (!materials.empty()) {
