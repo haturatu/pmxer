@@ -238,7 +238,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         session.ui.showPhysics = true;
     }
     ImGui::SameLine();
-    ImGui::SeparatorEx(ImGuiDir_Vertical, ImGuiSeparatorFlags_None);
+    ImGui::TextDisabled("|");
     ImGui::SameLine();
     ImGui::Checkbox("X-Ray", &session.ui.xray);
     const auto toolButton = [&](const char *label, ViewportTool tool) {
@@ -252,7 +252,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     if (ImGui::RadioButton("拡縮", session.ui.viewportTool == ViewportTool::scale))
         session.ui.viewportTool = ViewportTool::scale;
     ImGui::SameLine();
-    ImGui::SeparatorEx(ImGuiDir_Vertical, ImGuiSeparatorFlags_None);
+    ImGui::TextDisabled("|");
     ImGui::SameLine();
     ImGui::Checkbox("ローカル", &session.ui.localTransform);
     ImGui::SameLine();
@@ -392,7 +392,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 const auto delta = ImGui::GetIO().MouseDelta;
                 if (session.ui.cameraDollying) {
                     session.ui.cameraDistance = std::clamp(
-                        session.ui.cameraDistance * std::exp(delta.y * 0.12F),
+                        session.ui.cameraDistance * std::exp(delta.y * 0.01F),
                         0.01F, 100000.0F);
                 } else {
                     const auto scale = session.ui.cameraDistance * 0.0015F;
