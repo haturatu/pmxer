@@ -48,6 +48,7 @@ class SelectionState {
     void add(const std::vector<SelectionItem> &items);
     void toggle(const std::vector<SelectionItem> &items);
     void remove(SelectionItem item);
+    void retainAlive(const mmd::PmxDocument &document);
     [[nodiscard]] bool contains(SelectionItem item) const noexcept;
     [[nodiscard]] const std::vector<SelectionItem> &items() const noexcept;
 

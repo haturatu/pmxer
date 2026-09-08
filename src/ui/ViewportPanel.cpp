@@ -1,8 +1,12 @@
 #include "ViewportPanel.hpp"
 #include "ViewportGizmo.hpp"
 #include "ViewportPicking.hpp"
+#include "UiSemantics.hpp"
 
+#include "../editor/EditorSelectionController.hpp"
+#include "../editor/ViewportCapabilities.hpp"
 #include "../render/Camera.hpp"
+#include "../render/GpuModelRenderer.hpp"
 
 #include <imgui.h>
 
@@ -12,7 +16,10 @@
 #include <cmath>
 #include <limits>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <tuple>
+#include <utility>
 
 namespace pmxer {
 namespace {
@@ -26,6 +33,57 @@ struct Bounds {
     float maxZ{std::numeric_limits<float>::lowest()};
 };
 
+void includePoint(Bounds &bounds, const mmd::Float3 &point) {
+    bounds.minX = std::min(bounds.minX, point[0]);
+    bounds.maxX = std::max(bounds.maxX, point[0]);
+    bounds.minY = std::min(bounds.minY, point[1]);
+    bounds.maxY = std::max(bounds.maxY, point[1]);
+    bounds.minZ = std::min(bounds.minZ, point[2]);
+    bounds.maxZ = std::max(bounds.maxZ, point[2]);
+}
+
+[[nodiscard]] bool validBounds(const Bounds &bounds) {
+    return bounds.minX <= bounds.maxX && bounds.minY <= bounds.maxY &&
+           bounds.minZ <= bounds.maxZ;
+}
+
+float boundsRadius(const Bounds &bounds) {
+    const auto dx = bounds.maxX - bounds.minX;
+    const auto dy = bounds.maxY - bounds.minY;
+    const auto dz = bounds.maxZ - bounds.minZ;
+    return std::sqrt(dx * dx + dy * dy + dz * dz) * 0.5F;
+}
+
+void includeVertex(Bounds &bounds, const std::vector<mmd::PmxVertex> &vertices,
+                   std::int32_t index) {
+    if (index >= 0 && static_cast<std::size_t>(index) < vertices.size())
+        includePoint(bounds, vertices[static_cast<std::size_t>(index)].position);
+}
+
+void includeFace(Bounds &bounds, const mmd::PmxModel &model, std::size_t face) {
+    const auto offset = face * 3U;
+    if (offset + 2U >= model.indices.size())
+        return;
+    for (std::size_t index = 0; index < 3U; ++index)
+        includeVertex(bounds, model.vertices,
+                      static_cast<std::int32_t>(model.indices[offset + index]));
+}
+
+void includeMaterialFaces(Bounds &bounds, const mmd::PmxModel &model,
+                          std::size_t materialIndex) {
+    std::size_t indexOffset{};
+    for (std::size_t index = 0; index < model.materials.size(); ++index) {
+        const auto faceCount = model.materials[index].indexCount / 3U;
+        if (index == materialIndex) {
+            const auto firstFace = indexOffset / 3U;
+            for (std::size_t face = firstFace; face < firstFace + faceCount; ++face)
+                includeFace(bounds, model, face);
+            return;
+        }
+        indexOffset += model.materials[index].indexCount;
+    }
+}
+
 ImVec2 project(const mmd::Float3 &position, const Bounds &, ImVec2 origin, ImVec2 size, const EditorUiState &ui) {
     const CameraState camera{ui.cameraTarget, ui.cameraYaw, ui.cameraPitch, ui.cameraDistance, ui.orthographic};
     const auto point = projectWorldToScreen(camera, position, origin.x, origin.y, size.x, size.y);
@@ -37,16 +95,23 @@ ImVec2 project(const mmd::PmxVertex &vertex, const Bounds &bounds, ImVec2 origin
     return project(vertex.position, bounds, origin, size, ui);
 }
 
-void selectViewportItem(DocumentSession &session, SelectionItem item, std::size_t index) {
+void selectViewportItem(DocumentSession &session, EditorWorkspace &workspace,
+                        SelectionItem item, std::size_t index) {
+    if (selectMorphOffsetTarget(session, item))
+        return;
+    if (workspace == EditorWorkspace::morph) {
+        session.ui.status = "モーフ本体を選択したまま、オフセット対象pickを開始してください";
+        return;
+    }
     if (ImGui::GetIO().KeyCtrl) {
         if (session.selection.contains(item))
             session.selection.remove(item);
         else
-            session.selection.add(item);
+            addSelection(session, workspace, item, SelectionOrigin::viewport);
     } else if (ImGui::GetIO().KeyShift) {
-        session.selection.add(item);
+        addSelection(session, workspace, item, SelectionOrigin::viewport);
     } else {
-        session.selection.set(item);
+        selectPrimary(session, workspace, item, SelectionOrigin::viewport);
     }
     session.ui.clearDrafts();
     if (item.kind == SelectionKind::vertex)
@@ -61,24 +126,167 @@ void selectViewportItem(DocumentSession &session, SelectionItem item, std::size_
         session.ui.jointIndex = index;
 }
 
-std::optional<mmd::Float3> selectedPosition(const DocumentSession &session) {
+std::optional<Bounds> selectionBounds(const DocumentSession &session) {
     if (session.selection.items().empty())
         return std::nullopt;
-    const auto selected = session.selection.items().front();
-    if (selected.kind == SelectionKind::vertex) {
-        if (const auto *value = session.document.resolve(selectionHandle<mmd::VertexTag>(session.document, selected)))
-            return value->position;
-    } else if (selected.kind == SelectionKind::bone) {
-        if (const auto *value = session.document.resolve(selectionHandle<mmd::BoneTag>(session.document, selected)))
-            return value->position;
-    } else if (selected.kind == SelectionKind::rigidBody) {
-        if (const auto *value = session.document.resolve(selectionHandle<mmd::RigidBodyTag>(session.document, selected)))
-            return value->position;
-    } else if (selected.kind == SelectionKind::joint) {
-        if (const auto *value = session.document.resolve(selectionHandle<mmd::JointTag>(session.document, selected)))
-            return value->position;
+    const auto &model = session.document.model();
+    Bounds bounds;
+    std::vector<bool> morphStack(model.morphs.size());
+    const auto includeMorph = [&](auto &&self, std::size_t morphIndex) -> void {
+        if (morphIndex >= model.morphs.size() || morphStack[morphIndex])
+            return;
+        morphStack[morphIndex] = true;
+        const auto &morph = model.morphs[morphIndex];
+        for (const auto &offset : morph.offsets) {
+            switch (morph.type) {
+            case 0:
+            case 9:
+                if (offset.index >= 0)
+                    self(self, static_cast<std::size_t>(offset.index));
+                break;
+            case 1:
+            case 3:
+            case 4:
+            case 5:
+            case 6:
+            case 7:
+                includeVertex(bounds, model.vertices, offset.index);
+                break;
+            case 2:
+                if (offset.index >= 0 && static_cast<std::size_t>(offset.index) < model.bones.size())
+                    includePoint(bounds, model.bones[static_cast<std::size_t>(offset.index)].position);
+                break;
+            case 8:
+                if (offset.index < 0) {
+                    for (std::size_t material = 0; material < model.materials.size(); ++material)
+                        includeMaterialFaces(bounds, model, material);
+                } else {
+                    includeMaterialFaces(bounds, model, static_cast<std::size_t>(offset.index));
+                }
+                break;
+            case 10:
+                if (offset.index >= 0 && static_cast<std::size_t>(offset.index) < model.rigidBodies.size()) {
+                    const auto &body = model.rigidBodies[static_cast<std::size_t>(offset.index)];
+                    const mmd::Float3 half{std::abs(body.size[0]) * 0.5F,
+                                           std::abs(body.size[1]) * 0.5F,
+                                           std::abs(body.size[2]) * 0.5F};
+                    includePoint(bounds, {body.position[0] - half[0], body.position[1] - half[1], body.position[2] - half[2]});
+                    includePoint(bounds, {body.position[0] + half[0], body.position[1] + half[1], body.position[2] + half[2]});
+                }
+                break;
+            default:
+                break;
+            }
+        }
+        morphStack[morphIndex] = false;
+    };
+    for (const auto &selected : session.selection.items()) {
+        switch (selected.kind) {
+        case SelectionKind::vertex: {
+            const auto *value = session.document.resolve(selectionHandle<mmd::VertexTag>(session.document, selected));
+            if (value != nullptr)
+                includePoint(bounds, value->position);
+            break;
+        }
+        case SelectionKind::bone: {
+            const auto *value = session.document.resolve(selectionHandle<mmd::BoneTag>(session.document, selected));
+            if (value != nullptr)
+                includePoint(bounds, value->position);
+            break;
+        }
+        case SelectionKind::rigidBody: {
+            const auto *value = session.document.resolve(selectionHandle<mmd::RigidBodyTag>(session.document, selected));
+            if (value != nullptr) {
+                const mmd::Float3 half{std::abs(value->size[0]) * 0.5F,
+                                       std::abs(value->size[1]) * 0.5F,
+                                       std::abs(value->size[2]) * 0.5F};
+                includePoint(bounds, {value->position[0] - half[0], value->position[1] - half[1], value->position[2] - half[2]});
+                includePoint(bounds, {value->position[0] + half[0], value->position[1] + half[1], value->position[2] + half[2]});
+            }
+            break;
+        }
+        case SelectionKind::joint: {
+            const auto *value = session.document.resolve(selectionHandle<mmd::JointTag>(session.document, selected));
+            if (value != nullptr)
+                includePoint(bounds, value->position);
+            break;
+        }
+        case SelectionKind::face:
+            for (std::size_t index = 0; index < session.document.faces().size(); ++index)
+                if (session.document.faceHandle(index) == selectionHandle<mmd::FaceTag>(session.document, selected))
+                    includeFace(bounds, model, index);
+            break;
+        case SelectionKind::material:
+            for (std::size_t index = 0; index < model.materials.size(); ++index)
+                if (session.document.materialHandle(index) == selectionHandle<mmd::MaterialTag>(session.document, selected))
+                    includeMaterialFaces(bounds, model, index);
+            break;
+        case SelectionKind::texture:
+            for (std::size_t texture = 0; texture < model.textures.size(); ++texture) {
+                if (session.document.textureHandle(texture) != selectionHandle<mmd::TextureTag>(session.document, selected))
+                    continue;
+                for (std::size_t material = 0; material < model.materials.size(); ++material)
+                    if (model.materials[material].textureIndex == static_cast<std::int32_t>(texture) ||
+                        model.materials[material].sphereTextureIndex == static_cast<std::int32_t>(texture) ||
+                        model.materials[material].toonTextureIndex == static_cast<std::int32_t>(texture))
+                        includeMaterialFaces(bounds, model, material);
+            }
+            break;
+        case SelectionKind::morph: {
+            const auto handle = selectionHandle<mmd::MorphTag>(session.document, selected);
+            for (std::size_t index = 0; index < model.morphs.size(); ++index) {
+                if (session.document.morphHandle(index) == handle) {
+                    includeMorph(includeMorph, index);
+                    break;
+                }
+            }
+            break;
+        }
+        case SelectionKind::displayFrame:
+        case SelectionKind::softBody:
+            break;
+        }
     }
-    return std::nullopt;
+    return validBounds(bounds) ? std::optional{bounds} : std::nullopt;
+}
+
+void frameBounds(EditorUiState &ui, const Bounds &bounds, float aspect,
+                 float modelRadius) {
+    if (!validBounds(bounds))
+        return;
+    ui.cameraTarget = {(bounds.minX + bounds.maxX) * 0.5F,
+                       (bounds.minY + bounds.maxY) * 0.5F,
+                       (bounds.minZ + bounds.maxZ) * 0.5F};
+    const auto radius = std::max({boundsRadius(bounds), modelRadius * 0.01F,
+                                  0.001F});
+    const auto safeAspect = std::max(aspect, 0.001F);
+    const auto verticalHalfFov = 0.75F * 0.5F;
+    const auto horizontalHalfFov =
+        std::atan(std::tan(verticalHalfFov) * safeAspect);
+    const auto limitingHalfFov = std::min(verticalHalfFov, horizontalHalfFov);
+    const auto fitDistance = radius / std::sin(limitingHalfFov) * 1.10F;
+    ui.cameraDistance = std::max(fitDistance, radius + 0.02F);
+    ui.cameraInitialized = true;
+}
+
+std::pair<float, float> cameraDistanceLimits(const Bounds &bounds) {
+    const auto radius = std::max(boundsRadius(bounds), 0.001F);
+    const auto minimum = std::max(radius * 0.02F, 0.001F);
+    return {minimum, std::max(radius * 50.0F, minimum * 10.0F)};
+}
+
+void setBoneOverlay(DocumentSession &session, WorkspaceViewportProfile *profile,
+                    bool value) {
+    session.ui.showBones = value;
+    if (profile != nullptr)
+        profile->showBones = value;
+}
+
+void setPhysicsOverlay(DocumentSession &session,
+                       WorkspaceViewportProfile *profile, bool value) {
+    session.ui.showPhysics = value;
+    if (profile != nullptr)
+        profile->showPhysics = value;
 }
 
 bool isSelected(const DocumentSession &session, SelectionKind kind,
@@ -99,45 +307,6 @@ void appendUnique(std::vector<SelectionItem> &items,
                   const SelectionItem &item) {
     if (std::find(items.begin(), items.end(), item) == items.end())
         items.push_back(item);
-}
-
-std::vector<SelectionItem> allItemsForMode(const DocumentSession &session) {
-    std::vector<SelectionItem> result;
-    const auto append = [&](SelectionKind kind, std::size_t count, const auto &handleAt) {
-        result.reserve(count);
-        for (std::size_t index = 0; index < count; ++index) {
-            const auto handle = handleAt(index);
-            result.push_back({kind, handle.domain, handle.id, handle.generation});
-        }
-    };
-    const auto &model = session.document.model();
-    switch (session.ui.selectionMode) {
-    case ViewportSelectionMode::vertex:
-        append(SelectionKind::vertex, model.vertices.size(),
-               [&](std::size_t index) { return session.document.vertexHandle(index); });
-        break;
-    case ViewportSelectionMode::face:
-        append(SelectionKind::face, model.indices.size() / 3U,
-               [&](std::size_t index) { return session.document.faceHandle(index); });
-        break;
-    case ViewportSelectionMode::material:
-        append(SelectionKind::material, model.materials.size(),
-               [&](std::size_t index) { return session.document.materialHandle(index); });
-        break;
-    case ViewportSelectionMode::bone:
-        append(SelectionKind::bone, model.bones.size(),
-               [&](std::size_t index) { return session.document.boneHandle(index); });
-        break;
-    case ViewportSelectionMode::rigidBody:
-        append(SelectionKind::rigidBody, model.rigidBodies.size(),
-               [&](std::size_t index) { return session.document.rigidBodyHandle(index); });
-        break;
-    case ViewportSelectionMode::joint:
-        append(SelectionKind::joint, model.joints.size(),
-               [&](std::size_t index) { return session.document.jointHandle(index); });
-        break;
-    }
-    return result;
 }
 
 void hoverTooltip(const DocumentSession &session, const SelectionItem &item) {
@@ -211,21 +380,70 @@ bool drawViewAxis(EditorUiState &ui, ImDrawList *draw, ImVec2 origin,
 
 } // namespace
 
-void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *frame, bool *open) {
+void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *frame,
+                        GpuModelRenderer *renderer, bool *showDiagnostics,
+                        bool *open, EditorWorkspace &activeWorkspace,
+                        WorkspaceViewportProfile *profile) {
     session.ui.viewportVisible = false;
     if (!ImGui::Begin("ビューポート", open, ImGuiWindowFlags_NoBackground)) {
         ImGui::End();
         return;
     }
+    if (profile != nullptr)
+        applyViewportProfile(session, *profile);
+    if (session.ui.morphOffsetTarget.picking) {
+        if (session.ui.morphOffsetTarget.expectedKind == SelectionKind::bone)
+            session.ui.showBones = true;
+        if (session.ui.morphOffsetTarget.expectedKind == SelectionKind::rigidBody)
+            session.ui.showPhysics = true;
+    }
+    const auto moveAvailability = actionAvailability(EditorAction::viewportMove, session);
+    const auto rotateAvailability = actionAvailability(EditorAction::viewportRotate, session);
+    const auto scaleAvailability = actionAvailability(EditorAction::viewportScale, session);
+    const auto policy = workspacePolicy(activeWorkspace);
+    if (renderer != nullptr) {
+        const auto resources = renderer->resourceSummary(session);
+        if (resources.missingTextureCount != 0U || resources.failedTextureCount != 0U) {
+            ImGui::TextColored(ImVec4{1.0F, 0.72F, 0.25F, 1.0F},
+                               "⚠ 外部リソース %zu件不足",
+                               resources.missingTextureCount + resources.failedTextureCount);
+            ImGui::SameLine();
+            ImGui::TextDisabled("フォールバック材質で表示しています");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("診断##texture-diagnostics") && showDiagnostics != nullptr)
+                *showDiagnostics = true;
+        }
+    }
     const auto modeButton = [&](const char *label, ViewportSelectionMode mode) {
+        const auto targetPicking = session.ui.morphOffsetTarget.picking;
+        const auto targetMode = [&] {
+            switch (session.ui.morphOffsetTarget.expectedKind) {
+            case SelectionKind::vertex:
+                return ViewportSelectionMode::vertex;
+            case SelectionKind::bone:
+                return ViewportSelectionMode::bone;
+            case SelectionKind::material:
+                return ViewportSelectionMode::material;
+            case SelectionKind::rigidBody:
+                return ViewportSelectionMode::rigidBody;
+            default:
+                return ViewportSelectionMode::material;
+            }
+        }();
+        const auto supported = policy.allows(mode) ||
+                               (targetPicking && mode == targetMode);
+        if (!supported)
+            ImGui::BeginDisabled();
         if (ImGui::RadioButton(label, session.ui.selectionMode == mode)) {
             session.ui.selectionMode = mode;
             if (mode == ViewportSelectionMode::bone)
-                session.ui.showBones = true;
+                setBoneOverlay(session, profile, true);
             if (mode == ViewportSelectionMode::rigidBody ||
                 mode == ViewportSelectionMode::joint)
-                session.ui.showPhysics = true;
+                setPhysicsOverlay(session, profile, true);
         }
+        if (!supported)
+            ImGui::EndDisabled();
         ImGui::SameLine();
     };
     modeButton("頂点", ViewportSelectionMode::vertex);
@@ -233,24 +451,54 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     modeButton("材質", ViewportSelectionMode::material);
     modeButton("ボーン", ViewportSelectionMode::bone);
     modeButton("剛体", ViewportSelectionMode::rigidBody);
+    const auto jointSupported = policy.allows(ViewportSelectionMode::joint);
+    if (!jointSupported)
+        ImGui::BeginDisabled();
     if (ImGui::RadioButton("ジョイント", session.ui.selectionMode == ViewportSelectionMode::joint)) {
         session.ui.selectionMode = ViewportSelectionMode::joint;
-        session.ui.showPhysics = true;
+        setPhysicsOverlay(session, profile, true);
     }
+    if (!jointSupported)
+        ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::TextDisabled("|");
     ImGui::SameLine();
-    ImGui::Checkbox("X-Ray", &session.ui.xray);
-    const auto toolButton = [&](const char *label, ViewportTool tool) {
-        if (ImGui::RadioButton(label, session.ui.viewportTool == tool))
+    ui::checkbox(ui::UiSemanticId::viewportXray, "X-Ray", &session.ui.xray);
+    const auto toolButton = [&](const char *label, ViewportTool tool,
+                                ui::UiSemanticId semanticId, bool supported,
+                                std::string_view tooltip) {
+        if (ui::radioButton(semanticId, label,
+                            session.ui.viewportTool == tool, supported,
+                            supported ? ui::UiSemanticSupport::supported
+                                       : ui::UiSemanticSupport::unsupported,
+                            tooltip))
             session.ui.viewportTool = tool;
+        if (!supported && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::BeginTooltip();
+            ImGui::TextUnformatted(tooltip.data());
+            ImGui::EndTooltip();
+        }
         ImGui::SameLine();
     };
-    toolButton("選択", ViewportTool::select);
-    toolButton("移動", ViewportTool::move);
-    toolButton("回転", ViewportTool::rotate);
-    if (ImGui::RadioButton("拡縮", session.ui.viewportTool == ViewportTool::scale))
+    if (ImGui::RadioButton("選択", session.ui.viewportTool == ViewportTool::select))
+        session.ui.viewportTool = ViewportTool::select;
+    ImGui::SameLine();
+    toolButton("移動", ViewportTool::move, ui::UiSemanticId::viewportToolMove,
+               moveAvailability.enabled, moveAvailability.reason);
+    toolButton("回転", ViewportTool::rotate, ui::UiSemanticId::viewportToolRotate,
+               rotateAvailability.enabled, rotateAvailability.reason);
+    if (ui::radioButton(ui::UiSemanticId::viewportToolScale, "拡縮",
+                        session.ui.viewportTool == ViewportTool::scale,
+                        scaleAvailability.enabled,
+                        scaleAvailability.enabled ? ui::UiSemanticSupport::supported
+                                                  : ui::UiSemanticSupport::unsupported,
+                        scaleAvailability.reason))
         session.ui.viewportTool = ViewportTool::scale;
+    if (!scaleAvailability.enabled && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::BeginTooltip();
+        ImGui::TextUnformatted(scaleAvailability.reason.data());
+        ImGui::EndTooltip();
+    }
     ImGui::SameLine();
     ImGui::TextDisabled("|");
     ImGui::SameLine();
@@ -261,9 +509,13 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     if (ImGui::Button(session.ui.orthographic ? "平行" : "透視"))
         session.ui.orthographic = !session.ui.orthographic;
     ImGui::SameLine();
-    ImGui::Checkbox("ボーン表示", &session.ui.showBones);
+    if (ui::checkbox(ui::UiSemanticId::viewportShowBones, "ボーン表示",
+                     &session.ui.showBones))
+        setBoneOverlay(session, profile, session.ui.showBones);
     ImGui::SameLine();
-    ImGui::Checkbox("物理表示", &session.ui.showPhysics);
+    if (ui::checkbox(ui::UiSemanticId::viewportShowPhysics, "物理表示",
+                     &session.ui.showPhysics))
+        setPhysicsOverlay(session, profile, session.ui.showPhysics);
     ImGui::SameLine();
     ImGui::TextDisabled("?");
     if (ImGui::IsItemHovered()) {
@@ -327,12 +579,11 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                         session.ui.viewportBoundsMin[1], session.ui.viewportBoundsMax[1],
                         session.ui.viewportBoundsMin[2], session.ui.viewportBoundsMax[2]};
     if (!session.ui.cameraInitialized) {
-        session.ui.cameraTarget = {(bounds.minX + bounds.maxX) * 0.5F, (bounds.minY + bounds.maxY) * 0.5F,
-                                   (bounds.minZ + bounds.maxZ) * 0.5F};
-        session.ui.cameraDistance = std::max({bounds.maxX - bounds.minX, bounds.maxY - bounds.minY,
-                                              bounds.maxZ - bounds.minZ, 0.1F}) * 2.0F;
-        session.ui.cameraInitialized = true;
+        frameBounds(session.ui, bounds,
+                    available.x / std::max(available.y, 1.0F),
+                    boundsRadius(bounds));
     }
+    const auto [minimumDistance, maximumDistance] = cameraDistanceLimits(bounds);
     CameraState camera{session.ui.cameraTarget, session.ui.cameraYaw,
                        session.ui.cameraPitch, session.ui.cameraDistance,
                        session.ui.orthographic};
@@ -372,7 +623,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                     releasePosition);
                 if (picked) {
                     if (!session.selection.contains(picked->item))
-                        selectViewportItem(session, picked->item, picked->index);
+                        selectViewportItem(session, activeWorkspace, picked->item, picked->index);
                     session.ui.viewportHover = picked->item;
                     session.ui.viewportHoverFace = picked->face;
                     session.ui.viewportHoverPosition = picked->position;
@@ -393,7 +644,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 if (session.ui.cameraDollying) {
                     session.ui.cameraDistance = std::clamp(
                         session.ui.cameraDistance * std::exp(delta.y * 0.01F),
-                        0.01F, 100000.0F);
+                        minimumDistance, maximumDistance);
                 } else {
                     const auto scale = session.ui.cameraDistance * 0.0015F;
                     session.ui.cameraTarget[0] -=
@@ -411,13 +662,17 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     if (hovered && ImGui::GetIO().MouseWheel != 0.0F)
         session.ui.cameraDistance = std::clamp(session.ui.cameraDistance *
                                                    std::exp(-ImGui::GetIO().MouseWheel * 0.12F),
-                                               0.01F, 100000.0F);
+                                               minimumDistance, maximumDistance);
     if (hovered && ImGui::IsKeyPressed(ImGuiKey_F)) {
-        if (const auto position = selectedPosition(session))
-            session.ui.cameraTarget = *position;
+        if (const auto selected = selectionBounds(session))
+            frameBounds(session.ui, *selected,
+                        available.x / std::max(available.y, 1.0F),
+                        boundsRadius(bounds));
     }
     if (hovered && ImGui::IsKeyPressed(ImGuiKey_Home))
-        session.ui.cameraInitialized = false;
+        frameBounds(session.ui, bounds,
+                    available.x / std::max(available.y, 1.0F),
+                    boundsRadius(bounds));
     if (hovered && ImGui::IsKeyPressed(ImGuiKey_Keypad1)) {
         session.ui.cameraYaw = ImGui::GetIO().KeyCtrl ? 3.1415926F : 0.0F;
         session.ui.cameraPitch = 0.0F;
@@ -432,39 +687,62 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     }
     if (hovered && ImGui::IsKeyPressed(ImGuiKey_Keypad5))
         session.ui.orthographic = !session.ui.orthographic;
-    if (hovered && !ImGui::GetIO().WantTextInput) {
-        if (ImGui::IsKeyPressed(ImGuiKey_1))
-            session.ui.selectionMode = ViewportSelectionMode::vertex;
-        if (ImGui::IsKeyPressed(ImGuiKey_2))
-            session.ui.selectionMode = ViewportSelectionMode::face;
-        if (ImGui::IsKeyPressed(ImGuiKey_3))
-            session.ui.selectionMode = ViewportSelectionMode::material;
-        if (ImGui::IsKeyPressed(ImGuiKey_4)) {
-            session.ui.selectionMode = ViewportSelectionMode::bone;
-            session.ui.showBones = true;
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_5)) {
-            session.ui.selectionMode = ViewportSelectionMode::rigidBody;
-            session.ui.showPhysics = true;
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_6)) {
-            session.ui.selectionMode = ViewportSelectionMode::joint;
-            session.ui.showPhysics = true;
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_G))
-            session.ui.viewportTool = ViewportTool::move;
-        if (ImGui::IsKeyPressed(ImGuiKey_R))
-            session.ui.viewportTool = ViewportTool::rotate;
-        if (ImGui::IsKeyPressed(ImGuiKey_S))
-            session.ui.viewportTool = ViewportTool::scale;
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape))
+    if (!ImGui::GetIO().WantTextInput &&
+        ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        if (session.ui.morphOffsetTarget.picking) {
+            session.ui.morphOffsetTarget = {};
+            session.ui.status = "モーフオフセット対象の選択をキャンセルしました";
+        } else if (hovered) {
             session.ui.viewportTool = ViewportTool::select;
-        if (ImGui::IsKeyPressed(ImGuiKey_A)) {
-            if (ImGui::GetIO().KeyAlt)
-                session.selection.clear();
+        }
+    }
+    if (hovered && !ImGui::GetIO().WantTextInput) {
+        if (ImGui::IsKeyPressed(ImGuiKey_1) && policy.allows(ViewportSelectionMode::vertex))
+            session.ui.selectionMode = ViewportSelectionMode::vertex;
+        if (ImGui::IsKeyPressed(ImGuiKey_2) && policy.allows(ViewportSelectionMode::face))
+            session.ui.selectionMode = ViewportSelectionMode::face;
+        if (ImGui::IsKeyPressed(ImGuiKey_3) && policy.allows(ViewportSelectionMode::material))
+            session.ui.selectionMode = ViewportSelectionMode::material;
+        if (ImGui::IsKeyPressed(ImGuiKey_4) && policy.allows(ViewportSelectionMode::bone)) {
+            session.ui.selectionMode = ViewportSelectionMode::bone;
+            setBoneOverlay(session, profile, true);
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_5) && policy.allows(ViewportSelectionMode::rigidBody)) {
+            session.ui.selectionMode = ViewportSelectionMode::rigidBody;
+            setPhysicsOverlay(session, profile, true);
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_6) && policy.allows(ViewportSelectionMode::joint)) {
+            session.ui.selectionMode = ViewportSelectionMode::joint;
+            setPhysicsOverlay(session, profile, true);
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_G)) {
+            if (moveAvailability.enabled)
+                session.ui.viewportTool = ViewportTool::move;
             else
-                session.selection.set(allItemsForMode(session));
-            session.ui.clearDrafts();
+                session.ui.status = std::string(moveAvailability.reason);
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_R)) {
+            if (rotateAvailability.enabled)
+                session.ui.viewportTool = ViewportTool::rotate;
+            else
+                session.ui.status = std::string(rotateAvailability.reason);
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_S)) {
+            if (scaleAvailability.enabled)
+                session.ui.viewportTool = ViewportTool::scale;
+            else
+                session.ui.status = std::string(scaleAvailability.reason);
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_A)) {
+            if (activeWorkspace == EditorWorkspace::morph &&
+                session.ui.morphOffsetTarget.picking) {
+                session.ui.status = "モーフオフセット対象を選択中です";
+            } else if (ImGui::GetIO().KeyAlt)
+                session.selection.clear();
+            else if (!selectAllForMode(session, activeWorkspace,
+                                       session.ui.selectionMode,
+                                       SelectionOrigin::viewport))
+                session.ui.status = "このワークスペースでは一括選択できません";
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Z) && ImGui::GetIO().KeyAlt)
             session.ui.xray = !session.ui.xray;
@@ -498,7 +776,8 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                                        session.ui);
             draw->AddCircleFilled(point, selected ? 5.0F : 3.0F,
                                   selected ? IM_COL32(255, 225, 90, 255)
-                                           : IM_COL32(245, 190, 80, 220));
+                                           : IM_COL32(245, 190, 80,
+                                                      static_cast<int>(255.0F * (profile != nullptr ? profile->boneOpacity : 0.8F))));
             if (bone.parent < 0 ||
                 static_cast<std::size_t>(bone.parent) >= model.bones.size())
                 continue;
@@ -507,7 +786,8 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 project(model.bones[static_cast<std::size_t>(bone.parent)].position,
                         bounds, origin, available, session.ui),
                 selected ? IM_COL32(255, 225, 90, 255)
-                         : IM_COL32(245, 190, 80, 220),
+                         : IM_COL32(245, 190, 80,
+                                    static_cast<int>(255.0F * (profile != nullptr ? profile->boneOpacity : 0.8F))),
                 selected ? 3.0F : 2.0F);
         }
     }
@@ -523,7 +803,8 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 session, SelectionKind::rigidBody,
                 session.document.rigidBodyHandle(index));
             const auto color = selected ? IM_COL32(255, 225, 90, 255)
-                                        : IM_COL32(180, 230, 255, 180);
+                                        : IM_COL32(180, 230, 255,
+                                                   static_cast<int>(255.0F * (profile != nullptr ? profile->physicsOpacity : 0.75F)));
             if (body.shape == 1)
                 draw->AddRect({point.x - radius, point.y - radius}, {point.x + radius, point.y + radius},
                               color, 0.0F, ImDrawFlags_None, selected ? 3.0F : 1.0F);
@@ -540,7 +821,8 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 session, SelectionKind::joint,
                 session.document.jointHandle(index));
             const auto color = selected ? IM_COL32(255, 225, 90, 255)
-                                        : IM_COL32(180, 255, 180, 170);
+                                        : IM_COL32(180, 255, 180,
+                                                   static_cast<int>(255.0F * (profile != nullptr ? profile->physicsOpacity : 0.75F)));
             draw->AddLine(
                 project(model.rigidBodies[static_cast<std::size_t>(joint.bodyA)].position,
                         bounds, origin, available, session.ui),
@@ -611,36 +893,56 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         if (dx * dx + dy * dy > 16.0F) {
             const auto picked = pickViewportRectangle(session, vertices, camera, origin,
                                                       available, start, end);
-            std::vector<SelectionItem> selected;
-            selected.reserve(picked.size());
-            for (const auto &item : picked)
-                selected.push_back(item.item);
-            if (ImGui::GetIO().KeyCtrl)
-                session.selection.toggle(selected);
-            else if (ImGui::GetIO().KeyShift)
-                session.selection.add(selected);
-            else
-                session.selection.set(std::move(selected));
-            if (!picked.empty()) {
-                const auto &first = picked.front();
-                session.ui.clearDrafts();
-                if (first.item.kind == SelectionKind::vertex)
-                    session.ui.vertexIndex = first.index;
-                else if (first.item.kind == SelectionKind::material)
-                    session.ui.materialIndex = first.index;
-                else if (first.item.kind == SelectionKind::bone)
-                    session.ui.boneIndex = first.index;
-                else if (first.item.kind == SelectionKind::rigidBody)
-                    session.ui.rigidBodyIndex = first.index;
-                else if (first.item.kind == SelectionKind::joint)
-                    session.ui.jointIndex = first.index;
+            const auto targetCaptured = session.ui.morphOffsetTarget.picking && !picked.empty();
+            if (targetCaptured) {
+                selectViewportItem(session, activeWorkspace, picked.front().item,
+                                   picked.front().index);
+            }
+            if (!targetCaptured && activeWorkspace != EditorWorkspace::morph) {
+                std::vector<SelectionItem> selected;
+                selected.reserve(picked.size());
+                for (const auto &item : picked)
+                    selected.push_back(item.item);
+                if (ImGui::GetIO().KeyCtrl) {
+                    for (const auto &item : selected)
+                        toggleSelection(session, activeWorkspace, item,
+                                        SelectionOrigin::viewport);
+                } else if (ImGui::GetIO().KeyShift) {
+                    for (const auto &item : selected)
+                        addSelection(session, activeWorkspace, item,
+                                     SelectionOrigin::viewport);
+                } else if (!selected.empty()) {
+                    selectPrimary(session, activeWorkspace, selected.front(),
+                                  SelectionOrigin::viewport);
+                    for (std::size_t index = 1; index < selected.size(); ++index)
+                        addSelection(session, activeWorkspace, selected[index],
+                                     SelectionOrigin::viewport);
+                }
+                if (!picked.empty()) {
+                    const auto &first = picked.front();
+                    session.ui.clearDrafts();
+                    if (first.item.kind == SelectionKind::vertex)
+                        session.ui.vertexIndex = first.index;
+                    else if (first.item.kind == SelectionKind::material)
+                        session.ui.materialIndex = first.index;
+                    else if (first.item.kind == SelectionKind::bone)
+                        session.ui.boneIndex = first.index;
+                    else if (first.item.kind == SelectionKind::rigidBody)
+                        session.ui.rigidBodyIndex = first.index;
+                    else if (first.item.kind == SelectionKind::joint)
+                        session.ui.jointIndex = first.index;
+                }
+            } else if (!targetCaptured && activeWorkspace == EditorWorkspace::morph) {
+                session.ui.status = "モーフ本体を選択したまま、オフセット対象pickを開始してください";
             }
         } else {
             const auto picked = pickViewport(session, vertices, camera, origin,
                                              available, end);
             if (picked)
-                selectViewportItem(session, picked->item, picked->index);
-            else if (!ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift)
+                selectViewportItem(session, activeWorkspace, picked->item, picked->index);
+            else if (!ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift &&
+                     activeWorkspace != EditorWorkspace::morph &&
+                     !session.ui.morphOffsetTarget.picking)
                 session.selection.clear();
         }
         session.ui.boxSelecting = false;
@@ -722,10 +1024,17 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     }
     if (ImGui::BeginPopup("viewport-context")) {
         if (ImGui::MenuItem("選択対象へフォーカス")) {
-            if (const auto position = selectedPosition(session))
-                session.ui.cameraTarget = *position;
-            else
-                session.ui.cameraTarget = session.ui.viewportHoverPosition;
+            if (const auto selected = selectionBounds(session))
+                frameBounds(session.ui, *selected,
+                            available.x / std::max(available.y, 1.0F),
+                            boundsRadius(bounds));
+            else {
+                Bounds hoverBounds;
+                includePoint(hoverBounds, session.ui.viewportHoverPosition);
+                frameBounds(session.ui, hoverBounds,
+                            available.x / std::max(available.y, 1.0F),
+                            boundsRadius(bounds));
+            }
         }
         const auto materials = selectedMaterials(session);
         if (!materials.empty()) {
@@ -750,8 +1059,10 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 const auto index =
                     static_cast<std::size_t>(material->textureIndex);
                 const auto texture = session.document.textureHandle(index);
-                session.selection.set({SelectionKind::texture, texture.domain,
-                                       texture.id, texture.generation});
+                selectPrimary(session, activeWorkspace,
+                              {SelectionKind::texture, texture.domain,
+                               texture.id, texture.generation},
+                              SelectionOrigin::reference);
                 session.ui.textureIndex = index;
                 session.ui.clearDrafts();
             }

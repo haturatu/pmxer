@@ -69,6 +69,10 @@ add_library(pmxer_editor
   src/editor/EditorDiagnostics.cpp
   src/editor/RecoveryController.cpp
   src/editor/EditorOperations.cpp
+  src/editor/EditorSelectionController.cpp
+  src/editor/WorkspacePolicy.cpp
+  src/editor/ViewportCapabilities.cpp
+  src/ui/WorkspaceLayout.cpp
   src/editor/tools/SdefTool.cpp
   src/editor/tools/StandardBoneTool.cpp
   src/editor/tools/WeightTool.cpp
@@ -302,6 +306,7 @@ if(PMXER_BUILD_GUI)
     src/ui/ViewportPanel.cpp
     src/ui/ViewportGizmo.cpp
     src/ui/ViewportPicking.cpp
+    src/ui/UiSemantics.cpp
     src/render/GpuModelRenderer.cpp
     src/render/ImageDecoder.cpp
     src/platform/FileDialog.cpp

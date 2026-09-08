@@ -1,12 +1,18 @@
 #pragma once
 
 #include "../editor/DocumentSession.hpp"
+#include "../editor/WorkspacePolicy.hpp"
 
 #include <mmd/animation.hpp>
 
 namespace pmxer {
 
-void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *frame = nullptr,
-                       bool *open = nullptr);
+class GpuModelRenderer;
+
+void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *frame,
+                       GpuModelRenderer *renderer,
+                       bool *showDiagnostics, bool *open,
+                       EditorWorkspace &activeWorkspace,
+                       WorkspaceViewportProfile *profile);
 
 } // namespace pmxer

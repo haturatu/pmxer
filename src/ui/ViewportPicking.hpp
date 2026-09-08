@@ -12,7 +12,7 @@
 
 namespace pmxer {
 
-class DocumentSession;
+struct DocumentSession;
 
 struct ViewportPickResult {
     SelectionItem item;

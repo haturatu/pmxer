@@ -27,6 +27,7 @@ cbuffer MaterialData : register(b0, space3) {
     float4 toonAdd;
     float4 edgeColor;
     float4 materialModes;
+    float4 textureFlags;
 };
 
 Texture2D baseTexture : register(t0, space2);
@@ -53,7 +54,10 @@ float4 mainPS(VertexOutput input) : SV_Target0 {
     const float lightValue = saturate(dot(normalize(input.normal), lightDirection));
     const float light = 0.25 + 0.75 * lightValue;
     const float4 textureColor = baseTexture.Sample(baseSampler, input.uv);
-    float3 color = diffuse.rgb * (textureColor.rgb * textureMultiply.rgb + textureAdd.rgb);
+    float3 baseDiffuse = diffuse.rgb;
+    if (textureFlags.x > 0.5)
+        baseDiffuse = lerp(baseDiffuse, float3(0.72, 0.74, 0.78), 0.70);
+    float3 color = baseDiffuse * (textureColor.rgb * textureMultiply.rgb + textureAdd.rgb);
     if (materialModes.x > 0.5) {
         const float2 sphereUv = materialModes.x < 2.5
                                     ? normalize(input.normal).xy * 0.5 + 0.5

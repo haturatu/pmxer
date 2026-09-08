@@ -2,6 +2,7 @@
 
 #include "CommandStack.hpp"
 #include "Selection.hpp"
+#include "ViewportPickCache.hpp"
 
 #include <mmd/document.hpp>
 #include <mmd/animation.hpp>
@@ -28,6 +29,15 @@ inline std::string makeRecoveryId() {
 }
 
 class PreviewController;
+
+struct MorphOffsetTargetState {
+    bool picking{};
+    bool adding{};
+    std::size_t offsetIndex{};
+    mmd::MorphHandle morph{};
+    SelectionKind expectedKind{SelectionKind::vertex};
+    std::optional<SelectionItem> target;
+};
 
 struct EditorUiState {
     std::size_t vertexIndex{};
@@ -97,6 +107,8 @@ struct EditorUiState {
     SelectionItem gizmoSelection{};
     std::array<float, 16> gizmoMatrix{};
     std::optional<SelectionItem> viewportHover;
+    MorphOffsetTargetState morphOffsetTarget;
+    std::optional<SelectionItem> morphAddTarget;
     std::optional<std::size_t> viewportHoverFace;
     mmd::Float3 viewportHoverPosition{};
     float viewportHoverMouseX{};
@@ -105,6 +117,7 @@ struct EditorUiState {
     std::uint64_t viewportHoverRevision{std::numeric_limits<std::uint64_t>::max()};
     std::uint64_t viewportHoverFrameRevision{std::numeric_limits<std::uint64_t>::max()};
     std::chrono::steady_clock::time_point viewportHoverUpdated{};
+    mutable ViewportPickCache viewportPickCache;
     std::vector<SelectionItem> hiddenMaterials;
     std::vector<SelectionItem> isolatedMaterials;
     const mmd::AnimatedModelFrame *previewFrame{};
@@ -116,6 +129,7 @@ struct EditorUiState {
         materialDraft.reset();
         boneDraft.reset();
         morphDraft.reset();
+        morphAddTarget.reset();
         morphOffsetDirty = false;
         displayFrameDraft.reset();
         rigidBodyDraft.reset();
@@ -180,8 +194,14 @@ struct DocumentSession {
         if (!commands.undo(document))
             return false;
         modified = commands.isModified();
-        selection.clear();
+        selection.retainAlive(document);
         ui.clearDrafts();
+        ui.morphOffsetTarget = {};
+        ui.gizmoDragging = false;
+        ui.gizmoSelection = {};
+        ui.viewportHover.reset();
+        ui.viewportHoverFace.reset();
+        ui.viewportPickCache.clear();
         changes.topologyChanged = true;
         changes.physicsChanged = true;
         changes.texturesChanged = true;
@@ -194,8 +214,14 @@ struct DocumentSession {
         if (!commands.redo(document))
             return false;
         modified = commands.isModified();
-        selection.clear();
+        selection.retainAlive(document);
         ui.clearDrafts();
+        ui.morphOffsetTarget = {};
+        ui.gizmoDragging = false;
+        ui.gizmoSelection = {};
+        ui.viewportHover.reset();
+        ui.viewportHoverFace.reset();
+        ui.viewportPickCache.clear();
         changes.topologyChanged = true;
         changes.physicsChanged = true;
         changes.texturesChanged = true;

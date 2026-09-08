@@ -1,9 +1,10 @@
 #include "MainWindow.hpp"
+#include "UiSemantics.hpp"
+#include "WorkspaceLayout.hpp"
 
 #include "../editor/DocumentSession.hpp"
 #include "../editor/RecoveryController.hpp"
 #include "../editor/SaveController.hpp"
-#include "../platform/AtomicFile.hpp"
 #include "../platform/Log.hpp"
 #include "../platform/Paths.hpp"
 #include "../platform/ResourceLocator.hpp"
@@ -17,8 +18,6 @@
 #include <array>
 #include <cstddef>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <memory>
 #include <optional>
 #include <string>
@@ -64,46 +63,17 @@ void buildDefaultDockLayout(ImGuiID dockspaceId) {
     const auto left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.22F, nullptr, &center);
     const auto right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.30F, nullptr, &center);
     const auto bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.25F, nullptr, &center);
+    auto leftTop = left;
+    const auto leftBottom = ImGui::DockBuilderSplitNode(leftTop, ImGuiDir_Down, 0.72F, nullptr, &leftTop);
 
     ImGui::DockBuilderDockWindow("ビューポート", center);
-    ImGui::DockBuilderDockWindow("ドキュメント", left);
-    ImGui::DockBuilderDockWindow("アウトライナー", left);
+    ImGui::DockBuilderDockWindow("ドキュメント", leftTop);
+    ImGui::DockBuilderDockWindow("アウトライナー", leftBottom);
     ImGui::DockBuilderDockWindow("インスペクター", right);
     ImGui::DockBuilderDockWindow("診断", bottom);
     ImGui::DockBuilderDockWindow("参照", bottom);
     ImGui::DockBuilderDockWindow("差分", bottom);
     ImGui::DockBuilderFinish(dockspaceId);
-}
-
-bool loadWorkspaceLayout(const std::filesystem::path &path) {
-    std::ifstream stream(path, std::ios::binary);
-    if (!stream)
-        return false;
-    const std::string contents((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
-    if (contents.empty())
-        return false;
-    ImGui::LoadIniSettingsFromMemory(contents.data(), contents.size());
-    return true;
-}
-
-bool saveWorkspaceLayout(const std::filesystem::path &path) {
-    std::error_code error;
-    std::filesystem::create_directories(path.parent_path(), error);
-    if (error)
-        return false;
-    std::size_t size{};
-    const auto *contents = ImGui::SaveIniSettingsToMemory(&size);
-    const auto temporary = temporarySibling(path);
-    std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
-    if (!stream)
-        return false;
-    stream.write(contents, static_cast<std::streamsize>(size));
-    stream.close();
-    if (!stream || !atomicReplace(temporary, path)) {
-        std::filesystem::remove(temporary, error);
-        return false;
-    }
-    return true;
 }
 
 } // namespace
@@ -147,6 +117,7 @@ int runApplication(const EditCommand &options) {
 
     std::vector<std::unique_ptr<DocumentSession>> sessions;
     std::size_t activeSession{};
+    std::vector<std::filesystem::path> recentFiles;
     const auto loadSession = [&](const std::filesystem::path &path) {
         try {
             auto session = std::make_unique<DocumentSession>(mmd::pmx::load(path), path);
@@ -156,6 +127,10 @@ int runApplication(const EditCommand &options) {
             }
             sessions.push_back(std::move(session));
             sessions.back()->ui.openPath = path.string();
+            recentFiles.erase(std::remove(recentFiles.begin(), recentFiles.end(), path), recentFiles.end());
+            recentFiles.insert(recentFiles.begin(), path);
+            if (recentFiles.size() > 8U)
+                recentFiles.resize(8U);
             sessions.back()->previewPhysics = options.physics;
             sessions.back()->previewIk = !options.safeMode;
         } catch (const std::exception &error) {
@@ -174,7 +149,11 @@ int runApplication(const EditCommand &options) {
     io.ConfigDpiScaleFonts = true;
     io.ConfigDpiScaleViewports = true;
     const auto layoutPath = workspaceLayoutPath();
-    const auto hasSavedLayout = loadWorkspaceLayout(layoutPath);
+    WorkspaceLayout savedLayout;
+    const auto layoutResult = loadWorkspaceLayout(layoutPath, savedLayout);
+    if (layoutResult == WorkspaceLayoutLoadResult::loaded)
+        ImGui::LoadIniSettingsFromMemory(savedLayout.imguiIni.data(),
+                                         savedLayout.imguiIni.size());
     const auto basePath = SDL_GetBasePath();
     const auto resourceDirectory = resolveResourceDirectory(
         options.resourceDirectory,
@@ -229,7 +208,18 @@ int runApplication(const EditCommand &options) {
     std::optional<std::string> closeAfterSaveSession;
     bool closePromptOpened = false;
     WorkspaceUiState workspace;
-    bool initializeDockLayout = !hasSavedLayout;
+    if (layoutResult == WorkspaceLayoutLoadResult::legacy ||
+        layoutResult == WorkspaceLayoutLoadResult::unsupportedVersion ||
+        layoutResult == WorkspaceLayoutLoadResult::corrupt) {
+        if (std::filesystem::exists(layoutPath) && !backupWorkspaceLayout(layoutPath))
+            log::warn("workspace layout backup could not be created");
+        ImGui::ClearIniSettings();
+        workspace.status = layoutResult == WorkspaceLayoutLoadResult::legacy
+                               ? "旧レイアウトを更新しました"
+                               : "レイアウトを初期化しました";
+    }
+    bool initializeDockLayout = layoutResult != WorkspaceLayoutLoadResult::loaded;
+    bool layoutNeedsSave = initializeDockLayout;
     SDL_GPUTexture *depthTexture = nullptr;
     Uint32 depthWidth = 0;
     Uint32 depthHeight = 0;
@@ -388,15 +378,19 @@ int runApplication(const EditCommand &options) {
         ImGui_ImplSDLGPU3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
+        ui::beginFrame();
         if (!sessions.empty() && activeSession < sessions.size() &&
             ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_W,
                             ImGuiInputFlags_RouteGlobal))
             pendingCloseSession = sessions[activeSession]->recoveryId;
         const auto dockspaceId = ImGui::DockSpaceOverViewport();
         if (initializeDockLayout || workspace.resetLayout) {
+            if (workspace.resetLayout)
+                ImGui::ClearIniSettings();
             buildDefaultDockLayout(dockspaceId);
             initializeDockLayout = false;
             workspace.resetLayout = false;
+            layoutNeedsSave = true;
         }
         if (!untitledRecoveries.empty() && !recoveryPromptOpened) {
             ImGui::OpenPopup("回復情報");
@@ -595,12 +589,38 @@ int runApplication(const EditCommand &options) {
             }
             ImGui::EndPopup();
         }
+        DocumentSession *activeSessionPointer =
+            !sessions.empty() && activeSession < sessions.size()
+                ? sessions[activeSession].get()
+                : nullptr;
+        drawMainMenu(activeSessionPointer, fileDialog, workspace);
         if (!sessions.empty() && activeSession < sessions.size())
             drawEditorPanels(*sessions[activeSession], fileDialog,
                              gpuModelRenderer.get(), workspace);
         else {
-            ImGui::Begin("pmxer");
-            ImGui::TextUnformatted("PMX ファイルを開いてください");
+            ImGui::Begin("ビューポート");
+            ImGui::TextUnformatted("pmxer");
+            ImGui::Spacing();
+            ImGui::TextUnformatted("PMXモデルを開いて編集を開始");
+            ImGui::Spacing();
+            if (ui::button(ui::UiSemanticId::menuFile, "PMXファイルを開く", !fileDialog.busy()) &&
+                !fileDialog.busy())
+                (void)fileDialog.open();
+            ImGui::TextDisabled("ここへ .pmx をドラッグ＆ドロップ");
+            ImGui::SeparatorText("最近使ったファイル");
+            if (recentFiles.empty()) {
+                ImGui::TextDisabled("履歴はありません");
+            } else {
+                for (std::size_t index = 0; index < recentFiles.size(); ++index) {
+                    ImGui::PushID(static_cast<int>(index));
+                    if (ImGui::Selectable(recentFiles[index].string().c_str())) {
+                        loadSession(recentFiles[index]);
+                        if (!sessions.empty())
+                            activeSession = sessions.size() - 1U;
+                    }
+                    ImGui::PopID();
+                }
+            }
             ImGui::End();
         }
         if (workspace.requestCloseDocument) {
@@ -609,9 +629,12 @@ int runApplication(const EditCommand &options) {
                 pendingCloseSession = sessions[activeSession]->recoveryId;
         }
         ImGui::Render();
-        if (io.WantSaveIniSettings) {
-            if (!saveWorkspaceLayout(layoutPath))
+        if (io.WantSaveIniSettings || layoutNeedsSave) {
+            std::size_t size{};
+            const auto *contents = ImGui::SaveIniSettingsToMemory(&size);
+            if (!saveWorkspaceLayout(layoutPath, std::string_view(contents, size)))
                 log::warn("workspace layout could not be saved");
+            layoutNeedsSave = false;
             io.WantSaveIniSettings = false;
         }
 
@@ -674,7 +697,9 @@ int runApplication(const EditCommand &options) {
         if (commands != nullptr && !SDL_SubmitGPUCommandBuffer(commands))
             log::error(SDL_GetError());
     }
-    if (!saveWorkspaceLayout(layoutPath))
+    std::size_t size{};
+    const auto *contents = ImGui::SaveIniSettingsToMemory(&size);
+    if (!saveWorkspaceLayout(layoutPath, std::string_view(contents, size)))
         log::warn("workspace layout could not be saved during shutdown");
     ImGui_ImplSDLGPU3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
