@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <span>
 
 namespace pmxer {
 namespace {
@@ -117,9 +118,9 @@ ViewportPickCache &ensurePickCache(const DocumentSession &session,
     return cache;
 }
 
-std::vector<std::uint32_t> candidatesAt(const ViewportPickCache &cache,
-                                        ImVec2 origin, ImVec2 size,
-                                        ImVec2 mouse) {
+std::span<const std::uint32_t> candidatesAt(const ViewportPickCache &cache,
+                                             ImVec2 origin, ImVec2 size,
+                                             ImVec2 mouse) {
     if (mouse.x < origin.x || mouse.y < origin.y || mouse.x > origin.x + size.x ||
         mouse.y > origin.y + size.y)
         return {};
@@ -131,7 +132,23 @@ std::vector<std::uint32_t> candidatesAt(const ViewportPickCache &cache,
         (mouse.y - origin.y) / std::max(size.y, 1.0F) *
             static_cast<float>(ViewportPickCache::gridHeight),
         0.0F, static_cast<float>(ViewportPickCache::gridHeight - 1U)));
-    return cache.grid[y * ViewportPickCache::gridWidth + x];
+    const auto &cell = cache.grid[y * ViewportPickCache::gridWidth + x];
+    return {cell.data(), cell.size()};
+}
+
+bool materialVisible(const DocumentSession &session, std::uint32_t index) {
+    const auto &materials = session.document.model().materials;
+    if (index >= materials.size())
+        return false;
+    const auto handle = session.document.materialHandle(index);
+    const SelectionItem item{SelectionKind::material, handle.domain, handle.id,
+                             handle.generation};
+    const auto contains = [&](const std::vector<SelectionItem> &items) {
+        return std::find(items.begin(), items.end(), item) != items.end();
+    };
+    return !contains(session.ui.hiddenMaterials) &&
+           (session.ui.isolatedMaterials.empty() ||
+            contains(session.ui.isolatedMaterials));
 }
 
 SelectionItem itemFor(const DocumentSession &session, SelectionKind kind,
@@ -173,6 +190,9 @@ pickViewport(const DocumentSession &session,
         float hitDepth = std::numeric_limits<float>::max();
         for (const auto faceValue : candidatesAt(cache, origin, size, mouse)) {
             const auto face = static_cast<std::size_t>(faceValue);
+            if (face >= cache.faceMaterial.size() ||
+                !materialVisible(session, cache.faceMaterial[face]))
+                continue;
             const auto offset = face * 3U;
             const auto firstIndex =
                 static_cast<std::size_t>(model.indices[offset]);
@@ -331,6 +351,8 @@ pickViewportRectangle(const DocumentSession &session,
                 result.push_back({itemFor(session, SelectionKind::face, face), face, face, center});
             } else if (!model.materials.empty()) {
                 const auto material = cache.faceMaterial[face];
+                if (!materialVisible(session, material))
+                    continue;
                 if (!materials[material]) {
                     materials[material] = true;
                     result.push_back({itemFor(session, SelectionKind::material, material), material, face, center});

@@ -47,6 +47,13 @@ void includePoint(Bounds &bounds, const mmd::Float3 &point) {
            bounds.minZ <= bounds.maxZ;
 }
 
+float boundsRadius(const Bounds &bounds) {
+    const auto dx = bounds.maxX - bounds.minX;
+    const auto dy = bounds.maxY - bounds.minY;
+    const auto dz = bounds.maxZ - bounds.minZ;
+    return std::sqrt(dx * dx + dy * dy + dz * dz) * 0.5F;
+}
+
 void includeVertex(Bounds &bounds, const std::vector<mmd::PmxVertex> &vertices,
                    std::int32_t index) {
     if (index >= 0 && static_cast<std::size_t>(index) < vertices.size())
@@ -224,26 +231,43 @@ std::optional<Bounds> selectionBounds(const DocumentSession &session) {
     return validBounds(bounds) ? std::optional{bounds} : std::nullopt;
 }
 
-void frameBounds(EditorUiState &ui, const Bounds &bounds, float aspect) {
+void frameBounds(EditorUiState &ui, const Bounds &bounds, float aspect,
+                 float modelRadius) {
     if (!validBounds(bounds))
         return;
     ui.cameraTarget = {(bounds.minX + bounds.maxX) * 0.5F,
                        (bounds.minY + bounds.maxY) * 0.5F,
                        (bounds.minZ + bounds.maxZ) * 0.5F};
-    const auto radius = std::max({bounds.maxX - bounds.minX,
-                                  bounds.maxY - bounds.minY,
-                                  bounds.maxZ - bounds.minZ, 0.001F}) * 0.5F;
-    (void)aspect;
-    ui.cameraDistance = std::max(radius / std::tan(0.75F * 0.5F), 0.001F);
+    const auto radius = std::max({boundsRadius(bounds), modelRadius * 0.01F,
+                                  0.001F});
+    const auto safeAspect = std::max(aspect, 0.001F);
+    const auto verticalHalfFov = 0.75F * 0.5F;
+    const auto horizontalHalfFov =
+        std::atan(std::tan(verticalHalfFov) * safeAspect);
+    const auto limitingHalfFov = std::min(verticalHalfFov, horizontalHalfFov);
+    const auto fitDistance = radius / std::sin(limitingHalfFov) * 1.10F;
+    ui.cameraDistance = std::max(fitDistance, radius + 0.02F);
     ui.cameraInitialized = true;
 }
 
 std::pair<float, float> cameraDistanceLimits(const Bounds &bounds) {
-    const auto radius = std::max({bounds.maxX - bounds.minX,
-                                  bounds.maxY - bounds.minY,
-                                  bounds.maxZ - bounds.minZ, 0.001F}) * 0.5F;
+    const auto radius = std::max(boundsRadius(bounds), 0.001F);
     const auto minimum = std::max(radius * 0.02F, 0.001F);
     return {minimum, std::max(radius * 50.0F, minimum * 10.0F)};
+}
+
+void setBoneOverlay(DocumentSession &session, WorkspaceViewportProfile *profile,
+                    bool value) {
+    session.ui.showBones = value;
+    if (profile != nullptr)
+        profile->showBones = value;
+}
+
+void setPhysicsOverlay(DocumentSession &session,
+                       WorkspaceViewportProfile *profile, bool value) {
+    session.ui.showPhysics = value;
+    if (profile != nullptr)
+        profile->showPhysics = value;
 }
 
 bool isSelected(const DocumentSession &session, SelectionKind kind,
@@ -392,7 +416,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     const auto scaleAvailability = actionAvailability(EditorAction::viewportScale, session);
     const auto policy = workspacePolicy(activeWorkspace);
     if (renderer != nullptr) {
-        const auto resources = renderer->resourceStatus(session);
+        const auto resources = renderer->resourceSummary(session);
         if (resources.missingTextureCount != 0U || resources.failedTextureCount != 0U) {
             ImGui::TextColored(ImVec4{1.0F, 0.72F, 0.25F, 1.0F},
                                "⚠ 外部リソース %zu件不足",
@@ -427,10 +451,10 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         if (ImGui::RadioButton(label, session.ui.selectionMode == mode)) {
             session.ui.selectionMode = mode;
             if (mode == ViewportSelectionMode::bone)
-                session.ui.showBones = true;
+                setBoneOverlay(session, profile, true);
             if (mode == ViewportSelectionMode::rigidBody ||
                 mode == ViewportSelectionMode::joint)
-                session.ui.showPhysics = true;
+                setPhysicsOverlay(session, profile, true);
         }
         if (!supported)
             ImGui::EndDisabled();
@@ -446,7 +470,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         ImGui::BeginDisabled();
     if (ImGui::RadioButton("ジョイント", session.ui.selectionMode == ViewportSelectionMode::joint)) {
         session.ui.selectionMode = ViewportSelectionMode::joint;
-        session.ui.showPhysics = true;
+        setPhysicsOverlay(session, profile, true);
     }
     if (!jointSupported)
         ImGui::EndDisabled();
@@ -499,13 +523,13 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     if (ImGui::Button(session.ui.orthographic ? "平行" : "透視"))
         session.ui.orthographic = !session.ui.orthographic;
     ImGui::SameLine();
-    ui::checkbox(ui::UiSemanticId::viewportShowBones, "ボーン表示", &session.ui.showBones);
+    if (ui::checkbox(ui::UiSemanticId::viewportShowBones, "ボーン表示",
+                     &session.ui.showBones))
+        setBoneOverlay(session, profile, session.ui.showBones);
     ImGui::SameLine();
-    ui::checkbox(ui::UiSemanticId::viewportShowPhysics, "物理表示", &session.ui.showPhysics);
-    if (profile != nullptr) {
-        profile->showBones = session.ui.showBones;
-        profile->showPhysics = session.ui.showPhysics;
-    }
+    if (ui::checkbox(ui::UiSemanticId::viewportShowPhysics, "物理表示",
+                     &session.ui.showPhysics))
+        setPhysicsOverlay(session, profile, session.ui.showPhysics);
     ImGui::SameLine();
     ImGui::TextDisabled("?");
     if (ImGui::IsItemHovered()) {
@@ -569,7 +593,9 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                         session.ui.viewportBoundsMin[1], session.ui.viewportBoundsMax[1],
                         session.ui.viewportBoundsMin[2], session.ui.viewportBoundsMax[2]};
     if (!session.ui.cameraInitialized) {
-        frameBounds(session.ui, bounds, available.x / std::max(available.y, 1.0F));
+        frameBounds(session.ui, bounds,
+                    available.x / std::max(available.y, 1.0F),
+                    boundsRadius(bounds));
     }
     const auto [minimumDistance, maximumDistance] = cameraDistanceLimits(bounds);
     CameraState camera{session.ui.cameraTarget, session.ui.cameraYaw,
@@ -654,10 +680,13 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     if (hovered && ImGui::IsKeyPressed(ImGuiKey_F)) {
         if (const auto selected = selectionBounds(session))
             frameBounds(session.ui, *selected,
-                        available.x / std::max(available.y, 1.0F));
+                        available.x / std::max(available.y, 1.0F),
+                        boundsRadius(bounds));
     }
     if (hovered && ImGui::IsKeyPressed(ImGuiKey_Home))
-        frameBounds(session.ui, bounds, available.x / std::max(available.y, 1.0F));
+        frameBounds(session.ui, bounds,
+                    available.x / std::max(available.y, 1.0F),
+                    boundsRadius(bounds));
     if (hovered && ImGui::IsKeyPressed(ImGuiKey_Keypad1)) {
         session.ui.cameraYaw = ImGui::GetIO().KeyCtrl ? 3.1415926F : 0.0F;
         session.ui.cameraPitch = 0.0F;
@@ -681,15 +710,15 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             session.ui.selectionMode = ViewportSelectionMode::material;
         if (ImGui::IsKeyPressed(ImGuiKey_4) && policy.allows(ViewportSelectionMode::bone)) {
             session.ui.selectionMode = ViewportSelectionMode::bone;
-            session.ui.showBones = true;
+            setBoneOverlay(session, profile, true);
         }
         if (ImGui::IsKeyPressed(ImGuiKey_5) && policy.allows(ViewportSelectionMode::rigidBody)) {
             session.ui.selectionMode = ViewportSelectionMode::rigidBody;
-            session.ui.showPhysics = true;
+            setPhysicsOverlay(session, profile, true);
         }
         if (ImGui::IsKeyPressed(ImGuiKey_6) && policy.allows(ViewportSelectionMode::joint)) {
             session.ui.selectionMode = ViewportSelectionMode::joint;
-            session.ui.showPhysics = true;
+            setPhysicsOverlay(session, profile, true);
         }
         if (ImGui::IsKeyPressed(ImGuiKey_G)) {
             if (moveAvailability.enabled)
@@ -709,8 +738,14 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             else
                 session.ui.status = std::string(scaleAvailability.reason);
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape))
-            session.ui.viewportTool = ViewportTool::select;
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            if (session.ui.morphOffsetTarget.picking) {
+                session.ui.morphOffsetTarget = {};
+                session.ui.status = "モーフオフセット対象の選択をキャンセルしました";
+            } else {
+                session.ui.viewportTool = ViewportTool::select;
+            }
+        }
         if (ImGui::IsKeyPressed(ImGuiKey_A)) {
             if (ImGui::GetIO().KeyAlt)
                 session.selection.clear();
@@ -914,7 +949,9 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                                              available, end);
             if (picked)
                 selectViewportItem(session, activeWorkspace, picked->item, picked->index);
-            else if (!ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift)
+            else if (!ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift &&
+                     activeWorkspace != EditorWorkspace::morph &&
+                     !session.ui.morphOffsetTarget.picking)
                 session.selection.clear();
         }
         session.ui.boxSelecting = false;
@@ -998,12 +1035,14 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         if (ImGui::MenuItem("選択対象へフォーカス")) {
             if (const auto selected = selectionBounds(session))
                 frameBounds(session.ui, *selected,
-                            available.x / std::max(available.y, 1.0F));
+                            available.x / std::max(available.y, 1.0F),
+                            boundsRadius(bounds));
             else {
                 Bounds hoverBounds;
                 includePoint(hoverBounds, session.ui.viewportHoverPosition);
                 frameBounds(session.ui, hoverBounds,
-                            available.x / std::max(available.y, 1.0F));
+                            available.x / std::max(available.y, 1.0F),
+                            boundsRadius(bounds));
             }
         }
         const auto materials = selectedMaterials(session);
