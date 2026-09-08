@@ -43,7 +43,10 @@ class SelectionState {
   public:
     void clear() noexcept;
     void set(SelectionItem item);
+    void set(std::vector<SelectionItem> items);
     void add(SelectionItem item);
+    void add(const std::vector<SelectionItem> &items);
+    void toggle(const std::vector<SelectionItem> &items);
     void remove(SelectionItem item);
     [[nodiscard]] bool contains(SelectionItem item) const noexcept;
     [[nodiscard]] const std::vector<SelectionItem> &items() const noexcept;

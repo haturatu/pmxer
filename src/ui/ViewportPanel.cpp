@@ -101,6 +101,45 @@ void appendUnique(std::vector<SelectionItem> &items,
         items.push_back(item);
 }
 
+std::vector<SelectionItem> allItemsForMode(const DocumentSession &session) {
+    std::vector<SelectionItem> result;
+    const auto append = [&](SelectionKind kind, std::size_t count, const auto &handleAt) {
+        result.reserve(count);
+        for (std::size_t index = 0; index < count; ++index) {
+            const auto handle = handleAt(index);
+            result.push_back({kind, handle.domain, handle.id, handle.generation});
+        }
+    };
+    const auto &model = session.document.model();
+    switch (session.ui.selectionMode) {
+    case ViewportSelectionMode::vertex:
+        append(SelectionKind::vertex, model.vertices.size(),
+               [&](std::size_t index) { return session.document.vertexHandle(index); });
+        break;
+    case ViewportSelectionMode::face:
+        append(SelectionKind::face, model.indices.size() / 3U,
+               [&](std::size_t index) { return session.document.faceHandle(index); });
+        break;
+    case ViewportSelectionMode::material:
+        append(SelectionKind::material, model.materials.size(),
+               [&](std::size_t index) { return session.document.materialHandle(index); });
+        break;
+    case ViewportSelectionMode::bone:
+        append(SelectionKind::bone, model.bones.size(),
+               [&](std::size_t index) { return session.document.boneHandle(index); });
+        break;
+    case ViewportSelectionMode::rigidBody:
+        append(SelectionKind::rigidBody, model.rigidBodies.size(),
+               [&](std::size_t index) { return session.document.rigidBodyHandle(index); });
+        break;
+    case ViewportSelectionMode::joint:
+        append(SelectionKind::joint, model.joints.size(),
+               [&](std::size_t index) { return session.document.jointHandle(index); });
+        break;
+    }
+    return result;
+}
+
 void hoverTooltip(const DocumentSession &session, const SelectionItem &item) {
     ImGui::BeginTooltip();
     if (item.kind == SelectionKind::material) {
@@ -307,6 +346,13 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             session.ui.viewportTool = ViewportTool::scale;
         if (ImGui::IsKeyPressed(ImGuiKey_Escape))
             session.ui.viewportTool = ViewportTool::select;
+        if (ImGui::IsKeyPressed(ImGuiKey_A)) {
+            if (ImGui::GetIO().KeyAlt)
+                session.selection.clear();
+            else
+                session.selection.set(allItemsForMode(session));
+            session.ui.clearDrafts();
+        }
         if (ImGui::IsKeyPressed(ImGuiKey_Z) && ImGui::GetIO().KeyAlt)
             session.ui.xray = !session.ui.xray;
         if (ImGui::IsKeyPressed(ImGuiKey_H)) {
@@ -461,14 +507,16 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         if (dx * dx + dy * dy > 16.0F) {
             const auto picked = pickViewportRectangle(session, vertices, camera, origin,
                                                       available, start, end);
-            if (!ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift)
-                session.selection.clear();
-            for (const auto &item : picked) {
-                if (ImGui::GetIO().KeyCtrl && session.selection.contains(item.item))
-                    session.selection.remove(item.item);
-                else
-                    session.selection.add(item.item);
-            }
+            std::vector<SelectionItem> selected;
+            selected.reserve(picked.size());
+            for (const auto &item : picked)
+                selected.push_back(item.item);
+            if (ImGui::GetIO().KeyCtrl)
+                session.selection.toggle(selected);
+            else if (ImGui::GetIO().KeyShift)
+                session.selection.add(selected);
+            else
+                session.selection.set(std::move(selected));
             if (!picked.empty()) {
                 const auto &first = picked.front();
                 session.ui.clearDrafts();
