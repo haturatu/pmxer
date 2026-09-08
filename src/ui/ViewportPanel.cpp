@@ -290,6 +290,8 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         session.automation->registerItem(std::move(item));
     }
     ImGui::SameLine();
+    ImGui::TextDisabled("|");
+    ImGui::SameLine();
     ImGui::Checkbox("X-Ray", &session.ui.xray);
     const auto toolButton = [&](const char *label, ViewportTool tool) {
         if (ImGui::RadioButton(label, session.ui.viewportTool == tool))
@@ -302,6 +304,8 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     if (ImGui::RadioButton("拡縮", session.ui.viewportTool == ViewportTool::scale))
         session.ui.viewportTool = ViewportTool::scale;
     ImGui::SameLine();
+    ImGui::TextDisabled("|");
+    ImGui::SameLine();
     ImGui::Checkbox("ローカル", &session.ui.localTransform);
     ImGui::SameLine();
     ImGui::Checkbox("スナップ", &session.ui.snapTransform);
@@ -312,6 +316,17 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     ImGui::Checkbox("ボーン表示", &session.ui.showBones);
     ImGui::SameLine();
     ImGui::Checkbox("物理表示", &session.ui.showPhysics);
+    ImGui::SameLine();
+    ImGui::TextDisabled("?");
+    if (ImGui::IsItemHovered()) {
+        ImGui::BeginTooltip();
+        ImGui::TextUnformatted("右ドラッグ: 回転");
+        ImGui::TextUnformatted("ホイール: ズーム");
+        ImGui::TextUnformatted("Shift + 中ドラッグ: パン");
+        ImGui::TextUnformatted("Ctrl + 中ドラッグ: ドリー");
+        ImGui::TextUnformatted("F: 選択へフォーカス / Home: 全体表示");
+        ImGui::EndTooltip();
+    }
     const auto available = ImGui::GetContentRegionAvail();
     if (available.x < 10.0F || available.y < 10.0F) {
         ImGui::End();
@@ -370,24 +385,84 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                                               bounds.maxZ - bounds.minZ, 0.1F}) * 2.0F;
         session.ui.cameraInitialized = true;
     }
-    if (hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle) && ImGui::GetIO().KeyCtrl) {
-        const auto delta = ImGui::GetIO().MouseDelta;
-        session.ui.cameraDistance = std::clamp(session.ui.cameraDistance * std::exp(delta.y * 0.01F), 0.01F,
-                                               100000.0F);
-    } else if (hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle) && ImGui::GetIO().KeyShift) {
-        const auto delta = ImGui::GetIO().MouseDelta;
-        const auto scale = session.ui.cameraDistance * 0.0015F;
-        session.ui.cameraTarget[0] -= delta.x * std::cos(session.ui.cameraYaw) * scale;
-        session.ui.cameraTarget[2] += delta.x * std::sin(session.ui.cameraYaw) * scale;
-        session.ui.cameraTarget[1] += delta.y * scale;
-    } else if (hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
-        const auto delta = ImGui::GetIO().MouseDelta;
-        session.ui.cameraYaw += delta.x * 0.01F;
-        session.ui.cameraPitch = std::clamp(session.ui.cameraPitch + delta.y * 0.01F, -1.5F, 1.5F);
+    CameraState camera{session.ui.cameraTarget, session.ui.cameraYaw,
+                       session.ui.cameraPitch, session.ui.cameraDistance,
+                       session.ui.orthographic};
+    if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+        session.ui.cameraOrbiting = true;
+        session.ui.cameraOrbitMoved = false;
+        session.ui.cameraNavigationStartX = mouse.x;
+        session.ui.cameraNavigationStartY = mouse.y;
+    }
+    if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Middle)) {
+        session.ui.cameraPanning = ImGui::GetIO().KeyShift;
+        session.ui.cameraDollying = ImGui::GetIO().KeyCtrl;
+        if (session.ui.cameraPanning || session.ui.cameraDollying) {
+            session.ui.cameraNavigationStartX = mouse.x;
+            session.ui.cameraNavigationStartY = mouse.y;
+        }
+    }
+    if (session.ui.cameraOrbiting) {
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+            const auto dx = mouse.x - session.ui.cameraNavigationStartX;
+            const auto dy = mouse.y - session.ui.cameraNavigationStartY;
+            if (!session.ui.cameraOrbitMoved && dx * dx + dy * dy > 16.0F)
+                session.ui.cameraOrbitMoved = true;
+            if (session.ui.cameraOrbitMoved) {
+                const auto delta = ImGui::GetIO().MouseDelta;
+                session.ui.cameraYaw += delta.x * 0.008F;
+                session.ui.cameraPitch = std::clamp(
+                    session.ui.cameraPitch + delta.y * 0.008F, -1.5F, 1.5F);
+            }
+        } else {
+            if (!session.ui.cameraOrbitMoved) {
+                const ImVec2 releasePosition{
+                    session.ui.cameraNavigationStartX,
+                    session.ui.cameraNavigationStartY};
+                const auto picked = pickViewport(
+                    session, vertices, camera, origin, available,
+                    releasePosition);
+                if (picked) {
+                    if (!session.selection.contains(picked->item))
+                        selectViewportItem(session, picked->item, picked->index);
+                    session.ui.viewportHover = picked->item;
+                    session.ui.viewportHoverFace = picked->face;
+                    session.ui.viewportHoverPosition = picked->position;
+                    ImGui::OpenPopup("viewport-context");
+                }
+            }
+            session.ui.cameraOrbiting = false;
+            session.ui.cameraOrbitMoved = false;
+        }
+    }
+    if (session.ui.cameraPanning || session.ui.cameraDollying) {
+        const auto buttonDown = ImGui::IsMouseDown(ImGuiMouseButton_Middle);
+        if (buttonDown) {
+            const auto dx = mouse.x - session.ui.cameraNavigationStartX;
+            const auto dy = mouse.y - session.ui.cameraNavigationStartY;
+            if (dx * dx + dy * dy > 16.0F) {
+                const auto delta = ImGui::GetIO().MouseDelta;
+                if (session.ui.cameraDollying) {
+                    session.ui.cameraDistance = std::clamp(
+                        session.ui.cameraDistance * std::exp(delta.y * 0.01F),
+                        0.01F, 100000.0F);
+                } else {
+                    const auto scale = session.ui.cameraDistance * 0.0015F;
+                    session.ui.cameraTarget[0] -=
+                        delta.x * std::cos(session.ui.cameraYaw) * scale;
+                    session.ui.cameraTarget[2] +=
+                        delta.x * std::sin(session.ui.cameraYaw) * scale;
+                    session.ui.cameraTarget[1] += delta.y * scale;
+                }
+            }
+        } else {
+            session.ui.cameraPanning = false;
+            session.ui.cameraDollying = false;
+        }
     }
     if (hovered && ImGui::GetIO().MouseWheel != 0.0F)
         session.ui.cameraDistance = std::clamp(session.ui.cameraDistance *
-                                                   std::exp(-ImGui::GetIO().MouseWheel * 0.1F),
+                                                   std::exp(-ImGui::GetIO().MouseWheel * 0.12F),
                                                0.01F, 100000.0F);
     if (hovered && ImGui::IsKeyPressed(ImGuiKey_F)) {
         if (const auto position = selectedPosition(session))
@@ -575,22 +650,11 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 }
         }
     }
-    const CameraState camera{session.ui.cameraTarget, session.ui.cameraYaw, session.ui.cameraPitch,
-                             session.ui.cameraDistance, session.ui.orthographic};
+    camera = CameraState{session.ui.cameraTarget, session.ui.cameraYaw,
+                         session.ui.cameraPitch, session.ui.cameraDistance,
+                         session.ui.orthographic};
     if (drawViewAxis(session.ui, draw, origin, available))
         session.ui.boxSelecting = false;
-    if (hovered && ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-        const auto picked = pickViewport(session, vertices, camera, origin,
-                                         available, mouse);
-        if (picked) {
-            if (!session.selection.contains(picked->item))
-                selectViewportItem(session, picked->item, picked->index);
-            session.ui.viewportHover = picked->item;
-            session.ui.viewportHoverFace = picked->face;
-            session.ui.viewportHoverPosition = picked->position;
-            ImGui::OpenPopup("viewport-context");
-        }
-    }
     if (session.ui.boxSelecting && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
         const ImVec2 start{session.ui.boxSelectStartX, session.ui.boxSelectStartY};
         const ImVec2 end{session.ui.boxSelectEndX, session.ui.boxSelectEndY};
@@ -633,7 +697,10 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         }
         session.ui.boxSelecting = false;
     }
-    if (!hovered || session.ui.gizmoDragging) {
+    const auto cameraNavigating = session.ui.cameraOrbiting ||
+                                  session.ui.cameraPanning ||
+                                  session.ui.cameraDollying;
+    if (!hovered || session.ui.gizmoDragging || cameraNavigating) {
         session.ui.viewportHover.reset();
         session.ui.viewportHoverFace.reset();
     } else {

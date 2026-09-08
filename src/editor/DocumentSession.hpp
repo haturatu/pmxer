@@ -83,6 +83,12 @@ struct EditorUiState {
     bool showBones{true};
     bool showPhysics{};
     bool orthographic{};
+    bool cameraOrbiting{};
+    bool cameraOrbitMoved{};
+    bool cameraPanning{};
+    bool cameraDollying{};
+    float cameraNavigationStartX{};
+    float cameraNavigationStartY{};
     bool gizmoDragging{};
     bool boxSelecting{};
     float boxSelectStartX{};
