@@ -347,12 +347,12 @@ pickViewportRectangle(const DocumentSession &session,
                                      (vertices[a].position[2] + vertices[b].position[2] + vertices[c].position[2]) / 3.0F};
             if (!contains(center))
                 continue;
+            const auto material = cache.faceMaterial[face];
+            if (!materialVisible(session, material))
+                continue;
             if (session.ui.selectionMode == ViewportSelectionMode::face) {
                 result.push_back({itemFor(session, SelectionKind::face, face), face, face, center});
             } else if (!model.materials.empty()) {
-                const auto material = cache.faceMaterial[face];
-                if (!materialVisible(session, material))
-                    continue;
                 if (!materials[material]) {
                     materials[material] = true;
                     result.push_back({itemFor(session, SelectionKind::material, material), material, face, center});

@@ -701,6 +701,15 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     }
     if (hovered && ImGui::IsKeyPressed(ImGuiKey_Keypad5))
         session.ui.orthographic = !session.ui.orthographic;
+    if (!ImGui::GetIO().WantTextInput &&
+        ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        if (session.ui.morphOffsetTarget.picking) {
+            session.ui.morphOffsetTarget = {};
+            session.ui.status = "モーフオフセット対象の選択をキャンセルしました";
+        } else if (hovered) {
+            session.ui.viewportTool = ViewportTool::select;
+        }
+    }
     if (hovered && !ImGui::GetIO().WantTextInput) {
         if (ImGui::IsKeyPressed(ImGuiKey_1) && policy.allows(ViewportSelectionMode::vertex))
             session.ui.selectionMode = ViewportSelectionMode::vertex;
@@ -737,14 +746,6 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 session.ui.viewportTool = ViewportTool::scale;
             else
                 session.ui.status = std::string(scaleAvailability.reason);
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-            if (session.ui.morphOffsetTarget.picking) {
-                session.ui.morphOffsetTarget = {};
-                session.ui.status = "モーフオフセット対象の選択をキャンセルしました";
-            } else {
-                session.ui.viewportTool = ViewportTool::select;
-            }
         }
         if (ImGui::IsKeyPressed(ImGuiKey_A)) {
             if (ImGui::GetIO().KeyAlt)
