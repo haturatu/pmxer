@@ -1,6 +1,7 @@
 #include "EditorSelectionController.hpp"
 
 #include "DocumentSession.hpp"
+#include "UiStatus.hpp"
 
 #include <limits>
 #include <optional>
@@ -16,6 +17,24 @@ void ensureWorkspaceFor(DocumentSession &session, EditorWorkspace &workspace,
         return;
     workspace = preferredWorkspace(kind);
     applyWorkspacePolicy(session, workspacePolicy(workspace));
+}
+
+bool outlinerSupports(SelectionKind kind) noexcept {
+    switch (kind) {
+    case SelectionKind::vertex:
+    case SelectionKind::texture:
+    case SelectionKind::material:
+    case SelectionKind::bone:
+    case SelectionKind::morph:
+    case SelectionKind::rigidBody:
+    case SelectionKind::joint:
+    case SelectionKind::softBody:
+        return true;
+    case SelectionKind::face:
+    case SelectionKind::displayFrame:
+        return false;
+    }
+    return false;
 }
 
 std::optional<std::size_t> selectionIndex(const DocumentSession &session,
@@ -88,10 +107,26 @@ void selectPrimary(DocumentSession &session, EditorWorkspace &workspace,
     session.ui.clearDrafts();
     session.ui.morphOffsetTarget = {};
     session.ui.morphAddTarget.reset();
-    if (origin == SelectionOrigin::outliner)
+    if (origin == SelectionOrigin::outliner || !outlinerSupports(item.kind))
         session.ui.pendingOutlinerReveal.reset();
     else
         session.ui.pendingOutlinerReveal = item;
+}
+
+void selectMany(DocumentSession &session, EditorWorkspace &workspace,
+                std::vector<SelectionItem> items, SelectionOrigin origin) {
+    if (items.empty())
+        return;
+    ensureWorkspaceFor(session, workspace, items.front().kind);
+    session.selection.set(std::move(items));
+    session.ui.clearDrafts();
+    session.ui.morphOffsetTarget = {};
+    session.ui.morphAddTarget.reset();
+    if (origin == SelectionOrigin::outliner ||
+        !outlinerSupports(session.selection.items().front().kind))
+        session.ui.pendingOutlinerReveal.reset();
+    else
+        session.ui.pendingOutlinerReveal = session.selection.items().front();
 }
 
 void addSelection(DocumentSession &session, EditorWorkspace &workspace,
@@ -170,12 +205,14 @@ bool selectMorphOffsetTarget(DocumentSession &session, SelectionItem item) {
     if (!target.picking)
         return false;
     if (item.kind != target.expectedKind) {
-        session.ui.status = "このオフセットが参照する種類を選択してください";
+        setStatus(session, "このオフセットが参照する種類を選択してください",
+                  UiStatusKind::warning);
         return true;
     }
     const auto index = selectionIndex(session, item);
     if (!index || *index > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())) {
-        session.ui.status = "オフセット対象のインデックスを解決できません";
+        setStatus(session, "オフセット対象のインデックスを解決できません",
+                  UiStatusKind::error, std::chrono::milliseconds::zero(), true);
         return true;
     }
     if (target.adding) {
@@ -183,13 +220,15 @@ bool selectMorphOffsetTarget(DocumentSession &session, SelectionItem item) {
     } else {
         const auto *morph = session.document.resolve(target.morph);
         if (morph == nullptr || target.offsetIndex >= morph->offsets.size()) {
-            session.ui.status = "モーフオフセットが見つかりません";
+            setStatus(session, "モーフオフセットが見つかりません",
+                      UiStatusKind::error, std::chrono::milliseconds::zero(), true);
             return true;
         }
         if (!session.ui.morphDraft)
             session.ui.morphDraft = *morph;
         if (target.offsetIndex >= session.ui.morphDraft->offsets.size()) {
-            session.ui.status = "モーフオフセットの編集状態が古くなっています";
+            setStatus(session, "モーフオフセットの編集状態が古くなっています",
+                      UiStatusKind::error, std::chrono::milliseconds::zero(), true);
             return true;
         }
         session.ui.morphDraft->offsets[target.offsetIndex].index =
@@ -198,7 +237,8 @@ bool selectMorphOffsetTarget(DocumentSession &session, SelectionItem item) {
     }
     target.target = item;
     target.picking = false;
-    session.ui.status = "モーフオフセットの対象を設定しました";
+    setStatus(session, "モーフオフセットの対象を設定しました",
+              UiStatusKind::success);
     return true;
 }
 

@@ -15,10 +15,12 @@
 #include <mmd/pmx.hpp>
 
 #include <cassert>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <string>
 #include <utility>
 
 namespace {
@@ -159,6 +161,52 @@ int main() {
         materialForPolicy.id, materialForPolicy.generation};
     assert(pmxer::facesForMaterial(session, materialItem).size() == 1U);
     assert(pmxer::verticesForMaterial(session, materialItem).size() == 3U);
+
+    auto weightedModel = sampleModel();
+    for (int index = 1; index < 4; ++index) {
+        mmd::PmxBone bone;
+        bone.name = "bone" + std::to_string(index);
+        weightedModel.bones.push_back(bone);
+    }
+    weightedModel.vertices[0].weightType = mmd::PmxWeightType::bdef4;
+    weightedModel.vertices[0].bones = {0, 1, 2, 3};
+    weightedModel.vertices[0].weights = {1.0F, 0.0F, 0.0F, 0.0F};
+    pmxer::DocumentSession weightedSession(std::move(weightedModel));
+    const auto weightedVertex = weightedSession.document.vertexHandle(0);
+    const auto weightedVertexItem = pmxer::SelectionItem{
+        pmxer::SelectionKind::vertex, weightedVertex.domain, weightedVertex.id,
+        weightedVertex.generation};
+    for (int index = 0; index < 4; ++index) {
+        const auto bone = weightedSession.document.boneHandle(
+            static_cast<std::size_t>(index));
+        const auto boneItem = pmxer::SelectionItem{
+            pmxer::SelectionKind::bone, bone.domain, bone.id, bone.generation};
+        const auto vertices = pmxer::weightedVertices(weightedSession, boneItem);
+        const auto found = std::find(vertices.begin(), vertices.end(),
+                                     weightedVertexItem) != vertices.end();
+        assert(found == (index == 0));
+    }
+
+    auto physicsModel = sampleModel();
+    physicsModel.rigidBodies.resize(2);
+    physicsModel.joints.push_back({});
+    physicsModel.joints[0].bodyA = 0;
+    physicsModel.joints[0].bodyB = 1;
+    pmxer::DocumentSession physicsSession(std::move(physicsModel));
+    const auto body = physicsSession.document.rigidBodyHandle(0);
+    const auto joint = physicsSession.document.jointHandle(0);
+    physicsSession.selection.set({pmxer::SelectionKind::rigidBody, body.domain,
+                                  body.id, body.generation});
+    const auto bodyRelations =
+        pmxer::physicsSelectionRelations(physicsSession);
+    assert(bodyRelations.bodySelected(body.id));
+    assert(bodyRelations.jointRelated(joint.id));
+    physicsSession.selection.set({pmxer::SelectionKind::joint, joint.domain,
+                                  joint.id, joint.generation});
+    const auto jointRelations =
+        pmxer::physicsSelectionRelations(physicsSession);
+    assert(jointRelations.jointSelected(joint.id));
+    assert(jointRelations.bodyRelated(body.id));
     pmxer::setStatus(session, "一時通知", pmxer::UiStatusKind::success,
                      std::chrono::milliseconds::zero());
     pmxer::updateStatusLifetime(session);
