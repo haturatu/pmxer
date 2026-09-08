@@ -141,7 +141,7 @@ int captureScreenshot(const std::string &path) {
     const auto command = "screencapture -x " + shellQuote(path);
     return std::system(command.c_str()) == 0 ? 0 : 3;
 #else
-    const auto command = "spectacle --active-window -b -n -o " + shellQuote(path);
+    const auto command = "spectacle --activewindow -b -n -o " + shellQuote(path);
     return std::system(command.c_str()) == 0 ? 0 : 3;
 #endif
 }
