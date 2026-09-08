@@ -21,10 +21,12 @@ struct EditCommand {
     bool gpuDebug{};
     bool physics{true};
     bool safeMode{};
+    bool automation{};
     std::string renderer{"auto"};
     std::string locale{"auto"};
     std::filesystem::path font;
     std::filesystem::path resourceDirectory;
+    std::filesystem::path automationSocket;
     float fontSize{18.0F};
     std::vector<std::filesystem::path> documents;
 };
@@ -56,7 +58,18 @@ struct HelpCommand {
     std::string command;
 };
 
-using Command = std::variant<EditCommand, InfoCommand, ValidateCommand, DiffCommand, NormalizeCommand, HelpCommand>;
+struct UiCommand {
+    std::string operation;
+    std::filesystem::path socket;
+    std::string target;
+    std::string value;
+    float timeout{5.0F};
+    bool json{};
+};
+
+using Command = std::variant<EditCommand, InfoCommand, ValidateCommand,
+                             DiffCommand, NormalizeCommand, HelpCommand,
+                             UiCommand>;
 
 struct Invocation {
     GlobalOptions global;

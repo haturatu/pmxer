@@ -20,12 +20,15 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #if PMXER_HAS_GUI
 #include "EditorPanels.hpp"
+#include "UiAutomation.hpp"
+#include "../automation/AutomationProtocol.hpp"
 #include "../platform/FileDialog.hpp"
 #include "../preview/PreviewController.hpp"
 #include "../render/GpuModelRenderer.hpp"
@@ -76,6 +79,133 @@ void buildDefaultDockLayout(ImGuiID dockspaceId) {
     ImGui::DockBuilderFinish(dockspaceId);
 }
 
+std::string automationState(const DocumentSession &session, SDL_Window *window,
+                            std::size_t activeSession) {
+    int width{};
+    int height{};
+    (void)SDL_GetWindowSizeInPixels(window, &width, &height);
+    const auto &model = session.document.model();
+    return "{\"window\":{\"width\":" + std::to_string(width) +
+           ",\"height\":" + std::to_string(height) +
+           "},\"active_session\":" + std::to_string(activeSession) +
+           ",\"document\":{\"modified\":" +
+           (session.modified ? std::string{"true"} : std::string{"false"}) +
+           ",\"revision\":" + std::to_string(session.revision) +
+           ",\"resource_revision\":" +
+           std::to_string(session.resourceRevision) +
+           ",\"vertices\":" + std::to_string(model.vertices.size()) +
+           ",\"materials\":" + std::to_string(model.materials.size()) +
+           ",\"bones\":" + std::to_string(model.bones.size()) +
+           ",\"morphs\":" + std::to_string(model.morphs.size()) +
+           "},\"selection_count\":" +
+           std::to_string(session.selection.items().size()) +
+           ",\"status\":" + automation::escapeJson(session.ui.status) +
+           "}";
+}
+
+bool parseAutomationFloat(std::string_view text, float &value) {
+    std::istringstream stream{std::string{text}};
+    if (!(stream >> value))
+        return false;
+    std::string extra;
+    return !(stream >> extra);
+}
+
+int automationMouseButton(std::string_view text) {
+    if (text == "left" || text == "0")
+        return 0;
+    if (text == "right" || text == "1")
+        return 1;
+    if (text == "middle" || text == "2")
+        return 2;
+    return -1;
+}
+
+ImGuiKey automationKey(std::string_view text) {
+    std::string key(text);
+    std::ranges::transform(key, key.begin(), [](unsigned char value) {
+        return static_cast<char>(std::tolower(value));
+    });
+    if (key == "ctrl" || key == "control")
+        return ImGuiMod_Ctrl;
+    if (key == "shift")
+        return ImGuiMod_Shift;
+    if (key == "alt")
+        return ImGuiMod_Alt;
+    if (key == "super" || key == "meta")
+        return ImGuiMod_Super;
+    if (key == "tab")
+        return ImGuiKey_Tab;
+    if (key == "enter" || key == "return")
+        return ImGuiKey_Enter;
+    if (key == "escape" || key == "esc")
+        return ImGuiKey_Escape;
+    if (key == "backspace")
+        return ImGuiKey_Backspace;
+    if (key == "delete" || key == "del")
+        return ImGuiKey_Delete;
+    if (key == "home")
+        return ImGuiKey_Home;
+    if (key == "end")
+        return ImGuiKey_End;
+    if (key == "left")
+        return ImGuiKey_LeftArrow;
+    if (key == "right")
+        return ImGuiKey_RightArrow;
+    if (key == "up")
+        return ImGuiKey_UpArrow;
+    if (key == "down")
+        return ImGuiKey_DownArrow;
+    if (key.size() == 1U && key[0] >= 'a' && key[0] <= 'z')
+        return static_cast<ImGuiKey>(ImGuiKey_A + (key[0] - 'a'));
+    if (key.size() == 1U && key[0] >= '0' && key[0] <= '9')
+        return static_cast<ImGuiKey>(ImGuiKey_0 + (key[0] - '0'));
+    return ImGuiKey_None;
+}
+
+AutomationResult handleAutomationInput(std::string_view operation,
+                                        std::string_view target,
+                                        std::string_view value) {
+    auto &io = ImGui::GetIO();
+    if (operation == "mouse" || operation == "mouse-move") {
+        float x{};
+        float y{};
+        if (!parseAutomationFloat(target, x) ||
+            !parseAutomationFloat(value, y))
+            return {false, "invalid_value"};
+        io.AddMousePosEvent(x, y);
+        return {};
+    }
+    if (operation == "mouse-down" || operation == "mouse-up") {
+        const auto button = automationMouseButton(target);
+        if (button < 0)
+            return {false, "invalid_value"};
+        io.AddMouseButtonEvent(button, operation == "mouse-down");
+        return {};
+    }
+    if (operation == "key-down" || operation == "key-up") {
+        const auto key = automationKey(target);
+        if (key == ImGuiKey_None)
+            return {false, "invalid_value"};
+        io.AddKeyEvent(key, operation == "key-down");
+        return {};
+    }
+    if (operation == "text" || operation == "text-input") {
+        io.AddInputCharactersUTF8(std::string(target).c_str());
+        return {};
+    }
+    if (operation == "wheel") {
+        float x{};
+        float y{};
+        if (!parseAutomationFloat(target, x) ||
+            !parseAutomationFloat(value, y))
+            return {false, "invalid_value"};
+        io.AddMouseWheelEvent(x, y);
+        return {};
+    }
+    return {false, "unknown_input"};
+}
+
 } // namespace
 
 int runApplication(const EditCommand &options) {
@@ -117,6 +247,9 @@ int runApplication(const EditCommand &options) {
 
     std::vector<std::unique_ptr<DocumentSession>> sessions;
     std::size_t activeSession{};
+    std::optional<std::size_t> requestedActiveSession;
+    UiAutomationRegistry automationRegistry;
+    UiAutomationServer automationServer;
     std::vector<std::filesystem::path> recentFiles;
     const auto loadSession = [&](const std::filesystem::path &path) {
         try {
@@ -126,6 +259,7 @@ int runApplication(const EditCommand &options) {
                 session->recoveryFile = recoveryPath(path);
             }
             sessions.push_back(std::move(session));
+            sessions.back()->automation = &automationRegistry;
             sessions.back()->ui.openPath = path.string();
             recentFiles.erase(std::remove(recentFiles.begin(), recentFiles.end(), path), recentFiles.end());
             recentFiles.insert(recentFiles.begin(), path);
@@ -196,6 +330,19 @@ int runApplication(const EditCommand &options) {
         device, shaderDirectory, resourceDirectory, gpuInfo.ColorTargetFormat);
     if (!gpuModelRenderer->available())
         log::warn(gpuModelRenderer->error());
+    if (options.automation) {
+        if (!automationServer.start(options.automationSocket)) {
+            log::error("UI automation endpoint could not be started");
+            gpuModelRenderer.reset();
+            ImGui_ImplSDLGPU3_Shutdown();
+            ImGui_ImplSDL3_Shutdown();
+            ImGui::DestroyContext();
+            releaseWindow();
+            return 1;
+        }
+        log::info((std::string{"UI automation endpoint: "} +
+                   options.automationSocket.string()).c_str());
+    }
     std::array<char, 1024> newSessionPath{};
     FileDialog fileDialog(window);
     bool running = true;
@@ -223,6 +370,48 @@ int runApplication(const EditCommand &options) {
     SDL_GPUTexture *depthTexture = nullptr;
     Uint32 depthWidth = 0;
     Uint32 depthHeight = 0;
+    automationRegistry.setKeyHandler([&](std::string_view key) {
+        std::string normalized(key);
+        std::ranges::transform(normalized, normalized.begin(),
+                               [](unsigned char value) {
+                                   return static_cast<char>(std::tolower(value));
+                               });
+        if (sessions.empty() || activeSession >= sessions.size())
+            return std::string{"{\"ok\":false,\"error\":\"no_document\"}"};
+        auto &session = *sessions[activeSession];
+        if (normalized == "ctrl+z") {
+            return session.undo()
+                       ? std::string{"{\"ok\":true}"}
+                       : std::string{"{\"ok\":false,\"error\":\"nothing_to_undo\"}"};
+        }
+        if (normalized == "ctrl+y") {
+            return session.redo()
+                       ? std::string{"{\"ok\":true}"}
+                       : std::string{"{\"ok\":false,\"error\":\"nothing_to_redo\"}"};
+        }
+        if (normalized == "ctrl+s") {
+            if (session.path.empty()) {
+                if (!fileDialog.busy() && fileDialog.save({}, session.recoveryId))
+                    return std::string{"{\"ok\":true,\"pending\":true}"};
+                return std::string{"{\"ok\":false,\"error\":\"save_dialog_unavailable\"}"};
+            }
+            const auto saved = saveDocument(session).success;
+            session.ui.status = saved ? "保存しました" : "保存に失敗しました";
+            return saved ? std::string{"{\"ok\":true}"}
+                         : std::string{"{\"ok\":false,\"error\":\"save_failed\"}"};
+        }
+        if (normalized == "ctrl+shift+s") {
+            if (!fileDialog.busy() && fileDialog.save(session.path, session.recoveryId))
+                return std::string{"{\"ok\":true,\"pending\":true}"};
+            return std::string{"{\"ok\":false,\"error\":\"save_dialog_unavailable\"}"};
+        }
+        return std::string{"{\"ok\":false,\"error\":\"unsupported_key\"}"};
+    });
+    automationRegistry.setInputHandler(
+        [](std::string_view operation, std::string_view target,
+           std::string_view value) {
+            return handleAutomationInput(operation, target, value);
+        });
     const auto findSession = [&](std::string_view id) -> std::optional<std::size_t> {
         for (std::size_t index = 0; index < sessions.size(); ++index)
             if (sessions[index]->recoveryId == id)
@@ -378,6 +567,8 @@ int runApplication(const EditCommand &options) {
         ImGui_ImplSDLGPU3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
+        if (options.automation)
+            automationRegistry.beginFrame();
         ui::beginFrame();
         if (!sessions.empty() && activeSession < sessions.size() &&
             ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_W,
@@ -405,6 +596,7 @@ int runApplication(const EditCommand &options) {
                 if (ImGui::Button("復元")) {
                     untitledRecoveries[index].model.sourcePath.clear();
                     auto session = std::make_unique<DocumentSession>(std::move(untitledRecoveries[index].model));
+                    session->automation = &automationRegistry;
                     session->commands.markDirty();
                     session->modified = true;
                     session->recoveryFile = untitledRecoveries[index].path;
@@ -493,6 +685,14 @@ int runApplication(const EditCommand &options) {
         }
         if (workspace.showDocuments) {
             if (ImGui::Begin("ドキュメント", &workspace.showDocuments)) {
+                if (options.automation) {
+                    const auto position = ImGui::GetWindowPos();
+                    const auto size = ImGui::GetWindowSize();
+                    automationRegistry.registerWindow(
+                        "documents", "ドキュメント", static_cast<int>(position.x),
+                        static_cast<int>(position.y), static_cast<int>(size.x),
+                        static_cast<int>(size.y));
+                }
                 if (ImGui::BeginTabBar("document-tabs")) {
                     for (std::size_t i = 0; i < sessions.size(); ++i) {
                         const auto &path = sessions[i]->path;
@@ -500,14 +700,53 @@ int runApplication(const EditCommand &options) {
                                            (sessions[i]->modified ? " *" : "");
                         const auto label = title + "##document" + std::to_string(i);
                         bool keepOpen = true;
-                        if (ImGui::BeginTabItem(label.c_str(), &keepOpen)) {
+                        const auto tabFlags =
+                            requestedActiveSession &&
+                                    *requestedActiveSession == i
+                                ? ImGuiTabItemFlags_SetSelected
+                                : ImGuiTabItemFlags_None;
+                        if (ImGui::BeginTabItem(label.c_str(), &keepOpen,
+                                                tabFlags)) {
                             activeSession = i;
+                            if (options.automation) {
+                                const auto minimum = ImGui::GetItemRectMin();
+                                const auto maximum = ImGui::GetItemRectMax();
+                                AutomationItem item;
+                                item.window = "documents";
+                                item.id = "documents/tab:" + sessions[i]->recoveryId;
+                                item.role = "tab";
+                                item.label = title;
+                                item.selected = i == activeSession;
+                                item.x = static_cast<int>(minimum.x);
+                                item.y = static_cast<int>(minimum.y);
+                                item.width = static_cast<int>(maximum.x - minimum.x);
+                                item.height = static_cast<int>(maximum.y - minimum.y);
+                                item.click = [&requestedActiveSession, i]() {
+                                    requestedActiveSession = i;
+                                };
+                                automationRegistry.registerItem(std::move(item));
+                            }
                             ImGui::EndTabItem();
+                        } else if (options.automation) {
+                            AutomationItem item;
+                            item.window = "documents";
+                            item.id = "documents/tab:" + sessions[i]->recoveryId;
+                            item.role = "tab";
+                            item.label = title;
+                            item.selected = i == activeSession;
+                            item.visible = true;
+                            item.click = [&requestedActiveSession, i]() {
+                                requestedActiveSession = i;
+                            };
+                            automationRegistry.registerItem(std::move(item));
                         }
                         if (!keepOpen && !pendingCloseSession)
                             pendingCloseSession = sessions[i]->recoveryId;
                     }
                     ImGui::EndTabBar();
+                    if (requestedActiveSession &&
+                        *requestedActiveSession == activeSession)
+                        requestedActiveSession.reset();
                 }
                 ImGui::InputText("新しいPMX", newSessionPath.data(), newSessionPath.size());
                 ImGui::SameLine();
@@ -694,13 +933,30 @@ int runApplication(const EditCommand &options) {
                 SDL_EndGPURenderPass(overlayPass);
             }
         }
-        if (commands != nullptr && !SDL_SubmitGPUCommandBuffer(commands))
-            log::error(SDL_GetError());
+        bool frameSubmitted = false;
+        if (commands != nullptr) {
+            frameSubmitted = SDL_SubmitGPUCommandBuffer(commands);
+            if (!frameSubmitted)
+                log::error(SDL_GetError());
+        }
+        if (options.automation && frameSubmitted) {
+            if (!sessions.empty() && activeSession < sessions.size())
+                automationRegistry.setStateJson(
+                    automationState(*sessions[activeSession], window,
+                                    activeSession));
+            else
+                automationRegistry.setStateJson("{\"document\":null}");
+            automationServer.processPending(
+                [&](std::string_view request) {
+                    return automationRegistry.handle(request);
+                });
+        }
     }
     std::size_t size{};
     const auto *contents = ImGui::SaveIniSettingsToMemory(&size);
     if (!saveWorkspaceLayout(layoutPath, std::string_view(contents, size)))
         log::warn("workspace layout could not be saved during shutdown");
+    automationServer.stop();
     ImGui_ImplSDLGPU3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();

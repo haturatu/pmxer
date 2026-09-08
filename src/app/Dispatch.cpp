@@ -1,6 +1,7 @@
 #include "Dispatch.hpp"
 
 #include "../commands/CommandOutput.hpp"
+#include "../commands/UiCommand.hpp"
 #include "../platform/Log.hpp"
 
 #if PMXER_HAS_GUI
@@ -44,6 +45,10 @@ struct CommandVisitor {
         const auto text = usage(command.command);
         std::fputs(text.c_str(), stdout);
         return 0;
+    }
+
+    int operator()(const UiCommand &command) const {
+        return runUiCommand(command);
     }
 };
 

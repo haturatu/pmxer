@@ -29,6 +29,7 @@ inline std::string makeRecoveryId() {
 }
 
 class PreviewController;
+class UiAutomationRegistry;
 
 struct MorphOffsetTargetState {
     bool picking{};
@@ -120,6 +121,7 @@ struct EditorUiState {
     mutable ViewportPickCache viewportPickCache;
     std::vector<SelectionItem> hiddenMaterials;
     std::vector<SelectionItem> isolatedMaterials;
+    std::optional<SelectionItem> automationPendingOutlinerSelection;
     const mmd::AnimatedModelFrame *previewFrame{};
 
     void clearDrafts() {
@@ -184,6 +186,7 @@ struct DocumentSession {
     PreviewSession preview;
     DerivedEditorState derived;
     EditorUiState ui;
+    UiAutomationRegistry *automation{};
 
     DocumentSession() : recoveryId(makeRecoveryId()) {}
     explicit DocumentSession(mmd::PmxModel model, std::filesystem::path source = {})

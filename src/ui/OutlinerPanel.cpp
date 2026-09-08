@@ -4,12 +4,14 @@
 #include "../editor/EditorSelectionController.hpp"
 #include "../editor/WorkspacePolicy.hpp"
 #include "EditorPanels.hpp"
+#include "UiAutomation.hpp"
 
 #include <imgui.h>
 
 #include <algorithm>
 #include <cstddef>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -50,6 +52,32 @@ SelectionItem itemAt(const DocumentSession &session, SelectionKind kind,
     return make(session.document.faceHandle(index));
   }
   return {};
+}
+
+const char *selectionToken(SelectionKind kind) {
+  switch (kind) {
+  case SelectionKind::vertex:
+    return "vertex";
+  case SelectionKind::texture:
+    return "texture";
+  case SelectionKind::material:
+    return "material";
+  case SelectionKind::bone:
+    return "bone";
+  case SelectionKind::morph:
+    return "morph";
+  case SelectionKind::displayFrame:
+    return "display_frame";
+  case SelectionKind::rigidBody:
+    return "rigid_body";
+  case SelectionKind::joint:
+    return "joint";
+  case SelectionKind::softBody:
+    return "soft_body";
+  case SelectionKind::face:
+    return "face";
+  }
+  return "item";
 }
 
 void activate(DocumentSession &session, SelectionKind kind, std::size_t index) {
@@ -155,6 +183,38 @@ void drawMultiSelectList(DocumentSession &session, SelectionKind kind,
   }
   const auto *mapping = filter.empty() ? nullptr : &visible;
   const auto displayedCount = mapping == nullptr ? count : mapping->size();
+  std::vector<std::string> automationLabels;
+  if (session.automation != nullptr) {
+    automationLabels.reserve(count);
+    for (std::size_t index = 0; index < count; ++index)
+      automationLabels.push_back(label(index));
+  }
+  const auto labelAt = [&](std::size_t index) -> std::string {
+    return session.automation == nullptr ? label(index)
+                                          : automationLabels[index];
+  };
+  const auto automationItemId = [&](const SelectionItem &item) {
+    return "outliner/" + std::string(selectionToken(kind)) + ":" +
+           std::to_string(item.id);
+  };
+  if (session.automation != nullptr) {
+    for (std::size_t index = 0; index < count; ++index) {
+      const auto item = itemAt(session, kind, index);
+      AutomationItem automationItem;
+      automationItem.window = "outliner";
+      automationItem.id = automationItemId(item);
+      automationItem.role = "tree_item";
+      automationItem.label = automationLabels[index];
+      automationItem.visible = false;
+      automationItem.selected = session.selection.contains(item);
+      automationItem.click = [&session, kind, index, item]() {
+        session.selection.set(item);
+        activate(session, kind, index);
+        session.ui.automationPendingOutlinerSelection = item;
+      };
+      session.automation->registerItem(std::move(automationItem));
+    }
+  }
   MultiSelectContext context{&session, &workspace, kind, mapping};
   ImGuiSelectionExternalStorage storage;
   storage.UserData = &context;
@@ -168,17 +228,56 @@ void drawMultiSelectList(DocumentSession &session, SelectionKind kind,
   clipper.Begin(itemCount(displayedCount));
   if (selection->RangeSrcItem != -1)
     clipper.IncludeItemByIndex(static_cast<int>(selection->RangeSrcItem));
+  if (session.ui.automationPendingOutlinerSelection &&
+      session.ui.automationPendingOutlinerSelection->kind == kind) {
+    const auto pending = *session.ui.automationPendingOutlinerSelection;
+    for (std::size_t row = 0; row < displayedCount; ++row) {
+      const auto index = mapping == nullptr ? row : (*mapping)[row];
+      if (itemAt(session, kind, index) == pending) {
+        clipper.IncludeItemByIndex(static_cast<int>(row));
+        break;
+      }
+    }
+  }
   while (clipper.Step()) {
     for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
       const auto displayIndex = static_cast<std::size_t>(row);
       const auto index = mapping == nullptr ? displayIndex
                                             : (*mapping)[displayIndex];
-      const auto text = label(index);
+      const auto text = labelAt(index);
       const auto item = itemAt(session, kind, index);
       ImGui::SetNextItemSelectionUserData(row);
       if (ImGui::Selectable((text + "##" + std::to_string(row)).c_str(),
                             session.selection.contains(item)))
         activate(session, kind, index);
+      if (session.automation != nullptr) {
+        const auto minimum = ImGui::GetItemRectMin();
+        const auto maximum = ImGui::GetItemRectMax();
+        AutomationItem automationItem;
+        automationItem.window = "outliner";
+        automationItem.id = automationItemId(item);
+        automationItem.role = "tree_item";
+        automationItem.label = text;
+        automationItem.selected = session.selection.contains(item);
+        automationItem.visible = true;
+        automationItem.hovered = ImGui::IsItemHovered();
+        automationItem.focused = ImGui::IsItemFocused();
+        automationItem.x = static_cast<int>(minimum.x);
+        automationItem.y = static_cast<int>(minimum.y);
+        automationItem.width = static_cast<int>(maximum.x - minimum.x);
+        automationItem.height = static_cast<int>(maximum.y - minimum.y);
+        automationItem.click = [&session, kind, index, item]() {
+          session.selection.set(item);
+          activate(session, kind, index);
+          session.ui.automationPendingOutlinerSelection = item;
+        };
+        session.automation->registerItem(std::move(automationItem));
+      }
+      if (session.ui.automationPendingOutlinerSelection &&
+          *session.ui.automationPendingOutlinerSelection == item) {
+        ImGui::SetScrollHereY();
+        session.ui.automationPendingOutlinerSelection.reset();
+      }
     }
   }
   selection = ImGui::EndMultiSelect();
@@ -252,11 +351,38 @@ void drawBoneNode(DocumentSession &session, WorkspaceUiState &workspace,
     }
     activate(session, SelectionKind::bone, index);
   }
+  if (session.automation != nullptr) {
+    const auto minimum = ImGui::GetItemRectMin();
+    const auto maximum = ImGui::GetItemRectMax();
+    AutomationItem automationItem;
+    automationItem.window = "outliner";
+    automationItem.id = "outliner/bone:" + std::to_string(item.id);
+    automationItem.role = "tree_item";
+    automationItem.label = bone.name;
+    automationItem.selected = session.selection.contains(item);
+    automationItem.visible = true;
+    automationItem.hovered = ImGui::IsItemHovered();
+    automationItem.focused = ImGui::IsItemFocused();
+    automationItem.expanded = open;
+    automationItem.x = static_cast<int>(minimum.x);
+    automationItem.y = static_cast<int>(minimum.y);
+    automationItem.width = static_cast<int>(maximum.x - minimum.x);
+    automationItem.height = static_cast<int>(maximum.y - minimum.y);
+    automationItem.click = [&session, &workspace, index, item]() {
+      selectPrimary(session, workspace.active, item, SelectionOrigin::outliner);
+      activate(session, SelectionKind::bone, index);
+      session.ui.automationPendingOutlinerSelection = item;
+    };
+    session.automation->registerItem(std::move(automationItem));
+  }
   if (open && !children[index].empty()) {
     for (const auto child : children[index])
       drawBoneNode(session, workspace, children, child, filter, visited);
     ImGui::TreePop();
   }
+  if (session.ui.automationPendingOutlinerSelection &&
+      *session.ui.automationPendingOutlinerSelection == item)
+    session.ui.automationPendingOutlinerSelection.reset();
   ImGui::PopID();
 }
 
@@ -274,7 +400,47 @@ void drawBoneTree(DocumentSession &session, WorkspaceUiState &workspace,
       roots.push_back(index);
   }
   std::vector<bool> visited(bones.size());
-  const auto filterResult = makeBoneFilterResult(bones, filter);
+  if (session.automation != nullptr) {
+    for (std::size_t index = 0; index < bones.size(); ++index) {
+      const auto item = itemAt(session, SelectionKind::bone, index);
+      AutomationItem automationItem;
+      automationItem.window = "outliner";
+      automationItem.id = "outliner/bone:" + std::to_string(item.id);
+      automationItem.role = "tree_item";
+      automationItem.label = bones[index].name;
+      automationItem.visible = false;
+      automationItem.selected = session.selection.contains(item);
+      automationItem.click = [&session, &workspace, index, item]() {
+        selectPrimary(session, workspace.active, item, SelectionOrigin::outliner);
+        activate(session, SelectionKind::bone, index);
+        session.ui.automationPendingOutlinerSelection = item;
+      };
+      session.automation->registerItem(std::move(automationItem));
+    }
+  }
+  auto filterResult = makeBoneFilterResult(bones, filter);
+  if (session.ui.automationPendingOutlinerSelection &&
+      session.ui.automationPendingOutlinerSelection->kind ==
+          SelectionKind::bone) {
+    const auto pending = *session.ui.automationPendingOutlinerSelection;
+    for (std::size_t index = 0; index < bones.size(); ++index) {
+      if (itemAt(session, SelectionKind::bone, index) != pending)
+        continue;
+      filterResult.visible[index] = true;
+      auto current = index;
+      for (std::size_t steps = 0; steps < bones.size(); ++steps) {
+        const auto parent = bones[current].parent;
+        if (parent < 0 || static_cast<std::size_t>(parent) >= bones.size() ||
+            static_cast<std::size_t>(parent) == current)
+          break;
+        const auto parentIndex = static_cast<std::size_t>(parent);
+        filterResult.visible[parentIndex] = true;
+        filterResult.forceOpen[parentIndex] = true;
+        current = parentIndex;
+      }
+      break;
+    }
+  }
   for (const auto root : roots)
     drawBoneNode(session, workspace, children, root, filterResult, visited);
   for (std::size_t index = 0; index < bones.size(); ++index)
@@ -294,9 +460,38 @@ void drawOutlinerPanel(DocumentSession &session, WorkspaceUiState &workspace,
     ImGui::End();
     return;
   }
+  if (session.automation != nullptr) {
+    const auto position = ImGui::GetWindowPos();
+    const auto size = ImGui::GetWindowSize();
+    session.automation->registerWindow(
+        "outliner", "アウトライナー", static_cast<int>(position.x),
+        static_cast<int>(position.y), static_cast<int>(size.x),
+        static_cast<int>(size.y));
+  }
   ImGui::SetNextItemWidth(-1.0F);
   ImGui::InputTextWithHint("##search", "検索", workspace.search.data(),
                            workspace.search.size());
+  if (session.automation != nullptr) {
+    const auto minimum = ImGui::GetItemRectMin();
+    const auto maximum = ImGui::GetItemRectMax();
+    AutomationItem search;
+    search.window = "outliner";
+    search.id = "outliner/search";
+    search.role = "text_input";
+    search.label = "検索";
+    search.value = workspace.search.data();
+    search.x = static_cast<int>(minimum.x);
+    search.y = static_cast<int>(minimum.y);
+    search.width = static_cast<int>(maximum.x - minimum.x);
+    search.height = static_cast<int>(maximum.y - minimum.y);
+    search.set = [&workspace](std::string_view value) {
+      const auto length = std::min(value.size(), workspace.search.size() - 1U);
+      std::copy_n(value.data(), length, workspace.search.data());
+      workspace.search[length] = '\0';
+      return AutomationResult{};
+    };
+    session.automation->registerItem(std::move(search));
+  }
   const std::string_view filter(workspace.search.data());
   const auto &model = session.document.model();
 

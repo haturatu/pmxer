@@ -1,5 +1,7 @@
 #include "CommandLine.hpp"
 
+#include "../automation/AutomationProtocol.hpp"
+
 #include <argparse/argparse.hpp>
 
 #include <algorithm>
@@ -46,6 +48,14 @@ void configureEditParser(Parser &parser) {
         .default_value(false)
         .implicit_value(true)
         .nargs(0);
+    parser.add_argument("--automation")
+        .help("enable the UI automation endpoint")
+        .default_value(false)
+        .implicit_value(true)
+        .nargs(0);
+    parser.add_argument("--automation-socket")
+        .help("path for the UI automation endpoint")
+        .default_value(std::string{});
     parser.add_argument("--renderer")
         .help("select the graphics backend")
         .default_value(std::string{"auto"})
@@ -109,6 +119,30 @@ void configureHelpParser(Parser &parser) {
         .nargs(argparse::nargs_pattern::optional);
 }
 
+void configureUiParser(Parser &parser) {
+    addHelp(parser, "show this help message");
+    addJson(parser);
+    parser.add_argument("--socket")
+        .help("automation endpoint path")
+        .default_value(std::string{});
+    parser.add_argument("--timeout")
+        .help("maximum wait time in seconds")
+        .default_value(5.0F)
+        .scan<'g', float>();
+    parser.add_argument("operation")
+        .help("tree, state, click, set, key, wait, screenshot, frame, sessions, real input")
+        .choices("tree", "state", "click", "set", "key", "wait",
+                 "screenshot", "frame", "sessions", "mouse", "mouse-move",
+                 "mouse-down", "mouse-up", "key-down", "key-up", "text",
+                 "text-input", "wheel");
+    parser.add_argument("target")
+        .help("automation item, key, or screenshot path")
+        .nargs(argparse::nargs_pattern::optional);
+    parser.add_argument("value")
+        .help("value for set")
+        .nargs(argparse::nargs_pattern::optional);
+}
+
 std::vector<std::string> tailArguments(int argc, char *const argv[], int first) {
     std::vector<std::string> arguments{"pmxer"};
     for (int index = first; index < argc; ++index) {
@@ -133,6 +167,7 @@ bool hasHelpArgument(int argc, char *const argv[], int first) {
 void rejectEmptyOptionValues(int argc, char *const argv[], int first) {
     constexpr const char *options[] = {
         "--renderer=", "--font=", "--font-size=", "--lang=", "--resource-dir=",
+        "--automation-socket=",
     };
     for (int index = first; index < argc; ++index) {
         const std::string argument = argv[index] == nullptr ? "" : argv[index];
@@ -146,6 +181,24 @@ void rejectEmptyOptionValues(int argc, char *const argv[], int first) {
             }
         }
     }
+}
+
+std::vector<std::string> normalizeAutomationOption(
+    const std::vector<std::string> &arguments) {
+    std::vector<std::string> result;
+    result.reserve(arguments.size() + 2U);
+    bool positionalOnly = false;
+    for (const auto &argument : arguments) {
+        if (positionalOnly || argument.rfind("--automation=", 0) != 0U) {
+            result.push_back(argument);
+            positionalOnly = positionalOnly || argument == "--";
+            continue;
+        }
+        result.push_back("--automation");
+        result.push_back("--automation-socket");
+        result.push_back(argument.substr(std::string{"--automation="}.size()));
+    }
+    return result;
 }
 
 template <typename Function>
@@ -172,11 +225,13 @@ ParseResult parseEdit(int argc, char *const argv[], int first) {
             positionalOnly.assign(std::next(separator), arguments.end());
             arguments.erase(separator, arguments.end());
         }
+        arguments = normalizeAutomationOption(arguments);
         parser.parse_args(arguments);
 
         EditCommand command;
         command.gpuDebug = parser.get<bool>("--gpu-debug");
         command.safeMode = parser.get<bool>("--safe-mode");
+        command.automation = parser.get<bool>("--automation");
         command.physics = !parser.get<bool>("--no-physics") && !command.safeMode;
         command.renderer = parser.get<std::string>("--renderer");
         command.locale = parser.get<std::string>("--lang");
@@ -186,6 +241,11 @@ ParseResult parseEdit(int argc, char *const argv[], int first) {
         }
         command.font = parser.get<std::string>("--font");
         command.resourceDirectory = parser.get<std::string>("--resource-dir");
+        command.automationSocket = parser.get<std::string>("--automation-socket");
+        if (!command.automationSocket.empty())
+            command.automation = true;
+        if (command.automation && command.automationSocket.empty())
+            command.automationSocket = automation::defaultSocketPath();
         for (const auto &document : parser.get<std::vector<std::string>>("documents")) {
             command.documents.emplace_back(document);
         }
@@ -280,6 +340,46 @@ ParseResult parseHelp(int argc, char *const argv[], int first) {
     });
 }
 
+ParseResult parseUi(int argc, char *const argv[], int first) {
+    Parser parser("pmxer ui", applicationVersion(), argparse::default_arguments::none, false);
+    configureUiParser(parser);
+    return parseWith(parser, [argc, argv, first](Parser &parser) -> std::optional<Invocation> {
+        if (hasHelpArgument(argc, argv, first))
+            return Invocation{{}, HelpCommand{"ui"}};
+        parser.parse_args(tailArguments(argc, argv, first));
+        UiCommand command;
+        command.operation = parser.get<std::string>("operation");
+        command.socket = parser.get<std::string>("--socket");
+        command.timeout = parser.get<float>("--timeout");
+        command.json = parser.get<bool>("--json");
+        if (parser.is_used("target"))
+            command.target = parser.get<std::string>("target");
+        if (parser.is_used("value"))
+            command.value = parser.get<std::string>("value");
+        if (!std::isfinite(command.timeout) || command.timeout <= 0.0F)
+            throw std::runtime_error("timeout must be greater than zero");
+        if (command.operation == "click" || command.operation == "set" ||
+            command.operation == "key" || command.operation == "wait" ||
+            command.operation == "screenshot" || command.operation == "mouse" ||
+            command.operation == "mouse-move" || command.operation == "mouse-down" ||
+            command.operation == "mouse-up" || command.operation == "key-down" ||
+            command.operation == "key-up" || command.operation == "text" ||
+            command.operation == "text-input" || command.operation == "wheel") {
+            if (command.target.empty())
+                throw std::runtime_error("ui command requires a target");
+        }
+        if (command.operation == "set" && !parser.is_used("value"))
+            throw std::runtime_error("ui set requires a value");
+        if ((command.operation == "mouse" ||
+             command.operation == "mouse-move" ||
+             command.operation == "wheel") && !parser.is_used("value"))
+            throw std::runtime_error("ui input requires a value");
+        if (command.socket.empty())
+            command.socket = automation::defaultSocketPath();
+        return Invocation{{}, std::move(command)};
+    });
+}
+
 } // namespace
 
 ParseResult parseInvocation(int argc, char *const argv[]) {
@@ -316,6 +416,9 @@ ParseResult parseInvocation(int argc, char *const argv[]) {
     }
     if (first == "help") {
         return parseHelp(argc, argv, 2);
+    }
+    if (first == "ui") {
+        return parseUi(argc, argv, 2);
     }
     if (!first.empty() && first.front() == '-') {
         return parseEdit(argc, argv, 1);
@@ -354,6 +457,11 @@ std::string usage(std::string_view command) {
         configureHelpParser(parser);
         return parser.help().str();
     }
+    if (command == "ui") {
+        Parser parser("pmxer ui", applicationVersion(), argparse::default_arguments::none, false);
+        configureUiParser(parser);
+        return parser.help().str();
+    }
     return "Usage:\n"
            "  pmxer [options] [FILE...]\n"
            "  pmxer <command> [options] ...\n\n"
@@ -363,7 +471,8 @@ std::string usage(std::string_view command) {
            "  validate    Validate PMX files\n"
            "  diff        Compare PMX models\n"
            "  normalize   Normalize model weights\n"
-           "  help        Show command help\n\n"
+           "  help        Show command help\n"
+           "  ui          Inspect and operate the running editor\n\n"
            "Use: pmxer help <command>\n";
 }
 

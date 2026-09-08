@@ -10,6 +10,7 @@
 #include "../editor/tools/MorphTool.hpp"
 #include "../preview/PreviewController.hpp"
 #include "../render/GpuModelRenderer.hpp"
+#include "UiAutomation.hpp"
 
 #include <imgui.h>
 
@@ -20,7 +21,9 @@
 #include <iterator>
 #include <limits>
 #include <optional>
+#include <sstream>
 #include <string>
+#include <string_view>
 
 namespace pmxer {
 namespace {
@@ -42,6 +45,39 @@ bool inputText(const char *label, std::string &value) {
                        ImGuiInputTextFlags_CallbackResize, resizeText, &value);
   value.resize(std::strlen(value.c_str()));
   return changed;
+}
+
+void registerInspectorItem(
+    DocumentSession &session, std::string id, std::string role,
+    std::string label, std::string value,
+    std::function<AutomationResult(std::string_view)> setter = {}) {
+  if (session.automation == nullptr)
+    return;
+  const auto minimum = ImGui::GetItemRectMin();
+  const auto maximum = ImGui::GetItemRectMax();
+  AutomationItem item;
+  item.window = "inspector";
+  item.id = std::move(id);
+  item.role = std::move(role);
+  item.label = std::move(label);
+  item.value = std::move(value);
+  item.hovered = ImGui::IsItemHovered();
+  item.focused = ImGui::IsItemFocused();
+  item.x = static_cast<int>(minimum.x);
+  item.y = static_cast<int>(minimum.y);
+  item.width = static_cast<int>(maximum.x - minimum.x);
+  item.height = static_cast<int>(maximum.y - minimum.y);
+  item.set = std::move(setter);
+  session.automation->registerItem(std::move(item));
+}
+
+bool parseFloatList(std::string_view text, float *values, std::size_t count) {
+  std::istringstream stream{std::string{text}};
+  for (std::size_t index = 0; index < count; ++index) {
+    if (!(stream >> values[index]))
+      return false;
+  }
+  return true;
 }
 
 bool flagCheckbox(const char *label, std::uint8_t &flags, std::uint8_t bit) {
@@ -213,6 +249,20 @@ void materialInspector(DocumentSession &session,
   ImGui::SeparatorText("名前");
   (void)inputText("名前", draft.name);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
+  registerInspectorItem(
+      session, "inspector/material.name", "text_input", "名前", draft.name,
+      [&session, handle](std::string_view value) {
+        const auto *current = session.document.resolve(handle);
+        if (current == nullptr)
+          return AutomationResult{false, "stale_handle"};
+        auto edited = *current;
+        edited.name = value;
+        const auto result = editMaterial(session, handle, edited);
+        session.ui.status = result.success ? "材質を更新しました" : result.message;
+        session.ui.materialDraft.reset();
+        return AutomationResult{result.success,
+                                result.success ? std::string{} : "edit_failed"};
+      });
   (void)inputText("英語名", draft.englishName);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
   ImGui::SeparatorText("表面");
@@ -288,6 +338,20 @@ void boneInspector(DocumentSession &session, const SelectionItem &selected) {
   ImGui::SeparatorText("名前");
   (void)inputText("名前", draft.name);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
+  registerInspectorItem(
+      session, "inspector/bone.name", "text_input", "名前", draft.name,
+      [&session, handle](std::string_view value) {
+        const auto *current = session.document.resolve(handle);
+        if (current == nullptr)
+          return AutomationResult{false, "stale_handle"};
+        auto edited = *current;
+        edited.name = value;
+        const auto result = editBone(session, handle, edited);
+        session.ui.status = result.success ? "ボーンを更新しました" : result.message;
+        session.ui.boneDraft.reset();
+        return AutomationResult{result.success,
+                                result.success ? std::string{} : "edit_failed"};
+      });
   (void)inputText("英語名", draft.englishName);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
   ImGui::SeparatorText("変形");
@@ -335,6 +399,26 @@ void vertexInspector(DocumentSession &session, EditorWorkspace &workspace,
   bool commit{};
   (void)ImGui::DragFloat3("位置", draft.position.data(), 0.001F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
+  registerInspectorItem(
+      session, "inspector/vertex.position", "vector_input", "位置",
+      std::to_string(draft.position[0]) + " " +
+          std::to_string(draft.position[1]) + " " +
+          std::to_string(draft.position[2]),
+      [&session, handle](std::string_view text) {
+        mmd::Float3 position{};
+        if (!parseFloatList(text, position.data(), position.size()))
+          return AutomationResult{false, "invalid_value"};
+        const auto *current = session.document.resolve(handle);
+        if (current == nullptr)
+          return AutomationResult{false, "stale_handle"};
+        auto edited = *current;
+        edited.position = position;
+        const auto result = editVertex(session, handle, edited);
+        session.ui.status = result.success ? "頂点を更新しました" : result.message;
+        session.ui.vertexDraft.reset();
+        return AutomationResult{result.success,
+                                result.success ? std::string{} : "edit_failed"};
+      });
   (void)ImGui::DragFloat3("法線", draft.normal.data(), 0.001F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
   (void)ImGui::DragFloat2("UV", draft.uv.data(), 0.001F);
@@ -820,6 +904,30 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
       refreshPreviewFrame(session);
     }
   }
+  registerInspectorItem(
+      session, "inspector/morph.preview", "slider", "ウェイト",
+      std::to_string(weight), [&session, selected, morphName = value->name](
+                                  std::string_view text) {
+        std::istringstream stream{std::string{text}};
+        float next{};
+        if (!(stream >> next))
+          return AutomationResult{false, "invalid_value"};
+        next = std::clamp(next, 0.0F, 1.0F);
+        auto &items = session.preview.morphValues;
+        const auto found = std::find_if(
+            items.begin(), items.end(), [&](const auto &item) {
+              return item.selection == selected;
+            });
+        if (found == items.end())
+          items.push_back({selected, next});
+        else
+          found->weight = next;
+        if (session.preview.controller) {
+          session.preview.controller->setMorphPreview(morphName, next);
+          refreshPreviewFrame(session);
+        }
+        return AutomationResult{};
+      });
   if (ImGui::Button("このモーフをリセット")) {
     preview = std::find_if(values.begin(), values.end(),
                            [&](const auto &item) { return item.selection == selected; });
@@ -903,6 +1011,14 @@ void drawInspectorPanel(DocumentSession &session, GpuModelRenderer *renderer,
   if (!ImGui::Begin("インスペクター", open)) {
     ImGui::End();
     return;
+  }
+  if (session.automation != nullptr) {
+    const auto position = ImGui::GetWindowPos();
+    const auto size = ImGui::GetWindowSize();
+    session.automation->registerWindow(
+        "inspector", "インスペクター", static_cast<int>(position.x),
+        static_cast<int>(position.y), static_cast<int>(size.x),
+        static_cast<int>(size.y));
   }
   if (session.selection.items().empty()) {
     switch (activeWorkspace) {
