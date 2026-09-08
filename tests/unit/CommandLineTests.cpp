@@ -124,5 +124,24 @@ int main() {
         std::get<pmxer::EditCommand>(automation.invocation->command);
     assert(editWithAutomation.automation);
     assert(editWithAutomation.automationSocket == "/tmp/pmxer-test.sock");
+
+    char mouseCommand[] = "mouse";
+    char mouseX[] = "10";
+    char mouseY[] = "20";
+    char *mouseArguments[] = {name, uiCommand, mouseCommand, mouseX, mouseY};
+    const auto mouse = pmxer::parseInvocation(5, mouseArguments);
+    assert(mouse.error.empty());
+    const auto &mouseValue = std::get<pmxer::UiCommand>(mouse.invocation->command);
+    assert(mouseValue.operation == "mouse");
+    assert(mouseValue.target == "10");
+    assert(mouseValue.value == "20");
+
+    char keyDownCommand[] = "key-down";
+    char keyName[] = "ctrl";
+    char *keyArguments[] = {name, uiCommand, keyDownCommand, keyName};
+    const auto keyDown = pmxer::parseInvocation(4, keyArguments);
+    assert(keyDown.error.empty());
+    assert(std::get<pmxer::UiCommand>(keyDown.invocation->command).target ==
+           "ctrl");
     return 0;
 }

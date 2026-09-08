@@ -366,6 +366,13 @@ if(BUILD_TESTING)
     )
     target_include_directories(pmxer_ui_automation_tests PRIVATE src)
     add_test(NAME pmxer_ui_automation COMMAND pmxer_ui_automation_tests)
+
+    add_executable(pmxer_ui_automation_socket_tests
+      tests/integration/UiAutomationSocketTests.cpp
+      src/ui/UiAutomation.cpp
+    )
+    target_include_directories(pmxer_ui_automation_socket_tests PRIVATE src)
+    add_test(NAME pmxer_ui_automation_socket COMMAND pmxer_ui_automation_socket_tests)
   endif()
 endif()
 

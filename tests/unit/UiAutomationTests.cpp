@@ -76,5 +76,17 @@ int main() {
     assert(inputOperation == "mouse");
     assert(inputTarget == "10");
     assert(inputValue == "20");
+    int pendingClicks{};
+    pmxer::AutomationItem offscreen;
+    offscreen.window = "outliner";
+    offscreen.id = "outliner/vertex:42";
+    offscreen.role = "tree_item";
+    offscreen.visible = false;
+    offscreen.click = [&pendingClicks]() { ++pendingClicks; };
+    registry.registerItem(std::move(offscreen));
+    assert(registry.handle(
+               R"({"cmd":"click","target":"outliner/vertex:42"})") ==
+           "{\"ok\":true,\"pending\":true}");
+    assert(pendingClicks == 1);
     return 0;
 }
