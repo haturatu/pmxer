@@ -1,4 +1,5 @@
 #include "InspectorPanel.hpp"
+#include "MorphOffsetBrowser.hpp"
 
 #include "../editor/EditorSelectionController.hpp"
 
@@ -277,7 +278,8 @@ void materialInspector(DocumentSession &session,
   }
   if (commit) {
     const auto result = editMaterial(session, handle, draft);
-    session.ui.status = result.success ? "材質を更新しました" : result.message;
+    setOperationStatus(session, result.success, "材質を更新しました",
+                       result.message);
     session.ui.materialDraft.reset();
   }
 }
@@ -322,8 +324,8 @@ void boneInspector(DocumentSession &session, const SelectionItem &selected) {
   }
   if (commit) {
     const auto result = editBone(session, handle, draft);
-    session.ui.status =
-        result.success ? "ボーンを更新しました" : result.message;
+    setOperationStatus(session, result.success, "ボーンを更新しました",
+                       result.message);
     session.ui.boneDraft.reset();
   }
 }
@@ -373,7 +375,8 @@ void vertexInspector(DocumentSession &session, EditorWorkspace &workspace,
   }
   if (commit) {
     const auto result = editVertex(session, handle, draft);
-    session.ui.status = result.success ? "頂点を更新しました" : result.message;
+    setOperationStatus(session, result.success, "頂点を更新しました",
+                       result.message);
     session.ui.vertexDraft.reset();
   }
 }
@@ -445,7 +448,8 @@ void rigidBodyInspector(DocumentSession &session,
   commit |= ImGui::IsItemDeactivatedAfterEdit();
   if (commit) {
     const auto result = editRigidBody(session, handle, draft);
-    session.ui.status = result.success ? "剛体を更新しました" : result.message;
+    setOperationStatus(session, result.success, "剛体を更新しました",
+                       result.message);
     session.ui.rigidBodyDraft.reset();
   }
 }
@@ -503,8 +507,8 @@ void jointInspector(DocumentSession &session, const SelectionItem &selected) {
   commit |= ImGui::IsItemDeactivatedAfterEdit();
   if (commit) {
     const auto result = editJoint(session, handle, draft);
-    session.ui.status =
-        result.success ? "ジョイントを更新しました" : result.message;
+    setOperationStatus(session, result.success, "ジョイントを更新しました",
+                       result.message);
     session.ui.jointDraft.reset();
   }
 }
@@ -576,11 +580,12 @@ bool morphIndexCombo(const char *label, DocumentSession &session,
   return changed;
 }
 
-std::string indexedOffsetName(std::string_view name, std::size_t index) {
+[[maybe_unused]] std::string indexedOffsetName(std::string_view name,
+                                               std::size_t index) {
   return name.empty() ? "#" + std::to_string(index) : std::string(name);
 }
 
-std::string morphOffsetTargetLabel(const DocumentSession &session,
+[[maybe_unused]] std::string morphOffsetTargetLabel(const DocumentSession &session,
                                    const mmd::PmxMorph &morph,
                                    std::size_t offsetIndex) {
   const auto &offset = morph.offsets[offsetIndex];
@@ -614,7 +619,7 @@ std::string morphOffsetTargetLabel(const DocumentSession &session,
          std::to_string(offset.index);
 }
 
-bool containsOffsetQuery(std::string_view label, std::string_view query,
+[[maybe_unused]] bool containsOffsetQuery(std::string_view label, std::string_view query,
                          std::size_t index) {
   return query.empty() || label.find(query) != std::string_view::npos ||
          std::to_string(index).find(query) != std::string::npos;
@@ -642,7 +647,8 @@ void beginMorphOffsetTargetPick(DocumentSession &session,
   default:
     break;
   }
-  session.ui.status = "ビューポートからモーフオフセットの対象を選択してください";
+  setStatus(session, "ビューポートからモーフオフセットの対象を選択してください",
+            UiStatusKind::info);
 }
 
 bool addMorphOffset(DocumentSession &session, mmd::MorphHandle handle,
@@ -741,34 +747,8 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
 
   ImGui::SeparatorText("オフセット編集");
   if (!draft.offsets.empty()) {
-    session.ui.morphOffsetIndex = std::min(session.ui.morphOffsetIndex,
-                                           draft.offsets.size() - 1U);
-    ImGui::InputTextWithHint("対象検索", "名前または番号",
-                             session.ui.morphOffsetSearch.data(),
-                             session.ui.morphOffsetSearch.size());
-    std::vector<std::size_t> visibleOffsets;
-    const std::string_view query(session.ui.morphOffsetSearch.data());
-    for (std::size_t index = 0; index < draft.offsets.size(); ++index) {
-      const auto label = morphOffsetTargetLabel(session, draft, index);
-      if (containsOffsetQuery(label, query, index))
-        visibleOffsets.push_back(index);
-    }
-    if (ImGui::BeginChild("##morph-offset-browser", ImVec2(0.0F, 180.0F),
-                          ImGuiChildFlags_Borders)) {
-      ImGuiListClipper clipper;
-      clipper.Begin(static_cast<int>(visibleOffsets.size()));
-      while (clipper.Step()) {
-        for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
-          const auto index = visibleOffsets[static_cast<std::size_t>(row)];
-          const auto label = morphOffsetTargetLabel(session, draft, index) +
-                             "##morph-offset-" + std::to_string(index);
-          if (ImGui::Selectable(label.c_str(),
-                                session.ui.morphOffsetIndex == index))
-            session.ui.morphOffsetIndex = index;
-        }
-      }
-    }
-    ImGui::EndChild();
+    (void)drawMorphOffsetBrowser(session, draft, session.ui.morphOffsetIndex,
+                                 "inspector", handle);
     auto &offset = draft.offsets[session.ui.morphOffsetIndex];
     bool offsetCommit{};
     if (draft.type != 0 && draft.type != 9)
@@ -867,9 +847,11 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
       session.ui.morphDraft.reset();
       session.ui.morphOffsetTarget = {};
       session.ui.morphAddTarget.reset();
-      session.ui.status = "モーフオフセットを追加しました";
+      setStatus(session, "モーフオフセットを追加しました",
+                UiStatusKind::success);
     } else {
-      session.ui.status = "モーフオフセットを追加できません";
+      setStatus(session, "モーフオフセットを追加できません",
+                UiStatusKind::error, std::chrono::milliseconds::zero(), true);
     }
   }
   if (!addEnabled)
@@ -916,7 +898,8 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
 
   if (commit) {
     const auto result = editMorph(session, handle, draft);
-    session.ui.status = result.success ? "モーフを更新しました" : result.message;
+    setOperationStatus(session, result.success, "モーフを更新しました",
+                       result.message);
     if (result.success) {
       session.ui.morphDraft.reset();
       session.ui.morphOffsetTarget = {};
@@ -952,8 +935,8 @@ void readOnlyInspector(DocumentSession &session,
       (void)inputText("保存パス", draft.storedPath);
       if (ImGui::IsItemDeactivatedAfterEdit()) {
         const auto result = editTexture(session, handle, draft);
-        session.ui.status =
-            result.success ? "テクスチャを更新しました" : result.message;
+        setOperationStatus(session, result.success, "テクスチャを更新しました",
+                           result.message);
         session.ui.textureDraft.reset();
         return;
       }

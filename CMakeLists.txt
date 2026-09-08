@@ -305,6 +305,7 @@ if(PMXER_BUILD_GUI)
     src/ui/EditorPanels.cpp
     src/ui/OutlinerPanel.cpp
     src/ui/InspectorPanel.cpp
+    src/ui/MorphOffsetBrowser.cpp
     src/ui/ViewportPanel.cpp
     src/ui/ViewportGizmo.cpp
     src/ui/ViewportPicking.cpp

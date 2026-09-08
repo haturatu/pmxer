@@ -37,6 +37,14 @@ struct OutlinerViewState {
     std::array<char, 128> query{};
 };
 
+struct MorphOffsetFilterCache {
+    std::uint64_t morphId{};
+    std::uint32_t morphGeneration{};
+    std::uint64_t documentRevision{std::numeric_limits<std::uint64_t>::max()};
+    std::string query;
+    std::vector<std::size_t> visible;
+};
+
 struct MorphOffsetTargetState {
     bool picking{};
     bool adding{};
@@ -75,12 +83,12 @@ struct EditorUiState {
     std::string motionPath;
     std::string posePath;
     std::string status;
-    std::string statusObserved;
     UiStatusKind statusKind{};
     std::chrono::steady_clock::time_point statusExpiresAt{};
     bool statusSticky{};
     std::array<OutlinerViewState, 5> outliner{};
     std::array<char, 128> morphOffsetSearch{};
+    MorphOffsetFilterCache morphOffsetFilter;
     std::optional<SelectionItem> pendingOutlinerReveal;
     bool previewPlaying{};
     bool morphOffsetDirty{};
