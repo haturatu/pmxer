@@ -28,6 +28,7 @@ inline std::string makeRecoveryId() {
 }
 
 class PreviewController;
+class UiAutomationRegistry;
 
 struct EditorUiState {
     std::size_t vertexIndex{};
@@ -164,6 +165,7 @@ struct DocumentSession {
     PreviewSession preview;
     DerivedEditorState derived;
     EditorUiState ui;
+    UiAutomationRegistry *automation{};
 
     DocumentSession() : recoveryId(makeRecoveryId()) {}
     explicit DocumentSession(mmd::PmxModel model, std::filesystem::path source = {})

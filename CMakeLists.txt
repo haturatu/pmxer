@@ -303,6 +303,7 @@ if(PMXER_BUILD_GUI)
     src/ui/ViewportPanel.cpp
     src/ui/ViewportGizmo.cpp
     src/ui/ViewportPicking.cpp
+    src/ui/UiAutomation.cpp
     src/render/GpuModelRenderer.cpp
     src/render/ImageDecoder.cpp
     src/platform/FileDialog.cpp
@@ -358,6 +359,13 @@ if(BUILD_TESTING)
     target_include_directories(pmxer_image_decoder_tests PRIVATE src)
     target_include_directories(pmxer_image_decoder_tests SYSTEM PRIVATE "${stb_image_SOURCE_DIR}" "${bcdec_SOURCE_DIR}")
     add_test(NAME pmxer_image_decoder COMMAND pmxer_image_decoder_tests)
+
+    add_executable(pmxer_ui_automation_tests
+      tests/unit/UiAutomationTests.cpp
+      src/ui/UiAutomation.cpp
+    )
+    target_include_directories(pmxer_ui_automation_tests PRIVATE src)
+    add_test(NAME pmxer_ui_automation COMMAND pmxer_ui_automation_tests)
   endif()
 endif()
 

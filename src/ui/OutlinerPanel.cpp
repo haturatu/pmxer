@@ -2,6 +2,7 @@
 
 #include "../editor/DocumentSession.hpp"
 #include "EditorPanels.hpp"
+#include "UiAutomation.hpp"
 
 #include <imgui.h>
 
@@ -48,6 +49,32 @@ SelectionItem itemAt(const DocumentSession &session, SelectionKind kind,
     return make(session.document.faceHandle(index));
   }
   return {};
+}
+
+const char *selectionToken(SelectionKind kind) {
+  switch (kind) {
+  case SelectionKind::vertex:
+    return "vertex";
+  case SelectionKind::texture:
+    return "texture";
+  case SelectionKind::material:
+    return "material";
+  case SelectionKind::bone:
+    return "bone";
+  case SelectionKind::morph:
+    return "morph";
+  case SelectionKind::displayFrame:
+    return "display_frame";
+  case SelectionKind::rigidBody:
+    return "rigid_body";
+  case SelectionKind::joint:
+    return "joint";
+  case SelectionKind::softBody:
+    return "soft_body";
+  case SelectionKind::face:
+    return "face";
+  }
+  return "item";
 }
 
 void activate(DocumentSession &session, SelectionKind kind, std::size_t index) {
@@ -174,6 +201,29 @@ void drawMultiSelectList(DocumentSession &session, SelectionKind kind,
       if (ImGui::Selectable((text + "##" + std::to_string(row)).c_str(),
                             session.selection.contains(item)))
         activate(session, kind, index);
+      if (session.automation != nullptr) {
+        const auto minimum = ImGui::GetItemRectMin();
+        const auto maximum = ImGui::GetItemRectMax();
+        AutomationItem automationItem;
+        automationItem.window = "outliner";
+        automationItem.id = "outliner/" +
+                            std::string(selectionToken(kind)) + ":" +
+                            std::to_string(item.id);
+        automationItem.role = "tree_item";
+        automationItem.label = text;
+        automationItem.selected = session.selection.contains(item);
+        automationItem.hovered = ImGui::IsItemHovered();
+        automationItem.focused = ImGui::IsItemFocused();
+        automationItem.x = static_cast<int>(minimum.x);
+        automationItem.y = static_cast<int>(minimum.y);
+        automationItem.width = static_cast<int>(maximum.x - minimum.x);
+        automationItem.height = static_cast<int>(maximum.y - minimum.y);
+        automationItem.click = [&session, kind, index, item]() {
+          session.selection.set(item);
+          activate(session, kind, index);
+        };
+        session.automation->registerItem(std::move(automationItem));
+      }
     }
   }
   selection = ImGui::EndMultiSelect();
@@ -210,6 +260,28 @@ void drawBoneNode(DocumentSession &session,
       session.selection.set(item);
     }
     activate(session, SelectionKind::bone, index);
+  }
+  if (session.automation != nullptr) {
+    const auto minimum = ImGui::GetItemRectMin();
+    const auto maximum = ImGui::GetItemRectMax();
+    AutomationItem automationItem;
+    automationItem.window = "outliner";
+    automationItem.id = "outliner/bone:" + std::to_string(item.id);
+    automationItem.role = "tree_item";
+    automationItem.label = bone.name;
+    automationItem.selected = session.selection.contains(item);
+    automationItem.hovered = ImGui::IsItemHovered();
+    automationItem.focused = ImGui::IsItemFocused();
+    automationItem.expanded = open;
+    automationItem.x = static_cast<int>(minimum.x);
+    automationItem.y = static_cast<int>(minimum.y);
+    automationItem.width = static_cast<int>(maximum.x - minimum.x);
+    automationItem.height = static_cast<int>(maximum.y - minimum.y);
+    automationItem.click = [&session, index, item]() {
+      session.selection.set(item);
+      activate(session, SelectionKind::bone, index);
+    };
+    session.automation->registerItem(std::move(automationItem));
   }
   if (open && !children[index].empty()) {
     for (const auto child : children[index])
@@ -251,9 +323,37 @@ void drawOutlinerPanel(DocumentSession &session, WorkspaceUiState &workspace,
     ImGui::End();
     return;
   }
+  if (session.automation != nullptr) {
+    const auto position = ImGui::GetWindowPos();
+    const auto size = ImGui::GetWindowSize();
+    session.automation->registerWindow(
+        "outliner", "アウトライナー", static_cast<int>(position.x),
+        static_cast<int>(position.y), static_cast<int>(size.x),
+        static_cast<int>(size.y));
+  }
   ImGui::SetNextItemWidth(-1.0F);
   ImGui::InputTextWithHint("##search", "検索", workspace.search.data(),
                            workspace.search.size());
+  if (session.automation != nullptr) {
+    const auto minimum = ImGui::GetItemRectMin();
+    const auto maximum = ImGui::GetItemRectMax();
+    AutomationItem search;
+    search.window = "outliner";
+    search.id = "outliner/search";
+    search.role = "text_input";
+    search.label = "検索";
+    search.value = workspace.search.data();
+    search.x = static_cast<int>(minimum.x);
+    search.y = static_cast<int>(minimum.y);
+    search.width = static_cast<int>(maximum.x - minimum.x);
+    search.height = static_cast<int>(maximum.y - minimum.y);
+    search.set = [&workspace](std::string_view value) {
+      const auto length = std::min(value.size(), workspace.search.size() - 1U);
+      std::copy_n(value.data(), length, workspace.search.data());
+      workspace.search[length] = '\0';
+    };
+    session.automation->registerItem(std::move(search));
+  }
   const std::string_view filter(workspace.search.data());
   const auto &model = session.document.model();
 

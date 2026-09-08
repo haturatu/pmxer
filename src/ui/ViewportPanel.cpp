@@ -1,6 +1,7 @@
 #include "ViewportPanel.hpp"
 #include "ViewportGizmo.hpp"
 #include "ViewportPicking.hpp"
+#include "UiAutomation.hpp"
 
 #include "../render/Camera.hpp"
 
@@ -13,6 +14,7 @@
 #include <limits>
 #include <optional>
 #include <tuple>
+#include <utility>
 
 namespace pmxer {
 namespace {
@@ -217,6 +219,14 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         ImGui::End();
         return;
     }
+    if (session.automation != nullptr) {
+        const auto position = ImGui::GetWindowPos();
+        const auto windowSize = ImGui::GetWindowSize();
+        session.automation->registerWindow(
+            "viewport", "ビューポート", static_cast<int>(position.x),
+            static_cast<int>(position.y), static_cast<int>(windowSize.x),
+            static_cast<int>(windowSize.y));
+    }
     const auto modeButton = [&](const char *label, ViewportSelectionMode mode) {
         if (ImGui::RadioButton(label, session.ui.selectionMode == mode)) {
             session.ui.selectionMode = mode;
@@ -225,6 +235,29 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             if (mode == ViewportSelectionMode::rigidBody ||
                 mode == ViewportSelectionMode::joint)
                 session.ui.showPhysics = true;
+        }
+        if (session.automation != nullptr) {
+            const auto minimum = ImGui::GetItemRectMin();
+            const auto maximum = ImGui::GetItemRectMax();
+            AutomationItem item;
+            item.window = "viewport";
+            item.id = "viewport/mode:" + std::to_string(static_cast<int>(mode));
+            item.role = "button";
+            item.label = label;
+            item.selected = session.ui.selectionMode == mode;
+            item.x = static_cast<int>(minimum.x);
+            item.y = static_cast<int>(minimum.y);
+            item.width = static_cast<int>(maximum.x - minimum.x);
+            item.height = static_cast<int>(maximum.y - minimum.y);
+            item.click = [&session, mode]() {
+                session.ui.selectionMode = mode;
+                if (mode == ViewportSelectionMode::bone)
+                    session.ui.showBones = true;
+                if (mode == ViewportSelectionMode::rigidBody ||
+                    mode == ViewportSelectionMode::joint)
+                    session.ui.showPhysics = true;
+            };
+            session.automation->registerItem(std::move(item));
         }
         ImGui::SameLine();
     };
@@ -236,6 +269,25 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     if (ImGui::RadioButton("ジョイント", session.ui.selectionMode == ViewportSelectionMode::joint)) {
         session.ui.selectionMode = ViewportSelectionMode::joint;
         session.ui.showPhysics = true;
+    }
+    if (session.automation != nullptr) {
+        const auto minimum = ImGui::GetItemRectMin();
+        const auto maximum = ImGui::GetItemRectMax();
+        AutomationItem item;
+        item.window = "viewport";
+        item.id = "viewport/mode:5";
+        item.role = "button";
+        item.label = "ジョイント";
+        item.selected = session.ui.selectionMode == ViewportSelectionMode::joint;
+        item.x = static_cast<int>(minimum.x);
+        item.y = static_cast<int>(minimum.y);
+        item.width = static_cast<int>(maximum.x - minimum.x);
+        item.height = static_cast<int>(maximum.y - minimum.y);
+        item.click = [&session]() {
+            session.ui.selectionMode = ViewportSelectionMode::joint;
+            session.ui.showPhysics = true;
+        };
+        session.automation->registerItem(std::move(item));
     }
     ImGui::SameLine();
     ImGui::Checkbox("X-Ray", &session.ui.xray);

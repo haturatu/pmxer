@@ -27,6 +27,8 @@
 
 #if PMXER_HAS_GUI
 #include "EditorPanels.hpp"
+#include "UiAutomation.hpp"
+#include "../automation/AutomationProtocol.hpp"
 #include "../platform/FileDialog.hpp"
 #include "../preview/PreviewController.hpp"
 #include "../render/GpuModelRenderer.hpp"
@@ -106,6 +108,30 @@ bool saveWorkspaceLayout(const std::filesystem::path &path) {
     return true;
 }
 
+std::string automationState(const DocumentSession &session, SDL_Window *window,
+                            std::size_t activeSession) {
+    int width{};
+    int height{};
+    (void)SDL_GetWindowSizeInPixels(window, &width, &height);
+    const auto &model = session.document.model();
+    return "{\"window\":{\"width\":" + std::to_string(width) +
+           ",\"height\":" + std::to_string(height) +
+           "},\"active_session\":" + std::to_string(activeSession) +
+           ",\"document\":{\"modified\":" +
+           (session.modified ? std::string{"true"} : std::string{"false"}) +
+           ",\"revision\":" + std::to_string(session.revision) +
+           ",\"resource_revision\":" +
+           std::to_string(session.resourceRevision) +
+           ",\"vertices\":" + std::to_string(model.vertices.size()) +
+           ",\"materials\":" + std::to_string(model.materials.size()) +
+           ",\"bones\":" + std::to_string(model.bones.size()) +
+           ",\"morphs\":" + std::to_string(model.morphs.size()) +
+           "},\"selection_count\":" +
+           std::to_string(session.selection.items().size()) +
+           ",\"status\":" + automation::escapeJson(session.ui.status) +
+           "}";
+}
+
 } // namespace
 
 int runApplication(const EditCommand &options) {
@@ -147,6 +173,8 @@ int runApplication(const EditCommand &options) {
 
     std::vector<std::unique_ptr<DocumentSession>> sessions;
     std::size_t activeSession{};
+    UiAutomationRegistry automationRegistry;
+    UiAutomationServer automationServer;
     const auto loadSession = [&](const std::filesystem::path &path) {
         try {
             auto session = std::make_unique<DocumentSession>(mmd::pmx::load(path), path);
@@ -155,6 +183,7 @@ int runApplication(const EditCommand &options) {
                 session->recoveryFile = recoveryPath(path);
             }
             sessions.push_back(std::move(session));
+            sessions.back()->automation = &automationRegistry;
             sessions.back()->ui.openPath = path.string();
             sessions.back()->previewPhysics = options.physics;
             sessions.back()->previewIk = !options.safeMode;
@@ -217,6 +246,19 @@ int runApplication(const EditCommand &options) {
         device, shaderDirectory, resourceDirectory, gpuInfo.ColorTargetFormat);
     if (!gpuModelRenderer->available())
         log::warn(gpuModelRenderer->error());
+    if (options.automation) {
+        if (!automationServer.start(options.automationSocket)) {
+            log::error("UI automation endpoint could not be started");
+            gpuModelRenderer.reset();
+            ImGui_ImplSDLGPU3_Shutdown();
+            ImGui_ImplSDL3_Shutdown();
+            ImGui::DestroyContext();
+            releaseWindow();
+            return 1;
+        }
+        log::info((std::string{"UI automation endpoint: "} +
+                   options.automationSocket.string()).c_str());
+    }
     std::array<char, 1024> newSessionPath{};
     FileDialog fileDialog(window);
     bool running = true;
@@ -233,6 +275,43 @@ int runApplication(const EditCommand &options) {
     SDL_GPUTexture *depthTexture = nullptr;
     Uint32 depthWidth = 0;
     Uint32 depthHeight = 0;
+    automationRegistry.setKeyHandler([&](std::string_view key) {
+        std::string normalized(key);
+        std::ranges::transform(normalized, normalized.begin(),
+                               [](unsigned char value) {
+                                   return static_cast<char>(std::tolower(value));
+                               });
+        if (sessions.empty() || activeSession >= sessions.size())
+            return std::string{"{\"ok\":false,\"error\":\"no_document\"}"};
+        auto &session = *sessions[activeSession];
+        if (normalized == "ctrl+z") {
+            return session.undo()
+                       ? std::string{"{\"ok\":true}"}
+                       : std::string{"{\"ok\":false,\"error\":\"nothing_to_undo\"}"};
+        }
+        if (normalized == "ctrl+y") {
+            return session.redo()
+                       ? std::string{"{\"ok\":true}"}
+                       : std::string{"{\"ok\":false,\"error\":\"nothing_to_redo\"}"};
+        }
+        if (normalized == "ctrl+s") {
+            if (session.path.empty()) {
+                if (!fileDialog.busy() && fileDialog.save({}, session.recoveryId))
+                    return std::string{"{\"ok\":true,\"pending\":true}"};
+                return std::string{"{\"ok\":false,\"error\":\"save_dialog_unavailable\"}"};
+            }
+            const auto saved = saveDocument(session).success;
+            session.ui.status = saved ? "保存しました" : "保存に失敗しました";
+            return saved ? std::string{"{\"ok\":true}"}
+                         : std::string{"{\"ok\":false,\"error\":\"save_failed\"}"};
+        }
+        if (normalized == "ctrl+shift+s") {
+            if (!fileDialog.busy() && fileDialog.save(session.path, session.recoveryId))
+                return std::string{"{\"ok\":true,\"pending\":true}"};
+            return std::string{"{\"ok\":false,\"error\":\"save_dialog_unavailable\"}"};
+        }
+        return std::string{"{\"ok\":false,\"error\":\"unsupported_key\"}"};
+    });
     const auto findSession = [&](std::string_view id) -> std::optional<std::size_t> {
         for (std::size_t index = 0; index < sessions.size(); ++index)
             if (sessions[index]->recoveryId == id)
@@ -388,6 +467,8 @@ int runApplication(const EditCommand &options) {
         ImGui_ImplSDLGPU3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
+        if (options.automation)
+            automationRegistry.beginFrame();
         if (!sessions.empty() && activeSession < sessions.size() &&
             ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_W,
                             ImGuiInputFlags_RouteGlobal))
@@ -411,6 +492,7 @@ int runApplication(const EditCommand &options) {
                 if (ImGui::Button("復元")) {
                     untitledRecoveries[index].model.sourcePath.clear();
                     auto session = std::make_unique<DocumentSession>(std::move(untitledRecoveries[index].model));
+                    session->automation = &automationRegistry;
                     session->commands.markDirty();
                     session->modified = true;
                     session->recoveryFile = untitledRecoveries[index].path;
@@ -499,6 +581,14 @@ int runApplication(const EditCommand &options) {
         }
         if (workspace.showDocuments) {
             if (ImGui::Begin("ドキュメント", &workspace.showDocuments)) {
+                if (options.automation) {
+                    const auto position = ImGui::GetWindowPos();
+                    const auto size = ImGui::GetWindowSize();
+                    automationRegistry.registerWindow(
+                        "documents", "ドキュメント", static_cast<int>(position.x),
+                        static_cast<int>(position.y), static_cast<int>(size.x),
+                        static_cast<int>(size.y));
+                }
                 if (ImGui::BeginTabBar("document-tabs")) {
                     for (std::size_t i = 0; i < sessions.size(); ++i) {
                         const auto &path = sessions[i]->path;
@@ -508,6 +598,24 @@ int runApplication(const EditCommand &options) {
                         bool keepOpen = true;
                         if (ImGui::BeginTabItem(label.c_str(), &keepOpen)) {
                             activeSession = i;
+                            if (options.automation) {
+                                const auto minimum = ImGui::GetItemRectMin();
+                                const auto maximum = ImGui::GetItemRectMax();
+                                AutomationItem item;
+                                item.window = "documents";
+                                item.id = "documents/tab:" + sessions[i]->recoveryId;
+                                item.role = "tab";
+                                item.label = title;
+                                item.selected = true;
+                                item.x = static_cast<int>(minimum.x);
+                                item.y = static_cast<int>(minimum.y);
+                                item.width = static_cast<int>(maximum.x - minimum.x);
+                                item.height = static_cast<int>(maximum.y - minimum.y);
+                                item.click = [&activeSession, i]() {
+                                    activeSession = i;
+                                };
+                                automationRegistry.registerItem(std::move(item));
+                            }
                             ImGui::EndTabItem();
                         }
                         if (!keepOpen && !pendingCloseSession)
@@ -608,6 +716,17 @@ int runApplication(const EditCommand &options) {
             if (!sessions.empty() && activeSession < sessions.size())
                 pendingCloseSession = sessions[activeSession]->recoveryId;
         }
+        if (options.automation) {
+            if (!sessions.empty() && activeSession < sessions.size())
+                automationRegistry.setStateJson(
+                    automationState(*sessions[activeSession], window, activeSession));
+            else
+                automationRegistry.setStateJson("{\"document\":null}");
+            automationServer.processPending(
+                [&](std::string_view request) {
+                    return automationRegistry.handle(request);
+                });
+        }
         ImGui::Render();
         if (io.WantSaveIniSettings) {
             if (!saveWorkspaceLayout(layoutPath))
@@ -676,6 +795,7 @@ int runApplication(const EditCommand &options) {
     }
     if (!saveWorkspaceLayout(layoutPath))
         log::warn("workspace layout could not be saved during shutdown");
+    automationServer.stop();
     ImGui_ImplSDLGPU3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
