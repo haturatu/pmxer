@@ -223,6 +223,10 @@ BoneFilterResult makeBoneFilterResult(const std::vector<mmd::PmxBone> &bones,
   BoneFilterResult result{std::vector<bool>(bones.size()),
                           std::vector<bool>(bones.size()),
                           std::vector<bool>(bones.size())};
+  if (filter.empty()) {
+    std::fill(result.visible.begin(), result.visible.end(), true);
+    return result;
+  }
   for (std::size_t index = 0; index < bones.size(); ++index) {
     result.matched[index] = matches(bones[index].name, filter) ||
                             matches(bones[index].englishName, filter);
@@ -243,8 +247,6 @@ BoneFilterResult makeBoneFilterResult(const std::vector<mmd::PmxBone> &bones,
       current = parentIndex;
     }
   }
-  if (filter.empty())
-    std::fill(result.visible.begin(), result.visible.end(), true);
   return result;
 }
 
