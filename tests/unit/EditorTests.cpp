@@ -1,4 +1,7 @@
 #include "../../src/editor/DocumentSession.hpp"
+#include "../../src/editor/morph/MorphCapture.hpp"
+#include "../../src/editor/morph/MorphMask.hpp"
+#include "../../src/editor/morph/MorphOps.hpp"
 #include "../../src/editor/EditorSelectionController.hpp"
 #include "../../src/editor/EditorSelectionQueries.hpp"
 #include "../../src/editor/EditorOperations.hpp"
@@ -77,6 +80,72 @@ int main() {
     assert(previewController.evaluate().vertices[0].position[0] == 1.0F);
     previewController.clearMorphPreview("preview");
     assert(previewController.evaluate().vertices[0].position[0] == 0.0F);
+
+    auto duplicatePreviewModel = sampleModel();
+    mmd::PmxMorph firstDuplicate;
+    firstDuplicate.name = "same name";
+    firstDuplicate.type = 1U;
+    firstDuplicate.offsets.push_back(previewOffset);
+    duplicatePreviewModel.morphs.push_back(firstDuplicate);
+    auto secondDuplicate = firstDuplicate;
+    secondDuplicate.offsets.front().vector3 = {4.0F, 0.0F, 0.0F};
+    duplicatePreviewModel.morphs.push_back(secondDuplicate);
+    mmd::PmxDocument duplicatePreviewDocument(std::move(duplicatePreviewModel));
+    pmxer::PreviewController duplicatePreview(duplicatePreviewDocument);
+    duplicatePreview.setMorphPreview(duplicatePreviewDocument.morphHandle(1), 0.5F);
+    assert(duplicatePreview.evaluate().vertices[0].position[0] == 2.0F);
+
+    mmd::PmxModel operationModel = sampleModel();
+    operationModel.vertices[0].position[0] = -1.0F;
+    operationModel.vertices[1].position[0] = 0.0F;
+    operationModel.vertices[2].position[0] = 1.0F;
+    mmd::PmxMorph operationMorph;
+    operationMorph.name = "operation";
+    operationMorph.type = 1U;
+    for (std::int32_t index = 0; index < 3; ++index) {
+        mmd::PmxMorphOffset offset;
+        offset.index = index;
+        offset.vector3 = {1.0F, 0.0F, 0.0F};
+        operationMorph.offsets.push_back(offset);
+    }
+    operationModel.morphs.push_back(operationMorph);
+    const auto &operationSource = operationModel.morphs.front();
+    const auto scaled = pmxer::morph::scale(pmxer::morph::copy(operationSource), 2.0F);
+    assert(scaled.offsets[0].vector3[0] == 2.0F);
+    const auto inverted = pmxer::morph::negate(pmxer::morph::copy(operationSource));
+    assert(inverted.offsets[0].vector3[0] == -1.0F);
+    const auto split = pmxer::morph::splitSide(
+        operationModel, operationSource, {.0F, 0.1F, false, false});
+    assert(split.left.offsets.size() == 2U);
+    assert(split.right.offsets.size() == 2U);
+    assert(split.left.offsets[0].vector3[0] == 1.0F);
+    assert(split.right.offsets[1].vector3[0] == 1.0F);
+    const auto masked = pmxer::morph::filterByMaterial(
+        operationModel, operationSource, 0U,
+        pmxer::morph::MaterialFilterMode::excludeUsed);
+    assert(masked.offsets.empty());
+
+    pmxer::DocumentSession captureSession(sampleModel());
+    const auto captureVertex = captureSession.document.vertexHandle(0);
+    captureSession.deform.mode = pmxer::DeformMode::shape;
+    captureSession.deform.vertices.push_back({captureVertex, {0.25F, 0.0F, 0.0F}});
+    assert(pmxer::morph::captureVertexMorph(captureSession, "captured").success);
+    assert(captureSession.document.model().morphs.size() == 1U);
+    assert(captureSession.document.model().morphs[0].offsets[0].vector3[0] == 0.25F);
+    assert(captureSession.commands.undoCount() == 1U);
+    assert(captureSession.undo());
+    assert(captureSession.document.model().morphs.empty());
+    assert(captureSession.redo());
+    assert(captureSession.document.model().morphs.size() == 1U);
+
+    pmxer::DocumentSession reverseSession(std::move(operationModel));
+    const auto reverseMorph = reverseSession.document.morphHandle(0);
+    assert(pmxer::morph::bakeAndReverseBase(reverseSession, reverseMorph).success);
+    assert(reverseSession.document.model().vertices[0].position[0] == 0.0F);
+    assert(reverseSession.document.model().morphs[0].offsets[0].vector3[0] == -1.0F);
+    assert(reverseSession.commands.undoCount() == 1U);
+    assert(reverseSession.undo());
+    assert(reverseSession.document.model().vertices[0].position[0] == -1.0F);
 
     const pmxer::CameraState perspective{{0.0F, 0.0F, 0.0F}, 0.0F, 0.0F, 10.0F, false};
     const auto perspectiveCenter =
