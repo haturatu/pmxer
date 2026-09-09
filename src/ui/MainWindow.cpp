@@ -305,9 +305,6 @@ int runApplication(const EditCommand &options) {
     }
     bool initializeDockLayout = layoutResult != WorkspaceLayoutLoadResult::loaded;
     bool layoutNeedsSave = initializeDockLayout;
-    SDL_GPUTexture *depthTexture = nullptr;
-    Uint32 depthWidth = 0;
-    Uint32 depthHeight = 0;
     const auto findSession = [&](std::string_view id) -> std::optional<std::size_t> {
         for (std::size_t index = 0; index < sessions.size(); ++index)
             if (sessions[index]->recoveryId == id)
@@ -376,32 +373,6 @@ int runApplication(const EditCommand &options) {
         } else if (activeSession >= sessions.size()) {
             activeSession = sessions.size() - 1U;
         }
-    };
-    const auto ensureDepthTexture = [&](Uint32 width, Uint32 height) {
-        if (depthTexture != nullptr && depthWidth == width && depthHeight == height)
-            return true;
-        if (depthTexture != nullptr) {
-            SDL_ReleaseGPUTexture(device, depthTexture);
-            depthTexture = nullptr;
-        }
-        SDL_GPUTextureCreateInfo info{};
-        info.type = SDL_GPU_TEXTURETYPE_2D;
-        info.format = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
-        info.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
-        info.width = width;
-        info.height = height;
-        info.layer_count_or_depth = 1;
-        info.num_levels = 1;
-        info.sample_count = SDL_GPU_SAMPLECOUNT_1;
-        depthTexture = SDL_CreateGPUTexture(device, &info);
-        if (depthTexture == nullptr) {
-            depthWidth = 0;
-            depthHeight = 0;
-            return false;
-        }
-        depthWidth = width;
-        depthHeight = height;
-        return true;
     };
     while (running) {
         SDL_Event event;
@@ -779,48 +750,22 @@ int runApplication(const EditCommand &options) {
                 (void)gpuModelRenderer->prepare(commands, session.document.model(), session.ui.previewFrame,
                                                 session.revision, session.resourceRevision,
                                                 session.preview.frameRevision, session.changes);
+                if (session.ui.viewportVisible)
+                    gpuModelRenderer->renderViewport(commands, session,
+                                                     session.ui.previewFrame,
+                                                     workspace.viewportLighting);
             }
-            SDL_GPUColorTargetInfo target{};
-            target.texture = swapchain;
-            target.clear_color = {0.055F, 0.065F, 0.08F, 1.0F};
-            const auto &background = workspace.viewportLighting.background;
-            target.clear_color = {background[0], background[1], background[2], background[3]};
-            target.load_op = SDL_GPU_LOADOP_CLEAR;
-            target.store_op = SDL_GPU_STOREOP_STORE;
-            const auto hasDepth = ensureDepthTexture(width, height);
-            if (hasDepth) {
-                SDL_GPUDepthStencilTargetInfo depthTarget{};
-                depthTarget.texture = depthTexture;
-                depthTarget.clear_depth = 1.0F;
-                depthTarget.load_op = SDL_GPU_LOADOP_CLEAR;
-                depthTarget.store_op = SDL_GPU_STOREOP_STORE;
-                depthTarget.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
-                depthTarget.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
-                auto *modelPass = SDL_BeginGPURenderPass(commands, &target, 1, &depthTarget);
-                if (modelPass == nullptr) {
-                    log::warn(SDL_GetError());
-                } else {
-                    const auto scale = ImGui::GetDrawData()->FramebufferScale.x;
-                    if (!sessions.empty() && activeSession < sessions.size()) {
-                        auto &session = *sessions[activeSession];
-                        gpuModelRenderer->render(commands, modelPass, session,
-                                                 session.ui.previewFrame, scale,
-                                                 width, height,
-                                                 workspace.viewportLighting);
-                    }
-                    SDL_EndGPURenderPass(modelPass);
-                }
-            } else {
-                log::warn("depth texture is unavailable; model rendering skipped");
-            }
-            SDL_GPUColorTargetInfo overlayTarget = target;
-            overlayTarget.load_op = SDL_GPU_LOADOP_LOAD;
-            auto *overlayPass = SDL_BeginGPURenderPass(commands, &overlayTarget, 1, nullptr);
-            if (overlayPass == nullptr) {
+            SDL_GPUColorTargetInfo uiTarget{};
+            uiTarget.texture = swapchain;
+            uiTarget.clear_color = {0.055F, 0.065F, 0.08F, 1.0F};
+            uiTarget.load_op = SDL_GPU_LOADOP_CLEAR;
+            uiTarget.store_op = SDL_GPU_STOREOP_STORE;
+            auto *uiPass = SDL_BeginGPURenderPass(commands, &uiTarget, 1, nullptr);
+            if (uiPass == nullptr) {
                 log::warn(SDL_GetError());
             } else {
-                ImGui_ImplSDLGPU3_RenderDrawData(ImGui::GetDrawData(), commands, overlayPass);
-                SDL_EndGPURenderPass(overlayPass);
+                ImGui_ImplSDLGPU3_RenderDrawData(ImGui::GetDrawData(), commands, uiPass);
+                SDL_EndGPURenderPass(uiPass);
             }
         }
         if (commands != nullptr && !SDL_SubmitGPUCommandBuffer(commands))
@@ -833,8 +778,6 @@ int runApplication(const EditCommand &options) {
     ImGui_ImplSDLGPU3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
-    if (depthTexture != nullptr)
-        SDL_ReleaseGPUTexture(device, depthTexture);
     gpuModelRenderer.reset();
     releaseWindow();
     return 0;

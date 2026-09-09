@@ -16,6 +16,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <optional>
 #include <string>
@@ -401,7 +402,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                         WorkspaceViewportProfile *profile,
                         ViewportLightingSettings &lighting) {
     session.ui.viewportVisible = false;
-    if (!ImGui::Begin("ビューポート", open, ImGuiWindowFlags_NoBackground)) {
+    if (!ImGui::Begin("ビューポート", open)) {
         ImGui::End();
         return;
     }
@@ -656,6 +657,24 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     session.ui.viewportWidth = available.x;
     session.ui.viewportHeight = available.y;
     session.ui.viewportVisible = true;
+
+    auto *draw = ImGui::GetWindowDrawList();
+    if (renderer != nullptr) {
+        const auto framebufferScale = ImGui::GetIO().DisplayFramebufferScale;
+        const auto targetWidth = static_cast<std::uint32_t>(std::ceil(
+            std::max(available.x * framebufferScale.x, 1.0F)));
+        const auto targetHeight = static_cast<std::uint32_t>(std::ceil(
+            std::max(available.y * framebufferScale.y, 1.0F)));
+        if (renderer->ensureViewportRenderTarget(targetWidth, targetHeight)) {
+            if (auto *texture = renderer->viewportTexture(); texture != nullptr) {
+                const auto textureRef = ImTextureRef{
+                    static_cast<ImTextureID>(
+                        reinterpret_cast<std::uintptr_t>(texture))};
+                draw->AddImage(textureRef, origin,
+                               {origin.x + available.x, origin.y + available.y});
+            }
+        }
+    }
     ImGui::InvisibleButton("viewport-canvas", available);
     const auto hovered = ImGui::IsItemHovered();
     const auto mouse = ImGui::GetIO().MousePos;
@@ -670,8 +689,6 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         session.ui.boxSelectEndX = mouse.x;
         session.ui.boxSelectEndY = mouse.y;
     }
-    auto *draw = ImGui::GetWindowDrawList();
-
     const auto &model = session.document.model();
     const auto &vertices = frame != nullptr && !frame->vertices.empty() ? frame->vertices : model.vertices;
     if (vertices.empty()) {
