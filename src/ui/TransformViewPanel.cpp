@@ -379,10 +379,13 @@ void drawMorphOperations(DocumentSession &session) {
     ImGui::SameLine();
     if (ImGui::Button("Subtract Morph")) {
         const auto &other = model.morphs[*otherIndex];
-        status(session, morph::createMorphFromData(session,
-                                                   morph::subtract(morph::copy(source), morph::copy(other)),
-                                                   source.name + " - " + other.name, "Subtract Morph"),
-               "Subtracted morph created");
+        const auto subtracted = morph::subtract(morph::copy(source), morph::copy(other));
+        if (!subtracted.success)
+            setOperationStatus(session, false, "Subtracted morph was not created", subtracted.message);
+        else
+            status(session, morph::createMorphFromData(
+                              session, subtracted.data, source.name + " - " + other.name, "Subtract Morph"),
+                   "Subtracted morph created");
     }
     ImGui::EndDisabled();
     if (ImGui::Button("Side Split Left / Right")) {

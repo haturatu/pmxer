@@ -29,7 +29,15 @@ struct SideSplitResult {
     MorphData right;
 };
 
+inline constexpr std::size_t materialMorphVectorCount = 7U;
+
 struct InvertResult {
+    bool success{};
+    MorphData data;
+    std::string message;
+};
+
+struct MorphOpResult {
     bool success{};
     MorphData data;
     std::string message;
@@ -41,7 +49,7 @@ struct InvertResult {
 [[nodiscard]] MorphData pruneZeroOffsets(MorphData value);
 [[nodiscard]] MorphData duplicate(const MorphData &value);
 [[nodiscard]] MorphData combine(std::span<const MorphData> values);
-[[nodiscard]] MorphData subtract(const MorphData &lhs, const MorphData &rhs);
+[[nodiscard]] MorphOpResult subtract(const MorphData &lhs, const MorphData &rhs);
 [[nodiscard]] SideSplitResult splitSide(const mmd::PmxModel &model,
                                          const mmd::PmxMorph &morph,
                                          SideSplitOptions options = {});

@@ -106,7 +106,7 @@ void addOffset(mmd::PmxMorphOffset &destination, const mmd::PmxMorphOffset &sour
         return;
     }
     if (type == 8U) {
-        for (std::size_t vector = 0; vector < destination.materialVectors.size(); ++vector)
+        for (std::size_t vector = 0; vector < materialMorphVectorCount; ++vector)
             for (std::size_t component = 0; component < destination.materialVectors[vector].size(); ++component)
                 if (destination.operation == 0U)
                     destination.materialVectors[vector][component] *= source.materialVectors[vector][component];
@@ -143,7 +143,7 @@ bool neutralOffset(const MorphData &morph, const mmd::PmxMorphOffset &offset) {
         return std::all_of(offset.vector4.begin(), offset.vector4.end(), nearZero);
     if (morph.type == 8U) {
         const auto neutral = offset.operation == 0U ? 1.0F : 0.0F;
-        for (std::size_t vector = 0; vector < 7U; ++vector)
+        for (std::size_t vector = 0; vector < materialMorphVectorCount; ++vector)
             if (!std::all_of(offset.materialVectors[vector].begin(),
                              offset.materialVectors[vector].end(),
                              [&](float value) { return nearZero(value - neutral); }))
@@ -174,7 +174,7 @@ MorphData scale(MorphData value, float factor) {
         } else if (value.type >= 3U && value.type <= 7U) {
             scale4(offset.vector4, factor);
         } else if (value.type == 8U) {
-            for (std::size_t vector = 0; vector < offset.materialVectors.size(); ++vector) {
+            for (std::size_t vector = 0; vector < materialMorphVectorCount; ++vector) {
                 for (auto &component : offset.materialVectors[vector]) {
                     if (offset.operation == 0U)
                         component = 1.0F + (component - 1.0F) * factor;
@@ -196,7 +196,8 @@ InvertResult invert(MorphData value) {
             scale3(offset.vector3, -1.0F);
             offset.vector4 = inverseQuaternion(offset.vector4);
         } else if (value.type == 8U) {
-            for (auto &values : offset.materialVectors) {
+            for (std::size_t vector = 0; vector < materialMorphVectorCount; ++vector) {
+                auto &values = offset.materialVectors[vector];
                 for (auto &component : values) {
                     if (offset.operation == 0U) {
                         if (std::abs(component) <= 1e-6F)
@@ -253,12 +254,12 @@ MorphData combine(std::span<const MorphData> values) {
     return pruneZeroOffsets(std::move(result));
 }
 
-MorphData subtract(const MorphData &lhs, const MorphData &rhs) {
+MorphOpResult subtract(const MorphData &lhs, const MorphData &rhs) {
     const auto inverted = invert(duplicate(rhs));
     if (!inverted.success)
-        return {};
+        return {false, {}, inverted.message};
     const std::array<MorphData, 2> values{lhs, inverted.data};
-    return combine(values);
+    return {true, combine(values), {}};
 }
 
 SideSplitResult splitSide(const mmd::PmxModel &model, const mmd::PmxMorph &morph,
