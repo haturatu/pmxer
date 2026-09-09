@@ -230,6 +230,7 @@ struct GpuModelRenderer::Impl {
     std::vector<TextureResourceStatus> textureStatus;
     RendererResourceSummary textureSummary;
     std::array<SDL_GPUTexture *, 10> sharedToons{};
+    std::array<bool, 10> sharedToonFallback{};
     std::vector<SDL_GPUTexture *> retiredTextures;
     std::vector<SDL_GPUTransferBuffer *> transfers;
     std::filesystem::path shaderDirectory;
@@ -275,6 +276,7 @@ struct GpuModelRenderer::Impl {
                 retiredTextures.push_back(texture);
             texture = nullptr;
         }
+        sharedToonFallback.fill(false);
         if (defaultTexture != nullptr) {
             retiredTextures.push_back(defaultTexture);
             defaultTexture = nullptr;
@@ -375,16 +377,32 @@ struct GpuModelRenderer::Impl {
                 material.toonTextureIndex < static_cast<std::int32_t>(sharedToonRequired.size()))
                 sharedToonRequired[static_cast<std::size_t>(material.toonTextureIndex)] = true;
         }
+        const auto modelRoot = model.sourcePath.empty()
+                                   ? std::filesystem::path{}
+                                   : model.sourcePath.parent_path();
         for (std::size_t index = 0; index < sharedToons.size(); ++index) {
             const auto number = index + 1U;
             const auto filename = std::string{"toon"} + (number < 10U ? "0" : "") +
                                   std::to_string(number) + ".bmp";
-            const auto image = decodeImage(resourceDirectory / "toon" / filename);
-            if (image)
-                sharedToons[index] = uploadTexture(device, commands, image.rgba.data(),
-                                                   static_cast<int>(image.width), static_cast<int>(image.height),
-                                                   transfers);
+            const std::array<std::filesystem::path, 3> candidates{{
+                modelRoot.empty() ? std::filesystem::path{} : modelRoot / "toon" / filename,
+                modelRoot.empty() ? std::filesystem::path{} : modelRoot / filename,
+                resourceDirectory / "toon" / filename,
+            }};
+            for (const auto &candidate : candidates) {
+                if (candidate.empty() || !std::filesystem::exists(candidate))
+                    continue;
+                const auto image = decodeImage(candidate);
+                if (!image)
+                    continue;
+                sharedToons[index] = uploadTexture(
+                    device, commands, image.rgba.data(), static_cast<int>(image.width),
+                    static_cast<int>(image.height), transfers);
+                if (sharedToons[index] != nullptr)
+                    break;
+            }
             if (sharedToons[index] == nullptr) {
+                sharedToonFallback[index] = true;
                 if (sharedToonRequired[index])
                     ++textureSummary.sharedToonFallbackCount;
                 const auto gradient = makeSharedToonFallback(index);
@@ -730,6 +748,17 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
             return textureLoaded(index) ? impl_->textures[static_cast<std::size_t>(index)]
                                         : impl_->toonFallbackTexture;
         };
+        const auto sharedToonTextureFor = [&](std::int32_t index) -> SDL_GPUTexture * {
+            if (index < 0 || index >= static_cast<std::int32_t>(impl_->sharedToons.size()))
+                return impl_->defaultTexture;
+            const auto sharedIndex = static_cast<std::size_t>(index);
+            if (lighting.mode == ViewportShadingMode::neutral &&
+                impl_->sharedToonFallback[sharedIndex])
+                return impl_->toonFallbackTexture;
+            return impl_->sharedToons[sharedIndex] != nullptr
+                       ? impl_->sharedToons[sharedIndex]
+                       : impl_->defaultTexture;
+        };
         const auto baseMissing = material.textureIndex >= 0 &&
                                  !textureLoaded(material.textureIndex);
         const auto sphereMissing = material.sphereMode != 0U &&
@@ -745,9 +774,7 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
             {baseTextureFor(material.textureIndex), impl_->baseSampler},
             {sphereTextureFor(material.sphereTextureIndex), impl_->sphereSampler},
             {material.toonMode == 0 ? toonTextureFor(material.toonTextureIndex)
-                                    : (material.toonTextureIndex >= 0 && material.toonTextureIndex < 10
-                                           ? impl_->sharedToons[static_cast<std::size_t>(material.toonTextureIndex)]
-                                           : impl_->defaultTexture),
+                                    : sharedToonTextureFor(material.toonTextureIndex),
              impl_->toonSampler},
         }};
         SDL_BindGPUFragmentSamplers(pass, 0, bindings.data(), static_cast<Uint32>(bindings.size()));

@@ -433,7 +433,8 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                                *showDiagnostics = true;
         }
         if (resources.sharedToonFallbackCount != 0U) {
-            ImGui::SameLine();
+            if (resources.missingTextureCount != 0U || resources.failedTextureCount != 0U)
+                ImGui::SameLine();
             ImGui::TextDisabled("共有Toonを簡易表示中");
         }
     }
@@ -590,13 +591,13 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     if (ImGui::BeginPopup("viewport-display-settings")) {
         ImGui::SeparatorText("シェーディング");
         if (ImGui::RadioButton("MMD", lighting.mode == ViewportShadingMode::mmd))
-            lighting.mode = ViewportShadingMode::mmd;
+            applyViewportShadingPreset(lighting, ViewportShadingMode::mmd);
         ImGui::SameLine();
         if (ImGui::RadioButton("Neutral", lighting.mode == ViewportShadingMode::neutral))
-            lighting.mode = ViewportShadingMode::neutral;
+            applyViewportShadingPreset(lighting, ViewportShadingMode::neutral);
         ImGui::SameLine();
         if (ImGui::RadioButton("Unlit", lighting.mode == ViewportShadingMode::unlit))
-            lighting.mode = ViewportShadingMode::unlit;
+            applyViewportShadingPreset(lighting, ViewportShadingMode::unlit);
 
         if (renderer != nullptr) {
             if (sharedToonFallbackCount != 0U)
