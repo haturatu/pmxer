@@ -242,10 +242,33 @@ int main() {
     assert(scaled.offsets[0].vector3[0] == 2.0F);
     assert(scaled.panel == 2U);
     assert(scaled.englishName == "operation-en");
-    const auto inverted = pmxer::morph::negate(pmxer::morph::copy(operationSource));
-    assert(inverted.offsets[0].vector3[0] == -1.0F);
-    assert(inverted.panel == 2U);
-    assert(inverted.englishName == "operation-en");
+    const auto inverted = pmxer::morph::invert(pmxer::morph::copy(operationSource));
+    assert(inverted.success);
+    assert(inverted.data.offsets[0].vector3[0] == -1.0F);
+    assert(inverted.data.panel == 2U);
+    assert(inverted.data.englishName == "operation-en");
+
+    const auto materialInvert = [](float factor) {
+        pmxer::morph::MorphData value;
+        value.type = 8U;
+        mmd::PmxMorphOffset offset;
+        offset.operation = 0U;
+        for (auto &values : offset.materialVectors)
+            for (auto &component : values)
+                component = factor;
+        value.offsets.push_back(offset);
+        return value;
+    };
+    const auto invertedMultiply = pmxer::morph::invert(materialInvert(2.0F));
+    assert(invertedMultiply.success);
+    assert(std::abs(invertedMultiply.data.offsets[0].materialVectors[0][0] - 0.5F) < 1e-6F);
+    const auto invertedFraction = pmxer::morph::invert(materialInvert(0.5F));
+    assert(invertedFraction.success);
+    assert(std::abs(invertedFraction.data.offsets[0].materialVectors[0][0] - 2.0F) < 1e-6F);
+    const auto invertedZero = pmxer::morph::invert(materialInvert(0.0F));
+    assert(!invertedZero.success);
+    assert(invertedZero.data.offsets.empty());
+    assert(invertedZero.message.find("zero factor") != std::string::npos);
     const auto split = pmxer::morph::splitSide(
         operationModel, operationSource, {.0F, 0.1F, false, false});
     assert(split.left.offsets.size() == 2U);
@@ -287,6 +310,63 @@ int main() {
          {0.0F, 0.0F, 0.0F, 1.0F}});
     assert(!pmxer::morph::captureBoneMorph(noOpBoneSession, "no-op bone").success);
     assert(noOpBoneSession.document.model().morphs.empty());
+
+    auto changedBoneModel = sampleModel();
+    pmxer::DocumentSession changedBoneSession(std::move(changedBoneModel));
+    const auto changedBone = changedBoneSession.document.boneHandle(0);
+    changedBoneSession.deform.bones.push_back(
+        {changedBone, {}, {0.0F, 0.0F, std::sin(0.25F * pi), std::cos(0.25F * pi)}});
+    changedBoneSession.deform.dirty = true;
+    auto changedBoneValue = *changedBoneSession.document.resolve(changedBone);
+    changedBoneValue.flags = 0x0100U;
+    assert(pmxer::editBone(changedBoneSession, changedBone, changedBoneValue).success);
+    const auto changedBoneCapture =
+        pmxer::morph::captureBoneMorph(changedBoneSession, "changed bone");
+    assert(!changedBoneCapture.success);
+    assert(changedBoneCapture.message.find("evaluation settings changed") != std::string::npos);
+    assert(changedBoneSession.deform.bones.size() == 1U);
+
+    auto changedIkTargetModel = sampleModel();
+    mmd::PmxBone changedIkTargetBone;
+    changedIkTargetBone.name = "target";
+    changedIkTargetModel.bones.push_back(changedIkTargetBone);
+    pmxer::DocumentSession changedIkTargetSession(std::move(changedIkTargetModel));
+    const auto changedIkBone = changedIkTargetSession.document.boneHandle(0);
+    changedIkTargetSession.deform.bones.push_back(
+        {changedIkBone, {}, {0.0F, 0.0F, std::sin(0.25F * pi), std::cos(0.25F * pi)}});
+    changedIkTargetSession.deform.dirty = true;
+    const auto changedIkTargetHandle = changedIkTargetSession.document.boneHandle(1);
+    auto changedIkTargetValue = *changedIkTargetSession.document.resolve(changedIkTargetHandle);
+    changedIkTargetValue.flags = 0x0020U;
+    changedIkTargetValue.ikTarget = 0;
+    assert(pmxer::editBone(changedIkTargetSession, changedIkTargetHandle,
+                           changedIkTargetValue)
+               .success);
+    const auto changedIkTargetCapture =
+        pmxer::morph::captureBoneMorph(changedIkTargetSession, "changed IK target");
+    assert(!changedIkTargetCapture.success);
+    assert(changedIkTargetSession.deform.bones.size() == 1U);
+
+    auto changedPhysicsModel = sampleModel();
+    pmxer::DocumentSession changedPhysicsSession(std::move(changedPhysicsModel));
+    const auto changedPhysicsBone = changedPhysicsSession.document.boneHandle(0);
+    changedPhysicsSession.deform.bones.push_back(
+        {changedPhysicsBone, {}, {0.0F, 0.0F, std::sin(0.25F * pi), std::cos(0.25F * pi)}});
+    changedPhysicsSession.deform.dirty = true;
+    mmd::PmxRigidBody changedPhysicsBody;
+    changedPhysicsBody.bone = 0;
+    changedPhysicsBody.mode = 1U;
+    assert(pmxer::applyTransaction(
+               changedPhysicsSession,
+               [&](auto &transaction) {
+                   return static_cast<bool>(transaction.addRigidBody(changedPhysicsBody));
+               },
+               "attach dynamic rigid body")
+               .success);
+    const auto changedPhysicsCapture =
+        pmxer::morph::captureBoneMorph(changedPhysicsSession, "changed physics");
+    assert(!changedPhysicsCapture.success);
+    assert(changedPhysicsSession.deform.bones.size() == 1U);
 
     auto soloModel = sampleModel();
     auto soloFirst = previewMorph;
