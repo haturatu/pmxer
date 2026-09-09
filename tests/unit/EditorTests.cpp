@@ -253,8 +253,8 @@ int main() {
         value.type = 8U;
         mmd::PmxMorphOffset offset;
         offset.operation = 0U;
-        for (auto &values : offset.materialVectors)
-            for (auto &component : values)
+        for (std::size_t vector = 0; vector < pmxer::morph::materialMorphVectorCount; ++vector)
+            for (auto &component : offset.materialVectors[vector])
                 component = factor;
         value.offsets.push_back(offset);
         return value;
@@ -262,13 +262,23 @@ int main() {
     const auto invertedMultiply = pmxer::morph::invert(materialInvert(2.0F));
     assert(invertedMultiply.success);
     assert(std::abs(invertedMultiply.data.offsets[0].materialVectors[0][0] - 0.5F) < 1e-6F);
+    for (const auto component : invertedMultiply.data.offsets[0].materialVectors[7])
+        assert(component == 0.0F);
     const auto invertedFraction = pmxer::morph::invert(materialInvert(0.5F));
     assert(invertedFraction.success);
     assert(std::abs(invertedFraction.data.offsets[0].materialVectors[0][0] - 2.0F) < 1e-6F);
+    const auto scaledMultiply = pmxer::morph::scale(materialInvert(2.0F), 0.5F);
+    assert(std::abs(scaledMultiply.offsets[0].materialVectors[0][0] - 1.5F) < 1e-6F);
+    for (const auto component : scaledMultiply.offsets[0].materialVectors[7])
+        assert(component == 0.0F);
     const auto invertedZero = pmxer::morph::invert(materialInvert(0.0F));
     assert(!invertedZero.success);
     assert(invertedZero.data.offsets.empty());
     assert(invertedZero.message.find("zero factor") != std::string::npos);
+    const auto subtractedZero = pmxer::morph::subtract(materialInvert(1.0F), materialInvert(0.0F));
+    assert(!subtractedZero.success);
+    assert(subtractedZero.data.offsets.empty());
+    assert(subtractedZero.message.find("zero factor") != std::string::npos);
     const auto split = pmxer::morph::splitSide(
         operationModel, operationSource, {.0F, 0.1F, false, false});
     assert(split.left.offsets.size() == 2U);
