@@ -1013,7 +1013,7 @@ void drawStatusBar(DocumentSession &session, bool &showDiagnostics,
       ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking;
   if (ImGui::Begin("##status-bar", nullptr, flags)) {
-    ImGui::TextUnformatted(session.modified ? "● 未保存" : "✓ 保存済み");
+    ImGui::TextUnformatted(session.hasUnsavedWork() ? "● 未保存" : "✓ 保存済み");
     ImGui::SameLine();
     if (ImGui::SmallButton(
             ("診断 " + std::to_string(session.validation.issues.size()))

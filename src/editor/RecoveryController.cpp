@@ -27,8 +27,13 @@ std::string escapeJson(std::string value) {
 } // namespace
 
 RecoveryResult writeRecovery(DocumentSession &session) {
-    if (!session.modified)
+    if (!session.hasUnsavedWork())
         return {false, {}};
+    if (session.hasPendingTransformEdit()) {
+        log::warn("temporary Transform View edits are not included in recovery data; capture or discard them first");
+        if (!session.modified)
+            return {false, {}};
+    }
     const auto path = session.path.empty() ? recoveryPath(session.path, session.recoveryId) : recoveryPath(session.path);
     const auto temporary = temporarySibling(path);
     try {

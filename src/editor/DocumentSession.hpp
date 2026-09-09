@@ -219,6 +219,14 @@ struct DocumentSession {
         : path(std::move(source)), recoveryId(makeRecoveryId()), document(std::move(model)), validation(document.validate()),
           baseline(document.model()) {}
 
+    [[nodiscard]] bool hasPendingTransformEdit() const noexcept {
+        return deform.dirty;
+    }
+
+    [[nodiscard]] bool hasUnsavedWork() const noexcept {
+        return modified || hasPendingTransformEdit();
+    }
+
     void retainDeformOverlay() {
         std::erase_if(deform.vertices, [&](const auto &delta) {
             return document.resolve(delta.vertex) == nullptr;

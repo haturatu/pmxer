@@ -1,5 +1,7 @@
 #include "MorphCapture.hpp"
 
+#include "MorphMixer.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -13,11 +15,29 @@ bool nonZero(const mmd::Float3 &value) {
     return std::abs(value[0]) > 1e-7F || std::abs(value[1]) > 1e-7F || std::abs(value[2]) > 1e-7F;
 }
 
+bool nonZeroBoneDelta(const BoneDelta &delta) {
+    if (nonZero(delta.translation))
+        return true;
+    float length{};
+    for (const auto component : delta.rotation)
+        length += component * component;
+    if (length <= 1e-12F)
+        return false;
+    const auto inverseLength = 1.0F / std::sqrt(length);
+    const auto x = delta.rotation[0] * inverseLength;
+    const auto y = delta.rotation[1] * inverseLength;
+    const auto z = delta.rotation[2] * inverseLength;
+    const auto w = delta.rotation[3] * inverseLength;
+    return std::abs(x) > 1e-6F || std::abs(y) > 1e-6F || std::abs(z) > 1e-6F ||
+           std::abs(std::abs(w) - 1.0F) > 1e-6F;
+}
+
 } // namespace
 
 OperationResult createMorphFromData(DocumentSession &session, MorphData data,
                                     std::string name, std::string description,
                                     std::uint8_t panel) {
+    data = pruneZeroOffsets(std::move(data));
     if (data.offsets.empty())
         return {false, "モーフオフセットがありません"};
     mmd::MorphHandle created;
@@ -55,7 +75,7 @@ OperationResult captureVertexMorph(DocumentSession &session, std::string name) {
         data.offsets.push_back(offset);
     }
     const auto result = createMorphFromData(session, std::move(data), std::move(name),
-                                             "現在形状から頂点モーフを作成");
+                                             "編集状態から頂点モーフを作成");
     if (result.success)
         session.deform.clearVertexOverlay();
     return result;
@@ -64,7 +84,7 @@ OperationResult captureVertexMorph(DocumentSession &session, std::string name) {
 OperationResult captureBoneMorph(DocumentSession &session, std::string name) {
     MorphData data{2U, {}, 4U, {}};
     for (const auto &delta : session.deform.bones) {
-        if (!delta.bone || session.document.resolve(delta.bone) == nullptr)
+        if (!nonZeroBoneDelta(delta) || !delta.bone || session.document.resolve(delta.bone) == nullptr)
             continue;
         const auto bone = session.document.resolve(delta.bone);
         if (bone == nullptr)
@@ -84,7 +104,7 @@ OperationResult captureBoneMorph(DocumentSession &session, std::string name) {
 
 OperationResult captureGroupMorph(DocumentSession &session, std::string name) {
     MorphData data{0U, {}, 4U, {}};
-    for (const auto &blend : session.preview.morphValues) {
+    for (const auto &blend : effectiveMorphMix(session)) {
         if (!blend.morph || std::abs(blend.weight) <= 1e-7F ||
             session.document.resolve(blend.morph) == nullptr)
             continue;
@@ -106,10 +126,18 @@ OperationResult duplicateMorph(DocumentSession &session, mmd::MorphHandle source
     return createMorphFromData(session, copy(*morph), std::move(name), "モーフを複製");
 }
 
-OperationResult bakeAndReverseBase(DocumentSession &session, mmd::MorphHandle source) {
+OperationResult bakeAndReverseBase(DocumentSession &session, mmd::MorphHandle source,
+                                   BakeReverseOptions options) {
     const auto *morph = session.document.resolve(source);
     if (morph == nullptr || morph->type != 1U)
         return {false, "Bake & Reverse Base は頂点モーフにのみ使用できます"};
+    const auto references = session.document.referencesTo(source);
+    const auto referencedMorphs = static_cast<std::size_t>(std::count_if(
+        references.begin(), references.end(), [](const auto &reference) {
+            return reference.ownerKind == mmd::ReferenceObjectKind::morph;
+        }));
+    if (referencedMorphs != 0U && !options.allowReferencedMorph)
+        return {false, "対象モーフは他のGroup/Flipモーフから参照されています"};
     const auto sourceIndex = static_cast<std::size_t>(morph - session.document.model().morphs.data());
     std::vector<mmd::Float3> total(session.document.model().vertices.size());
     for (const auto &offset : morph->offsets) {

@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstddef>
 #include <map>
+#include <utility>
 
 namespace pmxer::morph {
 namespace {
@@ -123,6 +124,38 @@ void addOffset(mmd::PmxMorphOffset &destination, const mmd::PmxMorphOffset &sour
     }
 }
 
+bool nearZero(float value) {
+    return std::abs(value) <= 1e-7F;
+}
+
+bool neutralOffset(const MorphData &morph, const mmd::PmxMorphOffset &offset) {
+    if (morph.type == 0U || morph.type == 9U)
+        return nearZero(offset.scalar);
+    if (morph.type == 1U)
+        return std::all_of(offset.vector3.begin(), offset.vector3.end(), nearZero);
+    if (morph.type == 2U) {
+        const auto quaternion = normalizeQuaternion(offset.vector4);
+        return std::all_of(offset.vector3.begin(), offset.vector3.end(), nearZero) &&
+               nearZero(quaternion[0]) && nearZero(quaternion[1]) && nearZero(quaternion[2]) &&
+               nearZero(std::abs(quaternion[3]) - 1.0F);
+    }
+    if (morph.type >= 3U && morph.type <= 7U)
+        return std::all_of(offset.vector4.begin(), offset.vector4.end(), nearZero);
+    if (morph.type == 8U) {
+        const auto neutral = offset.operation == 0U ? 1.0F : 0.0F;
+        for (std::size_t vector = 0; vector < 7U; ++vector)
+            if (!std::all_of(offset.materialVectors[vector].begin(),
+                             offset.materialVectors[vector].end(),
+                             [&](float value) { return nearZero(value - neutral); }))
+                return false;
+        return true;
+    }
+    if (morph.type == 10U)
+        return std::all_of(offset.vector3.begin(), offset.vector3.end(), nearZero) &&
+               std::all_of(offset.tertiaryVector3.begin(), offset.tertiaryVector3.end(), nearZero);
+    return false;
+}
+
 } // namespace
 
 MorphData copy(const mmd::PmxMorph &morph) {
@@ -154,7 +187,7 @@ MorphData scale(MorphData value, float factor) {
             scale3(offset.tertiaryVector3, factor);
         }
     }
-    return value;
+    return pruneZeroOffsets(std::move(value));
 }
 
 MorphData negate(MorphData value) {
@@ -178,6 +211,11 @@ MorphData negate(MorphData value) {
             scale3(offset.tertiaryVector3, -1.0F);
         }
     }
+    return pruneZeroOffsets(std::move(value));
+}
+
+MorphData pruneZeroOffsets(MorphData value) {
+    std::erase_if(value.offsets, [&](const auto &offset) { return neutralOffset(value, offset); });
     return value;
 }
 
@@ -208,7 +246,7 @@ MorphData combine(std::span<const MorphData> values) {
                 addOffset(result.offsets[found->second], offset, result.type);
         }
     }
-    return result;
+    return pruneZeroOffsets(std::move(result));
 }
 
 MorphData subtract(const MorphData &lhs, const MorphData &rhs) {

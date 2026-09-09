@@ -15,7 +15,8 @@ namespace {
 
 void collectVertexMorph(const mmd::PmxModel &model, std::size_t index, float weight,
                         std::vector<std::uint8_t> &stack,
-                        std::vector<pmxer::morph::MorphData> &parts) {
+                        std::vector<pmxer::morph::MorphData> &parts,
+                        std::set<std::uint8_t> &ignoredTypes) {
     if (index >= model.morphs.size() || std::abs(weight) <= 1e-7F || stack[index] != 0U)
         return;
     stack[index] = 1U;
@@ -26,8 +27,10 @@ void collectVertexMorph(const mmd::PmxModel &model, std::size_t index, float wei
         for (const auto &offset : morph.offsets) {
             if (offset.index >= 0)
                 collectVertexMorph(model, static_cast<std::size_t>(offset.index),
-                                   weight * offset.scalar, stack, parts);
+                                   weight * offset.scalar, stack, parts, ignoredTypes);
         }
+    } else {
+        ignoredTypes.insert(morph.type);
     }
     stack[index] = 0U;
 }
@@ -36,18 +39,39 @@ void collectVertexMorph(const mmd::PmxModel &model, std::size_t index, float wei
 
 namespace pmxer::morph {
 
+std::vector<MorphBlend> effectiveMorphMix(const DocumentSession &session) {
+    std::vector<MorphBlend> result;
+    result.reserve(session.preview.morphValues.size());
+    for (const auto &blend : session.preview.morphValues) {
+        if (session.preview.solo && blend.morph != session.preview.soloMorph)
+            continue;
+        if (session.document.resolve(blend.morph) != nullptr)
+            result.push_back(blend);
+    }
+    return result;
+}
+
+VertexBakeAnalysis analyzeVertexMix(const DocumentSession &session) {
+    VertexBakeAnalysis result;
+    std::vector<std::uint8_t> stack(session.document.model().morphs.size());
+    for (const auto &blend : effectiveMorphMix(session)) {
+        const auto *morph = session.document.resolve(blend.morph);
+        if (morph == nullptr)
+            continue;
+        const auto index = static_cast<std::size_t>(morph - session.document.model().morphs.data());
+        collectVertexMorph(session.document.model(), index, blend.weight, stack,
+                           result.vertexParts, result.ignoredTypes);
+    }
+    return result;
+}
+
 void syncPreview(DocumentSession &session) {
     ++session.preview.morphRevision;
     if (!session.preview.controller)
         return;
     session.preview.controller->clearMorphPreviews();
-    for (const auto &blend : session.preview.morphValues) {
-        if (session.document.resolve(blend.morph) == nullptr)
-            continue;
-        if (session.preview.solo && blend.morph != session.preview.soloMorph)
-            continue;
+    for (const auto &blend : effectiveMorphMix(session))
         session.preview.controller->setMorphPreview(blend.morph, blend.weight);
-    }
     session.preview.controller->setVertexPreview(
         session.deform.mode == DeformMode::shape ? vertexMorphOffsets(session)
                                                  : std::vector<mmd::PmxMorphOffset>{});
@@ -105,21 +129,14 @@ void clearSoloMorph(DocumentSession &session) {
     syncPreview(session);
 }
 
-OperationResult bakeMixAsVertexMorph(DocumentSession &session, std::string name) {
-    std::vector<MorphData> parts;
-    std::vector<std::uint8_t> stack(session.document.model().morphs.size());
-    for (const auto &blend : session.preview.morphValues) {
-        if (session.preview.solo && blend.morph != session.preview.soloMorph)
-            continue;
-        const auto *morph = session.document.resolve(blend.morph);
-        if (morph == nullptr)
-            continue;
-        const auto index = static_cast<std::size_t>(morph - session.document.model().morphs.data());
-        collectVertexMorph(session.document.model(), index, blend.weight, stack, parts);
-    }
-    if (parts.empty())
+OperationResult bakeMixAsVertexMorph(DocumentSession &session, std::string name,
+                                     VertexBakeOptions options) {
+    const auto analysis = analyzeVertexMix(session);
+    if (!analysis.ignoredTypes.empty() && !options.allowIgnoredTypes)
+        return {false, "Mixerに頂点以外のモーフ成分があります"};
+    if (analysis.vertexParts.empty())
         return {false, "Mixerに頂点モーフがありません"};
-    return createMorphFromData(session, combine(parts), std::move(name),
+    return createMorphFromData(session, combine(analysis.vertexParts), std::move(name),
                                "Mixerの状態から頂点モーフを作成");
 }
 

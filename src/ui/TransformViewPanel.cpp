@@ -1,4 +1,4 @@
-#include "DeformLabPanel.hpp"
+#include "TransformViewPanel.hpp"
 
 #include "../editor/DeformController.hpp"
 #include "../editor/DocumentSession.hpp"
@@ -14,11 +14,13 @@
 #include <array>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace pmxer {
 namespace {
@@ -89,9 +91,55 @@ bool morphCombo(const char *label, const mmd::PmxModel &model, std::size_t &inde
     return changed;
 }
 
+bool optionalMorphCombo(const char *label, const mmd::PmxModel &model,
+                        std::optional<std::size_t> &index) {
+    const auto preview = index && *index < model.morphs.size()
+                             ? model.morphs[*index].name.c_str()
+                             : "(Select morph...)";
+    bool changed = false;
+    if (!ImGui::BeginCombo(label, preview))
+        return false;
+    if (ImGui::Selectable("(Select morph...)", !index)) {
+        index.reset();
+        changed = true;
+    }
+    for (std::size_t candidate = 0; candidate < model.morphs.size(); ++candidate) {
+        const bool selected = index && *index == candidate;
+        ImGui::PushID(static_cast<int>(candidate));
+        if (ImGui::Selectable(model.morphs[candidate].name.c_str(), selected)) {
+            index = candidate;
+            changed = true;
+        }
+        if (selected)
+            ImGui::SetItemDefaultFocus();
+        ImGui::PopID();
+    }
+    ImGui::EndCombo();
+    return changed;
+}
+
 void status(DocumentSession &session, const OperationResult &result,
             std::string success) {
     setOperationStatus(session, result.success, std::move(success), result.message);
+}
+
+const char *morphTypeName(std::uint8_t type) {
+    switch (type) {
+    case 0U:
+        return "Group Morph";
+    case 1U:
+        return "Vertex Morph";
+    case 2U:
+        return "Bone Morph";
+    case 8U:
+        return "Material Morph";
+    case 9U:
+        return "Flip Morph";
+    case 10U:
+        return "Impulse Morph";
+    default:
+        return "UV Morph";
+    }
 }
 
 void drawCaptureName(DocumentSession &session) {
@@ -124,7 +172,8 @@ void drawVertexTransform(DocumentSession &session) {
     }
     ImGui::Separator();
     drawCaptureName(session);
-    if (ImGui::Button("Create Morph from Current Shape"))
+    ImGui::TextDisabled("Edits use the PMX bind shape; Mixer/VMD/Pose are preview context.");
+    if (ImGui::Button("Create Morph from Edit"))
         status(session, morph::captureVertexMorph(session, session.deform.captureName),
                "Vertex morph created");
 }
@@ -187,9 +236,41 @@ void drawMorphMixer(DocumentSession &session) {
     if (ImGui::Button("Create Group Morph from Mix"))
         status(session, morph::captureGroupMorph(session, session.deform.captureName),
                "Group morph created");
-    if (ImGui::Button("Bake Mix to Vertex Morph"))
-        status(session, morph::bakeMixAsVertexMorph(session, session.deform.captureName),
-               "Vertex morph baked");
+    if (ImGui::Button("Bake Mix to Vertex Morph")) {
+        const auto analysis = morph::analyzeVertexMix(session);
+        if (analysis.ignoredTypes.empty()) {
+            status(session, morph::bakeMixAsVertexMorph(session, session.deform.captureName),
+                   "Vertex morph baked");
+        } else {
+            session.deform.confirmVertexBake = true;
+            session.deform.vertexBakeIgnoredTypes.assign(analysis.ignoredTypes.begin(),
+                                                         analysis.ignoredTypes.end());
+            ImGui::OpenPopup("Confirm Bake Vertex Part");
+        }
+    }
+    if (session.deform.confirmVertexBake &&
+        ImGui::BeginPopupModal("Confirm Bake Vertex Part", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextWrapped("This mix also contains:");
+        for (const auto type : session.deform.vertexBakeIgnoredTypes)
+            ImGui::BulletText("%s", morphTypeName(type));
+        ImGui::TextWrapped("They will not be included in the Vertex Morph.");
+        if (ImGui::Button("Bake Vertex Part")) {
+            const auto result = morph::bakeMixAsVertexMorph(
+                session, session.deform.captureName, {.allowIgnoredTypes = true});
+            status(session, result, "Vertex morph baked");
+            session.deform.confirmVertexBake = false;
+            session.deform.vertexBakeIgnoredTypes.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) {
+            session.deform.confirmVertexBake = false;
+            session.deform.vertexBakeIgnoredTypes.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
 }
 
 void drawMorphOperations(DocumentSession &session) {
@@ -221,46 +302,73 @@ void drawMorphOperations(DocumentSession &session) {
     ImGui::SameLine();
     if (ImGui::Button("Reverse Base and Morph")) {
         const auto references = session.document.referencesTo(sourceHandle);
-        const auto referencedByMorph = std::any_of(
-            references.begin(), references.end(), [](const auto &reference) {
-                return reference.ownerKind == mmd::ReferenceObjectKind::morph;
-            });
-        const auto result = morph::bakeAndReverseBase(session, sourceHandle);
-        status(session, result, "Base and morph reversed");
-        if (result.success && referencedByMorph)
-            setStatus(session,
-                      "Warning: Group/Flip morph references the reversed morph; review the result",
-                      UiStatusKind::warning, std::chrono::milliseconds::zero(), true);
+        std::vector<std::pair<std::uint64_t, std::uint32_t>> owners;
+        for (const auto &reference : references) {
+            if (reference.ownerKind != mmd::ReferenceObjectKind::morph)
+                continue;
+            if (std::find(owners.begin(), owners.end(),
+                          std::pair{reference.ownerId, reference.ownerGeneration}) == owners.end())
+                owners.emplace_back(reference.ownerId, reference.ownerGeneration);
+        }
+        if (!owners.empty()) {
+            session.deform.confirmBakeReverse = true;
+            session.deform.bakeReverseMorph = sourceHandle;
+            session.deform.bakeReverseReferenceCount = owners.size();
+            ImGui::OpenPopup("Confirm Reverse Base and Morph");
+        } else {
+            status(session, morph::bakeAndReverseBase(session, sourceHandle),
+                   "Base and morph reversed");
+        }
+    }
+    if (session.deform.confirmBakeReverse &&
+        ImGui::BeginPopupModal("Confirm Reverse Base and Morph", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("This morph is referenced by %zu Group/Flip morphs.",
+                    session.deform.bakeReverseReferenceCount);
+        ImGui::TextWrapped("Reversing it can change those morphs.");
+        if (ImGui::Button("Reverse Anyway")) {
+            const auto result = morph::bakeAndReverseBase(
+                session, session.deform.bakeReverseMorph, {.allowReferencedMorph = true});
+            status(session, result, "Base and morph reversed");
+            session.deform.confirmBakeReverse = false;
+            session.deform.bakeReverseMorph = {};
+            session.deform.bakeReverseReferenceCount = 0;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) {
+            session.deform.confirmBakeReverse = false;
+            session.deform.bakeReverseMorph = {};
+            session.deform.bakeReverseReferenceCount = 0;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 
-    std::size_t otherIndex = morphIndex(session, session.deform.operationMorph).value_or(index);
-    if (morphCombo("Second morph", model, otherIndex))
-        session.deform.operationMorph = session.document.morphHandle(otherIndex);
+    auto otherIndex = morphIndex(session, session.deform.operationMorph);
+    if (optionalMorphCombo("Second morph", model, otherIndex))
+        session.deform.operationMorph = otherIndex ? session.document.morphHandle(*otherIndex) : mmd::MorphHandle{};
+    const auto validOther = otherIndex && *otherIndex != index &&
+                            model.morphs[*otherIndex].type == source.type;
+    if (!validOther)
+        ImGui::TextDisabled("Select a different morph of the same type.");
+    ImGui::BeginDisabled(!validOther);
     if (ImGui::Button("Combine Morphs")) {
-        const auto &other = model.morphs[otherIndex];
-        if (source.type != other.type) {
-            setStatus(session, "Combine requires morphs of the same type",
-                      UiStatusKind::warning);
-        } else {
-            const std::array<morph::MorphData, 2> values{morph::copy(source), morph::copy(other)};
-            status(session, morph::createMorphFromData(session, morph::combine(values),
-                                                       source.name + " + " + other.name, "Combine Morphs"),
-                   "Combined morph created");
-        }
+        const auto &other = model.morphs[*otherIndex];
+        const std::array<morph::MorphData, 2> values{morph::copy(source), morph::copy(other)};
+        status(session, morph::createMorphFromData(session, morph::combine(values),
+                                                   source.name + " + " + other.name, "Combine Morphs"),
+               "Combined morph created");
     }
     ImGui::SameLine();
     if (ImGui::Button("Subtract Morph")) {
-        const auto &other = model.morphs[otherIndex];
-        if (source.type != other.type) {
-            setStatus(session, "Subtract requires morphs of the same type",
-                      UiStatusKind::warning);
-        } else {
-            status(session, morph::createMorphFromData(session,
-                                                       morph::subtract(morph::copy(source), morph::copy(other)),
-                                                       source.name + " - " + other.name, "Subtract Morph"),
-                   "Subtracted morph created");
-        }
+        const auto &other = model.morphs[*otherIndex];
+        status(session, morph::createMorphFromData(session,
+                                                   morph::subtract(morph::copy(source), morph::copy(other)),
+                                                   source.name + " - " + other.name, "Subtract Morph"),
+               "Subtracted morph created");
     }
+    ImGui::EndDisabled();
     if (ImGui::Button("Side Split Left / Right")) {
         if (source.type != 1U) {
             setStatus(session, "Side Split is available for vertex morphs only",

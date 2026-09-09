@@ -32,6 +32,7 @@ struct SideSplitResult {
 [[nodiscard]] MorphData copy(const mmd::PmxMorph &morph);
 [[nodiscard]] MorphData scale(MorphData value, float factor);
 [[nodiscard]] MorphData negate(MorphData value);
+[[nodiscard]] MorphData pruneZeroOffsets(MorphData value);
 [[nodiscard]] MorphData duplicate(const MorphData &value);
 [[nodiscard]] MorphData combine(std::span<const MorphData> values);
 [[nodiscard]] MorphData subtract(const MorphData &lhs, const MorphData &rhs);

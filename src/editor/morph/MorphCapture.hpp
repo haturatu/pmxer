@@ -9,6 +9,10 @@
 
 namespace pmxer::morph {
 
+struct BakeReverseOptions {
+    bool allowReferencedMorph{};
+};
+
 [[nodiscard]] OperationResult createMorphFromData(DocumentSession &session,
                                                    MorphData data,
                                                    std::string name,
@@ -23,8 +27,9 @@ namespace pmxer::morph {
 [[nodiscard]] OperationResult duplicateMorph(DocumentSession &session,
                                               mmd::MorphHandle source,
                                               std::string name);
-[[nodiscard]] OperationResult bakeAndReverseBase(DocumentSession &session,
-                                                  mmd::MorphHandle source);
+[[nodiscard]] OperationResult bakeAndReverseBase(
+    DocumentSession &session, mmd::MorphHandle source,
+    BakeReverseOptions options = {});
 [[nodiscard]] OperationResult createSideSplitMorphs(DocumentSession &session,
                                                     MorphData left,
                                                     MorphData right,

@@ -32,6 +32,8 @@ struct WorkspaceUiState {
     bool showDiff{};
     bool resetLayout{};
     bool requestCloseDocument{};
+    bool requestPendingTransformSave{};
+    bool pendingTransformSaveAs{};
     std::string status;
     ViewportLightingSettings viewportLighting{};
     std::array<WorkspaceViewportProfile, 5> viewportProfiles{
@@ -45,6 +47,8 @@ struct WorkspaceUiState {
     void resetPanels() noexcept {
         showDocuments = showViewport = showOutliner = showInspector = true;
         showTransformView = true;
+        requestPendingTransformSave = false;
+        pendingTransformSaveAs = false;
         showModel = showVertex = showMaterial = showTexture = showBone = false;
         showMorph = showDisplayFrame = showPhysics = showDiagnostics = false;
         showReferences = showDiff = false;
