@@ -88,8 +88,7 @@ float4 mainPS(VertexOutput input) : SV_Target0 {
         color = baseSample * saturate(baseDiffuse * diffuseLight +
                                       ambientShininess.rgb * ambientIntensity);
     } else {
-        const float diffuseLight = 0.25 + 0.75 * directLight;
-        color = baseSample * saturate(baseDiffuse * diffuseLight +
+        color = baseSample * saturate(baseDiffuse * lightIntensity +
                                       ambientShininess.rgb * ambientIntensity);
     }
 
@@ -118,7 +117,7 @@ float4 mainPS(VertexOutput input) : SV_Target0 {
         const float3 halfVector = normalize(normalize(lightDirection.xyz) + viewDirection);
         const float specularLight = rawNdotL > 0.0
                                         ? pow(saturate(dot(normal, halfVector)),
-                                              max(ambientShininess.w, 1.0))
+                                              max(ambientShininess.w, 1.0)) * lightIntensity
                                         : 0.0;
         const float specularStrength = shadingMode < 0.5 ? 1.0 : saturate(previewStrength.z);
         color += specular.rgb * specularLight * specularStrength;
