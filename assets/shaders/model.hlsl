@@ -10,15 +10,19 @@ struct VertexOutput {
     float2 uv : TEXCOORD0;
     float3 normal : TEXCOORD1;
     float2 additionalUv1 : TEXCOORD2;
+    float3 worldPosition : TEXCOORD3;
 };
 
 cbuffer FrameData : register(b0, space1) {
     row_major float4x4 viewProjection;
     float4 edgeParameters;
+    float4 cameraPosition;
 };
 
 cbuffer MaterialData : register(b0, space3) {
     float4 diffuse;
+    float4 ambientShininess;
+    float4 specular;
     float4 textureMultiply;
     float4 textureAdd;
     float4 sphereMultiply;
@@ -44,6 +48,7 @@ VertexOutput mainVS(VertexInput input) {
     output.uv = input.uv;
     output.normal = input.normal;
     output.additionalUv1 = input.additionalUv1;
+    output.worldPosition = input.position;
     return output;
 }
 
@@ -51,35 +56,45 @@ float4 mainPS(VertexOutput input) : SV_Target0 {
     if (materialModes.z > 0.5)
         return edgeColor;
     const float3 lightDirection = normalize(float3(-0.35, 0.75, 0.55));
-    const float lightValue = saturate(dot(normalize(input.normal), lightDirection));
-    const float light = 0.25 + 0.75 * lightValue;
+    const float3 normal = normalize(input.normal);
+    const float ndotl = clamp(dot(normal, lightDirection), -1.0, 1.0);
     const float4 textureColor = baseTexture.Sample(baseSampler, input.uv);
     float3 baseDiffuse = diffuse.rgb;
-    if (textureFlags.x > 0.5)
+    const bool baseMissing = textureFlags.x > 0.5;
+    if (baseMissing)
         baseDiffuse = lerp(baseDiffuse, float3(0.72, 0.74, 0.78), 0.70);
-    float3 color = baseDiffuse * (textureColor.rgb * textureMultiply.rgb + textureAdd.rgb);
-    if (textureFlags.y > 0.5)
-        color = lerp(color, max(color, float3(0.42, 0.44, 0.48)), 0.45);
+    const float3 baseSample = textureColor.rgb * textureMultiply.rgb + textureAdd.rgb;
+    float3 color = saturate(ambientShininess.rgb + baseDiffuse) * baseSample;
+
+    const float2 toonUv = float2(0.5, 0.5 - ndotl * 0.5);
+    const float4 toonColor = toonTexture.Sample(toonSampler, toonUv);
+    float3 toonFactor = toonColor.rgb * toonMultiply.rgb + toonAdd.rgb;
+    if (baseMissing)
+        toonFactor = lerp(float3(1.0, 1.0, 1.0), toonFactor, 0.40);
+    color *= toonFactor;
+
     if (materialModes.x > 0.5) {
         const float2 sphereUv = materialModes.x < 2.5
-                                    ? normalize(input.normal).xy * 0.5 + 0.5
+                                    ? normal.xy * 0.5 + 0.5
                                     : input.additionalUv1;
         const float4 sphereColor = sphereTexture.Sample(sphereSampler, sphereUv);
+        const float3 sphere = sphereColor.rgb * sphereMultiply.rgb + sphereAdd.rgb;
         if (materialModes.x < 1.5)
-            color *= sphereColor.rgb * sphereMultiply.rgb + sphereAdd.rgb;
+            color *= sphere;
         else if (materialModes.x < 2.5)
-            color += sphereColor.rgb * sphereMultiply.rgb + sphereAdd.rgb;
+            color += sphere;
         else
-            color *= sphereColor.rgb * sphereMultiply.rgb + sphereAdd.rgb;
+            color *= sphere;
     }
+
+    const float3 viewDirection = normalize(cameraPosition.xyz - input.worldPosition);
+    const float3 halfVector = normalize(lightDirection + viewDirection);
+    const float specularLight = pow(max(1e-6, dot(normal, halfVector)),
+                                    max(ambientShininess.w, 1.0));
+    color += specular.rgb * specularLight;
+
     color = lerp(color, float3(1.0, 0.62, 0.08),
                  saturate(materialModes.w));
-    float3 lighting = light.xxx;
-    const float2 toonUv = float2(0.5, 1.0 - lightValue);
-    const float4 toonColor = toonTexture.Sample(toonSampler, toonUv);
-    lighting *= toonColor.rgb * toonMultiply.rgb + toonAdd.rgb;
-    if (textureFlags.z > 0.5)
-        lighting = max(lighting, float3(0.38, 0.38, 0.38));
-    return float4(color * lighting,
+    return float4(color,
                   saturate(diffuse.a * (textureColor.a * textureMultiply.a + textureAdd.a)));
 }

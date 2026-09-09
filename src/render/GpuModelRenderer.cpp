@@ -29,10 +29,13 @@ struct GpuVertex {
 struct alignas(16) FrameUniforms {
     std::array<float, 16> viewProjection{};
     std::array<float, 4> edgeParameters{};
+    std::array<float, 4> cameraPosition{};
 };
 
 struct alignas(16) MaterialUniforms {
     std::array<float, 4> diffuse{};
+    std::array<float, 4> ambientShininess{};
+    std::array<float, 4> specular{};
     std::array<float, 4> textureMultiply{1.0F, 1.0F, 1.0F, 1.0F};
     std::array<float, 4> textureAdd{};
     std::array<float, 4> sphereMultiply{1.0F, 1.0F, 1.0F, 1.0F};
@@ -47,8 +50,10 @@ struct alignas(16) MaterialUniforms {
 FrameUniforms makeUniforms(const EditorUiState &ui, float aspect) {
     const CameraState camera{ui.cameraTarget, ui.cameraYaw, ui.cameraPitch, ui.cameraDistance, ui.orthographic};
     const auto matrices = makeCameraMatrices(camera, aspect);
+    const auto eye = cameraEye(camera);
     FrameUniforms result{};
     result.viewProjection = matrices.viewProjection;
+    result.cameraPosition = {eye[0], eye[1], eye[2], 1.0F};
     return result;
 }
 
@@ -75,7 +80,7 @@ std::array<std::uint8_t, 64U * 4U> makeSharedToonFallback(std::size_t index) {
         for (std::size_t channel = 0; channel < 3U; ++channel) {
             const auto range = 255U - shadow[channel];
             result[row * 4U + channel] = static_cast<std::uint8_t>(
-                shadow[channel] + range * eased / (63U * 63U));
+                255U - range * eased / (63U * 63U));
         }
         result[row * 4U + 3U] = 255;
     }
@@ -90,7 +95,7 @@ std::array<std::uint8_t, 2U * 2U * 4U> makeNeutralTexture() {
 std::array<std::uint8_t, 64U * 4U> makeNeutralToonFallback() {
     std::array<std::uint8_t, 64U * 4U> result{};
     for (std::size_t row = 0; row < 64U; ++row) {
-        const auto value = static_cast<std::uint8_t>(96U + row * 159U / 63U);
+        const auto value = static_cast<std::uint8_t>(255U - row * 159U / 63U);
         result[row * 4U] = value;
         result[row * 4U + 1U] = value;
         result[row * 4U + 2U] = value;
@@ -657,9 +662,15 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
                                    ? &frame->materials[materialIndex]
                                    : nullptr;
         const auto &diffuse = animated != nullptr ? animated->diffuse : material.diffuse;
+        const auto &ambient = animated != nullptr ? animated->ambient : material.ambient;
+        const auto &specular = animated != nullptr ? animated->specular : material.specular;
+        const auto shininess = animated != nullptr ? animated->shininess : material.shininess;
         MaterialUniforms uniforms;
         uniforms.diffuse = {diffuse[0], diffuse[1], diffuse[2],
                             ui.xray ? diffuse[3] * 0.28F : diffuse[3]};
+        uniforms.ambientShininess = {ambient[0], ambient[1], ambient[2],
+                                     std::max(shininess, 1.0F)};
+        uniforms.specular = {specular[0], specular[1], specular[2], 0.0F};
         if (animated != nullptr) {
             uniforms.textureMultiply = {animated->textureMultiply[0], animated->textureMultiply[1],
                                         animated->textureMultiply[2], animated->textureMultiply[3]};

@@ -423,7 +423,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                                "⚠ 外部リソース %zu件不足",
                                resources.missingTextureCount + resources.failedTextureCount);
             ImGui::SameLine();
-            ImGui::TextDisabled("フォールバック材質で表示しています");
+            ImGui::TextDisabled("不足テクスチャを代替表示しています");
             ImGui::SameLine();
             if (ImGui::SmallButton("診断##texture-diagnostics") && showDiagnostics != nullptr)
                 *showDiagnostics = true;
