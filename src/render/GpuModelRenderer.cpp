@@ -2,6 +2,7 @@
 
 #include "Camera.hpp"
 #include "ImageDecoder.hpp"
+#include "PreviewTextureFallbacks.hpp"
 
 #include "../platform/Log.hpp"
 
@@ -29,13 +30,13 @@ struct GpuVertex {
 struct alignas(16) FrameUniforms {
     std::array<float, 16> viewProjection{};
     std::array<float, 4> edgeParameters{};
-    std::array<float, 4> cameraPosition{};
 };
 
 struct alignas(16) MaterialUniforms {
     std::array<float, 4> diffuse{};
     std::array<float, 4> ambientShininess{};
     std::array<float, 4> specular{};
+    std::array<float, 4> cameraPosition{};
     std::array<float, 4> textureMultiply{1.0F, 1.0F, 1.0F, 1.0F};
     std::array<float, 4> textureAdd{};
     std::array<float, 4> sphereMultiply{1.0F, 1.0F, 1.0F, 1.0F};
@@ -47,13 +48,10 @@ struct alignas(16) MaterialUniforms {
     std::array<float, 4> textureFlags{};
 };
 
-FrameUniforms makeUniforms(const EditorUiState &ui, float aspect) {
-    const CameraState camera{ui.cameraTarget, ui.cameraYaw, ui.cameraPitch, ui.cameraDistance, ui.orthographic};
+FrameUniforms makeUniforms(const CameraState &camera, float aspect) {
     const auto matrices = makeCameraMatrices(camera, aspect);
-    const auto eye = cameraEye(camera);
     FrameUniforms result{};
     result.viewProjection = matrices.viewProjection;
-    result.cameraPosition = {eye[0], eye[1], eye[2], 1.0F};
     return result;
 }
 
@@ -68,40 +66,9 @@ std::vector<GpuVertex> makeVertices(const std::vector<mmd::PmxVertex> &vertices)
     return result;
 }
 
-std::array<std::uint8_t, 64U * 4U> makeSharedToonFallback(std::size_t index) {
-    constexpr std::array<std::array<std::uint8_t, 3>, 10> shadows{{
-        {52, 52, 56}, {64, 51, 51}, {51, 59, 68}, {58, 51, 66}, {50, 65, 56},
-        {69, 60, 47}, {47, 64, 68}, {67, 48, 60}, {58, 58, 47}, {44, 44, 48},
-    }};
-    const auto shadow = shadows[index % shadows.size()];
-    std::array<std::uint8_t, 64U * 4U> result{};
-    for (std::size_t row = 0; row < 64U; ++row) {
-        const auto eased = row * row;
-        for (std::size_t channel = 0; channel < 3U; ++channel) {
-            const auto range = 255U - shadow[channel];
-            result[row * 4U + channel] = static_cast<std::uint8_t>(
-                255U - range * eased / (63U * 63U));
-        }
-        result[row * 4U + 3U] = 255;
-    }
-    return result;
-}
-
 std::array<std::uint8_t, 2U * 2U * 4U> makeNeutralTexture() {
     return {{184, 190, 198, 255, 132, 138, 146, 255,
              132, 138, 146, 255, 184, 190, 198, 255}};
-}
-
-std::array<std::uint8_t, 64U * 4U> makeNeutralToonFallback() {
-    std::array<std::uint8_t, 64U * 4U> result{};
-    for (std::size_t row = 0; row < 64U; ++row) {
-        const auto value = static_cast<std::uint8_t>(255U - row * 159U / 63U);
-        result[row * 4U] = value;
-        result[row * 4U + 1U] = value;
-        result[row * 4U + 2U] = value;
-        result[row * 4U + 3U] = 255;
-    }
-    return result;
 }
 
 bool containsItem(const std::vector<SelectionItem> &items,
@@ -632,7 +599,10 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
     if (width <= 1.0F || height <= 1.0F)
         return;
     const auto aspect = width / height;
-    const auto frameUniforms = makeUniforms(ui, aspect);
+    const CameraState camera{ui.cameraTarget, ui.cameraYaw, ui.cameraPitch,
+                             ui.cameraDistance, ui.orthographic};
+    const auto frameUniforms = makeUniforms(camera, aspect);
+    const auto eye = cameraEye(camera);
     SDL_GPUViewport viewport{x, y, width, height, 0.0F, 1.0F};
     SDL_SetGPUViewport(pass, &viewport);
     SDL_Rect scissor{static_cast<int>(x), static_cast<int>(y), static_cast<int>(width), static_cast<int>(height)};
@@ -671,6 +641,7 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
         uniforms.ambientShininess = {ambient[0], ambient[1], ambient[2],
                                      std::max(shininess, 1.0F)};
         uniforms.specular = {specular[0], specular[1], specular[2], 0.0F};
+        uniforms.cameraPosition = {eye[0], eye[1], eye[2], 1.0F};
         if (animated != nullptr) {
             uniforms.textureMultiply = {animated->textureMultiply[0], animated->textureMultiply[1],
                                         animated->textureMultiply[2], animated->textureMultiply[3]};

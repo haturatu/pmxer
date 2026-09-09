@@ -16,13 +16,13 @@ struct VertexOutput {
 cbuffer FrameData : register(b0, space1) {
     row_major float4x4 viewProjection;
     float4 edgeParameters;
-    float4 cameraPosition;
 };
 
 cbuffer MaterialData : register(b0, space3) {
     float4 diffuse;
     float4 ambientShininess;
     float4 specular;
+    float4 cameraPosition;
     float4 textureMultiply;
     float4 textureAdd;
     float4 sphereMultiply;
@@ -89,8 +89,10 @@ float4 mainPS(VertexOutput input) : SV_Target0 {
 
     const float3 viewDirection = normalize(cameraPosition.xyz - input.worldPosition);
     const float3 halfVector = normalize(lightDirection + viewDirection);
-    const float specularLight = pow(max(1e-6, dot(normal, halfVector)),
-                                    max(ambientShininess.w, 1.0));
+    const float specularLight = ndotl > 0.0
+                                    ? pow(saturate(dot(normal, halfVector)),
+                                          max(ambientShininess.w, 1.0))
+                                    : 0.0;
     color += specular.rgb * specularLight;
 
     color = lerp(color, float3(1.0, 0.62, 0.08),

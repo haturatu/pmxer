@@ -114,6 +114,7 @@ endif()
 add_library(pmxer_render
   src/render/ModelRenderer.cpp
   src/render/Picking.cpp
+  src/render/PreviewTextureFallbacks.cpp
   src/render/TextureCache.cpp
 )
 target_include_directories(pmxer_render PUBLIC src)
