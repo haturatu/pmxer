@@ -85,10 +85,8 @@ int main() {
     assert(std::abs(orthographicCenter.y - 300.0F) < 0.001F);
 
     const auto sharedToon = pmxer::makeSharedToonFallback(0);
-    assert(sharedToon[0] == 255U);
-    assert(sharedToon[63U * 4U] == 52U);
-    for (std::size_t row = 1; row < 64U; ++row)
-        assert(sharedToon[(row - 1U) * 4U] >= sharedToon[row * 4U]);
+    for (const auto channel : sharedToon)
+        assert(channel == 255U);
 
     const auto neutralToon = pmxer::makeNeutralToonFallback();
     assert(neutralToon[0] == 255U);
