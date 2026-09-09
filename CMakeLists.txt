@@ -76,6 +76,7 @@ add_library(pmxer_editor
   src/editor/WorkspacePolicy.cpp
   src/editor/ViewportCapabilities.cpp
   src/editor/PreviewPoseQueries.cpp
+  src/editor/TransformMath.cpp
   src/editor/morph/MorphCapture.cpp
   src/editor/morph/MorphMask.cpp
   src/editor/morph/MorphMixer.cpp

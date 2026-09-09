@@ -2,6 +2,7 @@
 
 #include "DocumentSession.hpp"
 #include "PreviewPoseQueries.hpp"
+#include "ViewportCapabilities.hpp"
 #include "../preview/PreviewController.hpp"
 
 #include <algorithm>
@@ -298,10 +299,14 @@ void beginDeformGizmoDrag(DocumentSession &session,
             session.deform.dragVertices.push_back({handle, deformVertexPosition(session, handle)});
         }
     } else if (session.deform.mode == DeformMode::pose) {
+        if (session.selection.items().size() != 1U)
+            return;
         for (const auto &item : session.selection.items()) {
             if (item.kind != SelectionKind::bone)
                 continue;
             const auto handle = selectionHandle<mmd::BoneTag>(session.document, item);
+            if (!deformBoneTransformAllowed(session, handle))
+                continue;
             const auto *bone = session.document.resolve(handle);
             if (bone == nullptr)
                 continue;
@@ -456,11 +461,13 @@ void updateDeformGizmoDrag(DocumentSession &session,
             }
         }
     } else if (deform.mode == DeformMode::pose) {
-        const auto desiredWorldRotation = quaternionFromMatrix(currentGizmoMatrix);
+        const auto worldDeltaRotation = quaternionFromMatrix(dragMatrix);
         for (const auto &drag : deform.dragBones) {
             const auto transformed = transformPoint(dragMatrix, drag.position);
             const auto *base = session.document.resolve(drag.bone);
             if (base != nullptr) {
+                const auto desiredWorldRotation = multiplyQuaternion(
+                    worldDeltaRotation, drag.startWorldRotation);
                 const auto overlayRotation = multiplyQuaternion(
                     conjugateQuaternion(drag.preOverlayWorldRotation), desiredWorldRotation);
                 setBoneDelta(deform, drag.bone,

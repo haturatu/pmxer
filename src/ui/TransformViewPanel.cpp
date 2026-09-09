@@ -7,6 +7,7 @@
 #include "../editor/morph/MorphMask.hpp"
 #include "../editor/morph/MorphMixer.hpp"
 #include "../editor/morph/MorphOps.hpp"
+#include "../editor/ViewportCapabilities.hpp"
 
 #include <imgui.h>
 
@@ -186,6 +187,16 @@ void drawBoneTransform(DocumentSession &session) {
         [](const auto &item) { return item.kind == SelectionKind::bone; }));
     ImGui::Text("Selected bones: %zu", selectedBones);
     ImGui::TextDisabled("Move and rotate bones in the viewport, then capture the pose as a morph.");
+    if (selectedBones != 1U) {
+        ImGui::TextDisabled("Bone Transform is limited to one bone at a time.");
+    } else {
+        const auto item = *std::find_if(
+            session.selection.items().begin(), session.selection.items().end(),
+            [](const auto &value) { return value.kind == SelectionKind::bone; });
+        const auto handle = selectionHandle<mmd::BoneTag>(session.document, item);
+        if (!deformBoneTransformAllowed(session, handle))
+            ImGui::TextDisabled("This bone is controlled by append, IK, or physics and cannot be transformed here.");
+    }
     ImGui::Checkbox("Physics preview", &session.previewPhysics);
     ImGui::Checkbox("IK preview", &session.previewIk);
     ImGui::Separator();

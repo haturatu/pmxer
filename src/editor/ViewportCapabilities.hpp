@@ -2,6 +2,9 @@
 
 #include "Selection.hpp"
 
+#include <mmd/pmx.hpp>
+
+#include <cstddef>
 #include <string_view>
 
 namespace pmxer {
@@ -27,6 +30,8 @@ struct ActionAvailability {
 enum class EditorAction { viewportMove, viewportRotate, viewportScale };
 
 [[nodiscard]] TransformCapabilities transformCapabilities(const DocumentSession &session) noexcept;
+[[nodiscard]] bool deformBoneTransformAllowed(const DocumentSession &session,
+                                               mmd::BoneHandle bone) noexcept;
 [[nodiscard]] ActionAvailability actionAvailability(EditorAction action,
                                                     const DocumentSession &session) noexcept;
 
