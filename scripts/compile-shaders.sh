@@ -8,6 +8,19 @@ prefix_dir=$work_dir/prefix
 
 mkdir -p "$work_dir" "$prefix_dir" "$output_dir"
 
+shader_source_hash="$({
+  python3 - "$source_file" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+data = pathlib.Path(sys.argv[1]).read_bytes()
+data = data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+print(hashlib.sha256(data).hexdigest())
+PY
+})"
+printf '%s\n' "$shader_source_hash" > "$output_dir/model.hlsl.sha256"
+
 clone_at() {
   local repository=$1
   local revision=$2

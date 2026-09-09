@@ -2,6 +2,7 @@
 
 #include "Camera.hpp"
 #include "ImageDecoder.hpp"
+#include "PreviewTextureFallbacks.hpp"
 
 #include "../platform/Log.hpp"
 
@@ -31,8 +32,17 @@ struct alignas(16) FrameUniforms {
     std::array<float, 4> edgeParameters{};
 };
 
+struct alignas(16) FragmentFrameUniforms {
+    std::array<float, 4> cameraPosition{};
+    std::array<float, 4> lightDirection{};
+    std::array<float, 4> viewportLighting{};
+    std::array<float, 4> previewStrength{};
+};
+
 struct alignas(16) MaterialUniforms {
     std::array<float, 4> diffuse{};
+    std::array<float, 4> ambientShininess{};
+    std::array<float, 4> specular{};
     std::array<float, 4> textureMultiply{1.0F, 1.0F, 1.0F, 1.0F};
     std::array<float, 4> textureAdd{};
     std::array<float, 4> sphereMultiply{1.0F, 1.0F, 1.0F, 1.0F};
@@ -44,11 +54,37 @@ struct alignas(16) MaterialUniforms {
     std::array<float, 4> textureFlags{};
 };
 
-FrameUniforms makeUniforms(const EditorUiState &ui, float aspect) {
-    const CameraState camera{ui.cameraTarget, ui.cameraYaw, ui.cameraPitch, ui.cameraDistance, ui.orthographic};
+FrameUniforms makeUniforms(const CameraState &camera, float aspect) {
     const auto matrices = makeCameraMatrices(camera, aspect);
     FrameUniforms result{};
     result.viewProjection = matrices.viewProjection;
+    return result;
+}
+
+FragmentFrameUniforms makeFragmentUniforms(const CameraState &camera,
+                                           const ViewportLightingSettings &settings) {
+    const auto eye = cameraEye(camera);
+    const auto cosPitch = std::cos(settings.lightPitch);
+    const auto lightDirection = mmd::Float3{
+        cosPitch * std::sin(settings.lightYaw),
+        std::sin(settings.lightPitch),
+        cosPitch * std::cos(settings.lightYaw),
+    };
+    FragmentFrameUniforms result{};
+    result.cameraPosition = {eye[0], eye[1], eye[2], 1.0F};
+    result.lightDirection = {lightDirection[0], lightDirection[1], lightDirection[2], 0.0F};
+    result.viewportLighting = {
+        settings.lightIntensity,
+        settings.ambientIntensity,
+        settings.exposure,
+        static_cast<float>(settings.mode),
+    };
+    result.previewStrength = {
+        settings.toonStrength,
+        settings.sphereStrength,
+        settings.specularStrength,
+        0.0F,
+    };
     return result;
 }
 
@@ -63,40 +99,9 @@ std::vector<GpuVertex> makeVertices(const std::vector<mmd::PmxVertex> &vertices)
     return result;
 }
 
-std::array<std::uint8_t, 64U * 4U> makeSharedToonFallback(std::size_t index) {
-    constexpr std::array<std::array<std::uint8_t, 3>, 10> shadows{{
-        {52, 52, 56}, {64, 51, 51}, {51, 59, 68}, {58, 51, 66}, {50, 65, 56},
-        {69, 60, 47}, {47, 64, 68}, {67, 48, 60}, {58, 58, 47}, {44, 44, 48},
-    }};
-    const auto shadow = shadows[index % shadows.size()];
-    std::array<std::uint8_t, 64U * 4U> result{};
-    for (std::size_t row = 0; row < 64U; ++row) {
-        const auto eased = row * row;
-        for (std::size_t channel = 0; channel < 3U; ++channel) {
-            const auto range = 255U - shadow[channel];
-            result[row * 4U + channel] = static_cast<std::uint8_t>(
-                shadow[channel] + range * eased / (63U * 63U));
-        }
-        result[row * 4U + 3U] = 255;
-    }
-    return result;
-}
-
 std::array<std::uint8_t, 2U * 2U * 4U> makeNeutralTexture() {
     return {{184, 190, 198, 255, 132, 138, 146, 255,
              132, 138, 146, 255, 184, 190, 198, 255}};
-}
-
-std::array<std::uint8_t, 64U * 4U> makeNeutralToonFallback() {
-    std::array<std::uint8_t, 64U * 4U> result{};
-    for (std::size_t row = 0; row < 64U; ++row) {
-        const auto value = static_cast<std::uint8_t>(96U + row * 159U / 63U);
-        result[row * 4U] = value;
-        result[row * 4U + 1U] = value;
-        result[row * 4U + 2U] = value;
-        result[row * 4U + 3U] = 255;
-    }
-    return result;
 }
 
 bool containsItem(const std::vector<SelectionItem> &items,
@@ -220,11 +225,17 @@ struct GpuModelRenderer::Impl {
     SDL_GPUTexture *neutralTexture{};
     SDL_GPUTexture *blackTexture{};
     SDL_GPUTexture *toonFallbackTexture{};
+    SDL_GPUTexture *viewportColor{};
+    SDL_GPUTexture *viewportDepth{};
+    std::uint32_t viewportWidth{};
+    std::uint32_t viewportHeight{};
+    SDL_GPUTextureFormat colorFormat{SDL_GPU_TEXTUREFORMAT_INVALID};
     std::vector<SDL_GPUTexture *> textures;
     std::vector<std::array<std::uint32_t, 2>> textureSizes;
     std::vector<TextureResourceStatus> textureStatus;
     RendererResourceSummary textureSummary;
     std::array<SDL_GPUTexture *, 10> sharedToons{};
+    std::array<bool, 10> sharedToonFallback{};
     std::vector<SDL_GPUTexture *> retiredTextures;
     std::vector<SDL_GPUTransferBuffer *> transfers;
     std::filesystem::path shaderDirectory;
@@ -253,6 +264,19 @@ struct GpuModelRenderer::Impl {
         }
     }
 
+    void clearViewportRenderTarget() {
+        if (viewportColor != nullptr) {
+            SDL_ReleaseGPUTexture(device, viewportColor);
+            viewportColor = nullptr;
+        }
+        if (viewportDepth != nullptr) {
+            SDL_ReleaseGPUTexture(device, viewportDepth);
+            viewportDepth = nullptr;
+        }
+        viewportWidth = 0;
+        viewportHeight = 0;
+    }
+
     void clearTransfers() {
         for (auto *transfer : transfers)
             SDL_ReleaseGPUTransferBuffer(device, transfer);
@@ -270,6 +294,7 @@ struct GpuModelRenderer::Impl {
                 retiredTextures.push_back(texture);
             texture = nullptr;
         }
+        sharedToonFallback.fill(false);
         if (defaultTexture != nullptr) {
             retiredTextures.push_back(defaultTexture);
             defaultTexture = nullptr;
@@ -364,16 +389,40 @@ struct GpuModelRenderer::Impl {
                      status.state == TextureResourceState::uploadFailed)
                 ++textureSummary.failedTextureCount;
         }
+        std::array<bool, 10> sharedToonRequired{};
+        for (const auto &material : model.materials) {
+            if (material.toonMode != 0U && material.toonTextureIndex >= 0 &&
+                material.toonTextureIndex < static_cast<std::int32_t>(sharedToonRequired.size()))
+                sharedToonRequired[static_cast<std::size_t>(material.toonTextureIndex)] = true;
+        }
+        const auto modelRoot = model.sourcePath.empty()
+                                   ? std::filesystem::path{}
+                                   : model.sourcePath.parent_path();
         for (std::size_t index = 0; index < sharedToons.size(); ++index) {
             const auto number = index + 1U;
             const auto filename = std::string{"toon"} + (number < 10U ? "0" : "") +
                                   std::to_string(number) + ".bmp";
-            const auto image = decodeImage(resourceDirectory / "toon" / filename);
-            if (image)
-                sharedToons[index] = uploadTexture(device, commands, image.rgba.data(),
-                                                   static_cast<int>(image.width), static_cast<int>(image.height),
-                                                   transfers);
+            const std::array<std::filesystem::path, 3> candidates{{
+                modelRoot.empty() ? std::filesystem::path{} : modelRoot / "toon" / filename,
+                modelRoot.empty() ? std::filesystem::path{} : modelRoot / filename,
+                resourceDirectory / "toon" / filename,
+            }};
+            for (const auto &candidate : candidates) {
+                if (candidate.empty() || !std::filesystem::exists(candidate))
+                    continue;
+                const auto image = decodeImage(candidate);
+                if (!image)
+                    continue;
+                sharedToons[index] = uploadTexture(
+                    device, commands, image.rgba.data(), static_cast<int>(image.width),
+                    static_cast<int>(image.height), transfers);
+                if (sharedToons[index] != nullptr)
+                    break;
+            }
             if (sharedToons[index] == nullptr) {
+                sharedToonFallback[index] = true;
+                if (sharedToonRequired[index])
+                    ++textureSummary.sharedToonFallbackCount;
                 const auto gradient = makeSharedToonFallback(index);
                 sharedToons[index] = uploadTexture(device, commands, gradient.data(), 1, 64, transfers);
             }
@@ -383,6 +432,7 @@ struct GpuModelRenderer::Impl {
 
     ~Impl() {
         clearBuffers();
+        clearViewportRenderTarget();
         clearTextures();
         clearTransfers();
         if (baseSampler != nullptr)
@@ -408,6 +458,7 @@ GpuModelRenderer::GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path 
                                    std::filesystem::path resourceDirectory, std::uint32_t colorFormat)
     : impl_(std::make_unique<Impl>()) {
     impl_->device = device;
+    impl_->colorFormat = static_cast<SDL_GPUTextureFormat>(colorFormat);
     impl_->shaderDirectory = std::move(shaderDirectory);
     impl_->resourceDirectory = std::move(resourceDirectory);
     const auto shaders = selectShaders(device, impl_->shaderDirectory);
@@ -439,7 +490,7 @@ GpuModelRenderer::GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path 
     fragmentInfo.format = shaders.format;
     fragmentInfo.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
     fragmentInfo.num_samplers = 3;
-    fragmentInfo.num_uniform_buffers = 1;
+    fragmentInfo.num_uniform_buffers = 2;
     impl_->vertexShader = SDL_CreateGPUShader(device, &vertexInfo);
     impl_->fragmentShader = SDL_CreateGPUShader(device, &fragmentInfo);
     SDL_free(vertexCode);
@@ -508,6 +559,57 @@ GpuModelRenderer::~GpuModelRenderer() = default;
 
 bool GpuModelRenderer::available() const noexcept {
     return impl_ != nullptr && impl_->available;
+}
+
+bool GpuModelRenderer::ensureViewportRenderTarget(std::uint32_t width,
+                                                  std::uint32_t height) {
+    if (!available() || width == 0U || height == 0U)
+        return false;
+    if (impl_->viewportColor != nullptr && impl_->viewportDepth != nullptr &&
+        impl_->viewportWidth == width && impl_->viewportHeight == height)
+        return true;
+
+    impl_->clearViewportRenderTarget();
+
+    SDL_GPUTextureCreateInfo colorInfo{};
+    colorInfo.type = SDL_GPU_TEXTURETYPE_2D;
+    colorInfo.format = impl_->colorFormat;
+    colorInfo.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET |
+                      SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    colorInfo.width = width;
+    colorInfo.height = height;
+    colorInfo.layer_count_or_depth = 1;
+    colorInfo.num_levels = 1;
+    colorInfo.sample_count = SDL_GPU_SAMPLECOUNT_1;
+    impl_->viewportColor = SDL_CreateGPUTexture(impl_->device, &colorInfo);
+    if (impl_->viewportColor == nullptr) {
+        impl_->errorMessage = SDL_GetError();
+        return false;
+    }
+
+    SDL_GPUTextureCreateInfo depthInfo{};
+    depthInfo.type = SDL_GPU_TEXTURETYPE_2D;
+    depthInfo.format = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
+    depthInfo.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
+    depthInfo.width = width;
+    depthInfo.height = height;
+    depthInfo.layer_count_or_depth = 1;
+    depthInfo.num_levels = 1;
+    depthInfo.sample_count = SDL_GPU_SAMPLECOUNT_1;
+    impl_->viewportDepth = SDL_CreateGPUTexture(impl_->device, &depthInfo);
+    if (impl_->viewportDepth == nullptr) {
+        impl_->errorMessage = SDL_GetError();
+        impl_->clearViewportRenderTarget();
+        return false;
+    }
+
+    impl_->viewportWidth = width;
+    impl_->viewportHeight = height;
+    return true;
+}
+
+SDL_GPUTexture *GpuModelRenderer::viewportTexture() const noexcept {
+    return impl_ == nullptr ? nullptr : impl_->viewportColor;
 }
 
 const char *GpuModelRenderer::error() const noexcept {
@@ -608,34 +710,58 @@ bool GpuModelRenderer::prepare(SDL_GPUCommandBuffer *commands, const mmd::PmxMod
     return true;
 }
 
-void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass *pass,
-                              const DocumentSession &session,
-                              const mmd::AnimatedModelFrame *frame,
-                              float framebufferScale, std::uint32_t framebufferWidth,
-                              std::uint32_t framebufferHeight) {
+void GpuModelRenderer::renderViewport(
+    SDL_GPUCommandBuffer *commands, const DocumentSession &session,
+    const mmd::AnimatedModelFrame *frame,
+    const ViewportLightingSettings &lighting) {
     const auto &model = session.document.model();
     const auto &ui = session.ui;
-    if (!available() || commands == nullptr || pass == nullptr || impl_->vertexBuffer == nullptr ||
-        impl_->indexBuffer == nullptr || impl_->indexCount == 0 || !ui.viewportVisible)
+    if (!available() || commands == nullptr || impl_->viewportColor == nullptr ||
+        impl_->viewportDepth == nullptr || impl_->viewportWidth == 0U ||
+        impl_->viewportHeight == 0U)
         return;
-    const auto x = std::max(0.0F, ui.viewportX * framebufferScale);
-    const auto y = std::max(0.0F, ui.viewportY * framebufferScale);
-    const auto width = std::min(std::max(0.0F, ui.viewportWidth * framebufferScale),
-                                static_cast<float>(framebufferWidth) - x);
-    const auto height = std::min(std::max(0.0F, ui.viewportHeight * framebufferScale),
-                                 static_cast<float>(framebufferHeight) - y);
-    if (width <= 1.0F || height <= 1.0F)
+
+    SDL_GPUColorTargetInfo colorTarget{};
+    colorTarget.texture = impl_->viewportColor;
+    colorTarget.clear_color = {lighting.background[0], lighting.background[1],
+                               lighting.background[2], lighting.background[3]};
+    colorTarget.load_op = SDL_GPU_LOADOP_CLEAR;
+    colorTarget.store_op = SDL_GPU_STOREOP_STORE;
+    SDL_GPUDepthStencilTargetInfo depthTarget{};
+    depthTarget.texture = impl_->viewportDepth;
+    depthTarget.clear_depth = 1.0F;
+    depthTarget.load_op = SDL_GPU_LOADOP_CLEAR;
+    depthTarget.store_op = SDL_GPU_STOREOP_STORE;
+    depthTarget.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
+    depthTarget.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+    auto *pass = SDL_BeginGPURenderPass(commands, &colorTarget, 1, &depthTarget);
+    if (pass == nullptr) {
+        impl_->errorMessage = SDL_GetError();
         return;
+    }
+
+    const auto width = static_cast<float>(impl_->viewportWidth);
+    const auto height = static_cast<float>(impl_->viewportHeight);
     const auto aspect = width / height;
-    const auto frameUniforms = makeUniforms(ui, aspect);
-    SDL_GPUViewport viewport{x, y, width, height, 0.0F, 1.0F};
+    const CameraState camera{ui.cameraTarget, ui.cameraYaw, ui.cameraPitch,
+                             ui.cameraDistance, ui.orthographic};
+    const auto frameUniforms = makeUniforms(camera, aspect);
+    const auto fragmentFrameUniforms = makeFragmentUniforms(camera, lighting);
+    SDL_GPUViewport viewport{0.0F, 0.0F, width, height, 0.0F, 1.0F};
     SDL_SetGPUViewport(pass, &viewport);
-    SDL_Rect scissor{static_cast<int>(x), static_cast<int>(y), static_cast<int>(width), static_cast<int>(height)};
+    SDL_Rect scissor{0, 0, static_cast<int>(width), static_cast<int>(height)};
     SDL_SetGPUScissor(pass, &scissor);
+    if (impl_->vertexBuffer == nullptr || impl_->indexBuffer == nullptr ||
+        impl_->indexCount == 0U) {
+        SDL_EndGPURenderPass(pass);
+        return;
+    }
     const SDL_GPUBufferBinding vertexBinding{impl_->vertexBuffer, 0};
     const SDL_GPUBufferBinding indexBinding{impl_->indexBuffer, 0};
     SDL_BindGPUVertexBuffers(pass, 0, &vertexBinding, 1);
     SDL_BindGPUIndexBuffer(pass, &indexBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+    SDL_PushGPUFragmentUniformData(commands, 0, &fragmentFrameUniforms,
+                                    sizeof(fragmentFrameUniforms));
     std::size_t indexBegin = 0;
     for (std::size_t materialIndex = 0; materialIndex < model.materials.size(); ++materialIndex) {
         const auto &material = model.materials[materialIndex];
@@ -657,9 +783,15 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
                                    ? &frame->materials[materialIndex]
                                    : nullptr;
         const auto &diffuse = animated != nullptr ? animated->diffuse : material.diffuse;
+        const auto &ambient = animated != nullptr ? animated->ambient : material.ambient;
+        const auto &specular = animated != nullptr ? animated->specular : material.specular;
+        const auto shininess = animated != nullptr ? animated->shininess : material.shininess;
         MaterialUniforms uniforms;
         uniforms.diffuse = {diffuse[0], diffuse[1], diffuse[2],
                             ui.xray ? diffuse[3] * 0.28F : diffuse[3]};
+        uniforms.ambientShininess = {ambient[0], ambient[1], ambient[2],
+                                     std::max(shininess, 1.0F)};
+        uniforms.specular = {specular[0], specular[1], specular[2], 0.0F};
         if (animated != nullptr) {
             uniforms.textureMultiply = {animated->textureMultiply[0], animated->textureMultiply[1],
                                         animated->textureMultiply[2], animated->textureMultiply[3]};
@@ -705,6 +837,17 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
             return textureLoaded(index) ? impl_->textures[static_cast<std::size_t>(index)]
                                         : impl_->toonFallbackTexture;
         };
+        const auto sharedToonTextureFor = [&](std::int32_t index) -> SDL_GPUTexture * {
+            if (index < 0 || index >= static_cast<std::int32_t>(impl_->sharedToons.size()))
+                return impl_->defaultTexture;
+            const auto sharedIndex = static_cast<std::size_t>(index);
+            if (lighting.mode == ViewportShadingMode::neutral &&
+                impl_->sharedToonFallback[sharedIndex])
+                return impl_->toonFallbackTexture;
+            return impl_->sharedToons[sharedIndex] != nullptr
+                       ? impl_->sharedToons[sharedIndex]
+                       : impl_->defaultTexture;
+        };
         const auto baseMissing = material.textureIndex >= 0 &&
                                  !textureLoaded(material.textureIndex);
         const auto sphereMissing = material.sphereMode != 0U &&
@@ -720,9 +863,7 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
             {baseTextureFor(material.textureIndex), impl_->baseSampler},
             {sphereTextureFor(material.sphereTextureIndex), impl_->sphereSampler},
             {material.toonMode == 0 ? toonTextureFor(material.toonTextureIndex)
-                                    : (material.toonTextureIndex >= 0 && material.toonTextureIndex < 10
-                                           ? impl_->sharedToons[static_cast<std::size_t>(material.toonTextureIndex)]
-                                           : impl_->toonFallbackTexture),
+                                    : sharedToonTextureFor(material.toonTextureIndex),
              impl_->toonSampler},
         }};
         SDL_BindGPUFragmentSamplers(pass, 0, bindings.data(), static_cast<Uint32>(bindings.size()));
@@ -737,13 +878,13 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
                 edgeMaterial.edgeColor[3] *= 0.28F;
             edgeMaterial.materialModes[2] = 1.0F;
             SDL_PushGPUVertexUniformData(commands, 0, &edgeFrame, sizeof(edgeFrame));
-            SDL_PushGPUFragmentUniformData(commands, 0, &edgeMaterial, sizeof(edgeMaterial));
+            SDL_PushGPUFragmentUniformData(commands, 1, &edgeMaterial, sizeof(edgeMaterial));
             SDL_BindGPUGraphicsPipeline(pass, impl_->edgePipeline);
             SDL_DrawGPUIndexedPrimitives(pass, static_cast<Uint32>(count), 1,
                                          static_cast<Uint32>(indexBegin), 0, 0);
         }
         SDL_PushGPUVertexUniformData(commands, 0, &frameUniforms, sizeof(frameUniforms));
-        SDL_PushGPUFragmentUniformData(commands, 0, &uniforms, sizeof(uniforms));
+        SDL_PushGPUFragmentUniformData(commands, 1, &uniforms, sizeof(uniforms));
         SDL_BindGPUGraphicsPipeline(pass, (material.drawFlags & 0x01U) != 0U
                                               ? impl_->pipeline
                                               : impl_->singleSidedPipeline);
@@ -755,7 +896,7 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
         MaterialUniforms uniforms;
         uniforms.diffuse = {1.0F, 1.0F, 1.0F, ui.xray ? 0.28F : 1.0F};
         SDL_PushGPUVertexUniformData(commands, 0, &frameUniforms, sizeof(frameUniforms));
-        SDL_PushGPUFragmentUniformData(commands, 0, &uniforms, sizeof(uniforms));
+        SDL_PushGPUFragmentUniformData(commands, 1, &uniforms, sizeof(uniforms));
         const std::array<SDL_GPUTextureSamplerBinding, 3> bindings{{
             {impl_->defaultTexture, impl_->baseSampler},
             {impl_->defaultTexture, impl_->sphereSampler},
@@ -765,6 +906,7 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
         SDL_DrawGPUIndexedPrimitives(pass, static_cast<Uint32>(impl_->indexCount - indexBegin), 1,
                                      static_cast<Uint32>(indexBegin), 0, 0);
     }
+    SDL_EndGPURenderPass(pass);
 }
 
 } // namespace pmxer

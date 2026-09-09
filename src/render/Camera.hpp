@@ -31,14 +31,18 @@ struct ScreenPoint {
     float depth{};
 };
 
-inline CameraMatrices makeCameraMatrices(const CameraState &camera, float aspect) {
+inline mmd::Float3 cameraEye(const CameraState &camera) {
     const auto cosPitch = std::cos(camera.pitch);
     const auto sinPitch = std::sin(camera.pitch);
     const auto cosYaw = std::cos(camera.yaw);
     const auto sinYaw = std::sin(camera.yaw);
-    const mmd::Float3 eye{camera.target[0] + sinYaw * cosPitch * camera.distance,
-                          camera.target[1] + sinPitch * camera.distance,
-                          camera.target[2] + cosYaw * cosPitch * camera.distance};
+    return {camera.target[0] + sinYaw * cosPitch * camera.distance,
+            camera.target[1] + sinPitch * camera.distance,
+            camera.target[2] + cosYaw * cosPitch * camera.distance};
+}
+
+inline CameraMatrices makeCameraMatrices(const CameraState &camera, float aspect) {
+    const auto eye = cameraEye(camera);
     auto forward = mmd::Float3{camera.target[0] - eye[0], camera.target[1] - eye[1], camera.target[2] - eye[2]};
     const auto length = std::sqrt(forward[0] * forward[0] + forward[1] * forward[1] + forward[2] * forward[2]);
     if (length > std::numeric_limits<float>::epsilon())

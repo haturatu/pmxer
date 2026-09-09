@@ -16,6 +16,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <optional>
 #include <string>
@@ -398,9 +399,10 @@ bool drawViewAxis(EditorUiState &ui, ImDrawList *draw, ImVec2 origin,
 void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *frame,
                         GpuModelRenderer *renderer, bool *showDiagnostics,
                         bool *open, EditorWorkspace &activeWorkspace,
-                        WorkspaceViewportProfile *profile) {
+                        WorkspaceViewportProfile *profile,
+                        ViewportLightingSettings &lighting) {
     session.ui.viewportVisible = false;
-    if (!ImGui::Begin("ビューポート", open, ImGuiWindowFlags_NoBackground)) {
+    if (!ImGui::Begin("ビューポート", open)) {
         ImGui::End();
         return;
     }
@@ -416,6 +418,9 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     const auto rotateAvailability = actionAvailability(EditorAction::viewportRotate, session);
     const auto scaleAvailability = actionAvailability(EditorAction::viewportScale, session);
     const auto policy = workspacePolicy(activeWorkspace);
+    const auto sharedToonFallbackCount = renderer == nullptr
+                                             ? std::size_t{}
+                                             : renderer->resourceSummary(session).sharedToonFallbackCount;
     if (renderer != nullptr) {
         const auto resources = renderer->resourceSummary(session);
         if (resources.missingTextureCount != 0U || resources.failedTextureCount != 0U) {
@@ -423,10 +428,15 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                                "⚠ 外部リソース %zu件不足",
                                resources.missingTextureCount + resources.failedTextureCount);
             ImGui::SameLine();
-            ImGui::TextDisabled("フォールバック材質で表示しています");
+            ImGui::TextDisabled("不足テクスチャを代替表示しています");
             ImGui::SameLine();
             if (ImGui::SmallButton("診断##texture-diagnostics") && showDiagnostics != nullptr)
-                *showDiagnostics = true;
+                               *showDiagnostics = true;
+        }
+        if (resources.sharedToonFallbackCount != 0U) {
+            if (resources.missingTextureCount != 0U || resources.failedTextureCount != 0U)
+                ImGui::SameLine();
+            ImGui::TextDisabled("共有Toonを簡易表示中");
         }
     }
     const auto targetPicking = session.ui.morphOffsetTarget.picking;
@@ -546,6 +556,10 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         static constexpr const char *physicsModes[]{"文脈", "全て", "選択のみ"};
         const auto modeIndex = static_cast<std::size_t>(profile->physicsMode);
         ImGui::SameLine();
+        const auto &style = ImGui::GetStyle();
+        ImGui::SetNextItemWidth(
+            ImGui::CalcTextSize("選択のみ").x + ImGui::GetFrameHeight() +
+            style.FramePadding.x * 2.0F);
         if (ImGui::BeginCombo("##physics-overlay-mode",
                               physicsModes[std::min(modeIndex, std::size(physicsModes) - 1U)])) {
             for (std::size_t index = 0; index < std::size(physicsModes); ++index) {
@@ -554,6 +568,72 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             }
             ImGui::EndCombo();
         }
+    }
+    ImGui::SameLine();
+    const auto shadingLabel = [&] {
+        switch (lighting.mode) {
+        case ViewportShadingMode::mmd:
+            return sharedToonFallbackCount != 0U ? "MMD*" : "MMD";
+        case ViewportShadingMode::neutral:
+            return "Neutral";
+        case ViewportShadingMode::unlit:
+            return "Unlit";
+        }
+        return "表示";
+    }();
+    if (ImGui::Button("表示##viewport-display"))
+        ImGui::OpenPopup("viewport-display-settings");
+    if (ImGui::IsItemHovered()) {
+        ImGui::BeginTooltip();
+        ImGui::TextUnformatted("ビューポート表示");
+        ImGui::Text("現在: %s", shadingLabel);
+        ImGui::EndTooltip();
+    }
+    if (ImGui::BeginPopup("viewport-display-settings")) {
+        ImGui::SeparatorText("シェーディング");
+        if (ImGui::RadioButton("MMD", lighting.mode == ViewportShadingMode::mmd))
+            applyViewportShadingPreset(lighting, ViewportShadingMode::mmd);
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Neutral", lighting.mode == ViewportShadingMode::neutral))
+            applyViewportShadingPreset(lighting, ViewportShadingMode::neutral);
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Unlit", lighting.mode == ViewportShadingMode::unlit))
+            applyViewportShadingPreset(lighting, ViewportShadingMode::unlit);
+
+        if (renderer != nullptr) {
+            if (sharedToonFallbackCount != 0U)
+                ImGui::TextColored(ImVec4{1.0F, 0.72F, 0.25F, 1.0F},
+                                   "⚠ 共有Toonを簡易表示中 (%zu件)",
+                                   sharedToonFallbackCount);
+        }
+
+        const auto unlit = lighting.mode == ViewportShadingMode::unlit;
+        const auto mmd = lighting.mode == ViewportShadingMode::mmd;
+        ImGui::SeparatorText("照明");
+        if (unlit)
+            ImGui::BeginDisabled();
+        ImGui::SliderAngle("方位", &lighting.lightYaw, -180.0F, 180.0F);
+        ImGui::SliderAngle("高さ", &lighting.lightPitch, -89.0F, 89.0F);
+        ImGui::SliderFloat("強さ", &lighting.lightIntensity, 0.0F, 2.0F, "%.2f");
+        ImGui::SliderFloat("環境光", &lighting.ambientIntensity, 0.0F, 1.0F, "%.2f");
+        if (unlit)
+            ImGui::EndDisabled();
+
+        ImGui::SeparatorText("表示");
+        ImGui::SliderFloat("Exposure", &lighting.exposure, -3.0F, 3.0F, "%+.2f EV");
+        if (unlit || mmd)
+            ImGui::BeginDisabled();
+        ImGui::SliderFloat("Toon強度", &lighting.toonStrength, 0.0F, 1.0F, "%.2f");
+        ImGui::SliderFloat("Specular", &lighting.specularStrength, 0.0F, 1.0F, "%.2f");
+        ImGui::SliderFloat("Sphere", &lighting.sphereStrength, 0.0F, 1.0F, "%.2f");
+        if (unlit || mmd)
+            ImGui::EndDisabled();
+
+        ImGui::SeparatorText("背景");
+        ImGui::ColorEdit3("背景色", lighting.background.data());
+        if (ImGui::Button("初期値に戻す"))
+            lighting = ViewportLightingSettings{};
+        ImGui::EndPopup();
     }
     ImGui::SameLine();
     ImGui::TextDisabled("?");
@@ -577,6 +657,24 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     session.ui.viewportWidth = available.x;
     session.ui.viewportHeight = available.y;
     session.ui.viewportVisible = true;
+
+    auto *draw = ImGui::GetWindowDrawList();
+    if (renderer != nullptr) {
+        const auto framebufferScale = ImGui::GetIO().DisplayFramebufferScale;
+        const auto targetWidth = static_cast<std::uint32_t>(std::ceil(
+            std::max(available.x * framebufferScale.x, 1.0F)));
+        const auto targetHeight = static_cast<std::uint32_t>(std::ceil(
+            std::max(available.y * framebufferScale.y, 1.0F)));
+        if (renderer->ensureViewportRenderTarget(targetWidth, targetHeight)) {
+            if (auto *texture = renderer->viewportTexture(); texture != nullptr) {
+                const auto textureRef = ImTextureRef{
+                    static_cast<ImTextureID>(
+                        reinterpret_cast<std::uintptr_t>(texture))};
+                draw->AddImage(textureRef, origin,
+                               {origin.x + available.x, origin.y + available.y});
+            }
+        }
+    }
     ImGui::InvisibleButton("viewport-canvas", available);
     const auto hovered = ImGui::IsItemHovered();
     const auto mouse = ImGui::GetIO().MousePos;
@@ -591,8 +689,6 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         session.ui.boxSelectEndX = mouse.x;
         session.ui.boxSelectEndY = mouse.y;
     }
-    auto *draw = ImGui::GetWindowDrawList();
-
     const auto &model = session.document.model();
     const auto &vertices = frame != nullptr && !frame->vertices.empty() ? frame->vertices : model.vertices;
     if (vertices.empty()) {

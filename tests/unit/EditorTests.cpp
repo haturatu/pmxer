@@ -5,10 +5,12 @@
 #include "../../src/editor/RecoveryController.hpp"
 #include "../../src/editor/SaveController.hpp"
 #include "../../src/editor/ViewportCapabilities.hpp"
+#include "../../src/editor/ViewportLighting.hpp"
 #include "../../src/editor/WorkspacePolicy.hpp"
 #include "../../src/editor/UiStatus.hpp"
 #include "../../src/render/Camera.hpp"
 #include "../../src/render/Picking.hpp"
+#include "../../src/render/PreviewTextureFallbacks.hpp"
 #include "../../src/preview/PreviewController.hpp"
 #include "../../src/ui/WorkspaceLayout.hpp"
 
@@ -51,6 +53,15 @@ mmd::PmxModel sampleModel() {
 } // namespace
 
 int main() {
+    const pmxer::ViewportLightingSettings lightingDefaults{};
+    assert(lightingDefaults.mode == pmxer::ViewportShadingMode::neutral);
+    assert(lightingDefaults.exposure == 0.5F);
+    auto mmdLighting = lightingDefaults;
+    pmxer::applyViewportShadingPreset(mmdLighting, pmxer::ViewportShadingMode::mmd);
+    assert(mmdLighting.lightIntensity == 0.6F);
+    assert(mmdLighting.ambientIntensity == 1.0F);
+    assert(mmdLighting.exposure == 0.0F);
+
     auto previewModel = sampleModel();
     mmd::PmxMorph previewMorph;
     previewMorph.name = "preview";
@@ -82,6 +93,16 @@ int main() {
     assert(orthographicCenter.inFront);
     assert(std::abs(orthographicCenter.x - 400.0F) < 0.001F);
     assert(std::abs(orthographicCenter.y - 300.0F) < 0.001F);
+
+    const auto sharedToon = pmxer::makeSharedToonFallback(0);
+    for (const auto channel : sharedToon)
+        assert(channel == 255U);
+
+    const auto neutralToon = pmxer::makeNeutralToonFallback();
+    assert(neutralToon[0] == 255U);
+    assert(neutralToon[63U * 4U] == 96U);
+    for (std::size_t row = 1; row < 64U; ++row)
+        assert(neutralToon[(row - 1U) * 4U] >= neutralToon[row * 4U]);
 
     pmxer::DocumentSession recovered(sampleModel());
     recovered.commands.markDirty();
