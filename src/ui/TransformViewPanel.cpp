@@ -93,22 +93,22 @@ bool morphCombo(const char *label, const mmd::PmxModel &model, std::size_t &inde
 }
 
 bool optionalMorphCombo(const char *label, const mmd::PmxModel &model,
-                        std::optional<std::size_t> &index) {
-    const auto preview = index && *index < model.morphs.size()
-                             ? model.morphs[*index].name.c_str()
+                        std::size_t &selectedIndex) {
+    const auto preview = selectedIndex < model.morphs.size()
+                             ? model.morphs[selectedIndex].name.c_str()
                              : "(Select morph...)";
     bool changed = false;
     if (!ImGui::BeginCombo(label, preview))
         return false;
-    if (ImGui::Selectable("(Select morph...)", !index)) {
-        index.reset();
+    if (ImGui::Selectable("(Select morph...)", selectedIndex == model.morphs.size())) {
+        selectedIndex = model.morphs.size();
         changed = true;
     }
     for (std::size_t candidate = 0; candidate < model.morphs.size(); ++candidate) {
-        const bool selected = index && *index == candidate;
+        const bool selected = selectedIndex == candidate;
         ImGui::PushID(static_cast<int>(candidate));
         if (ImGui::Selectable(model.morphs[candidate].name.c_str(), selected)) {
-            index = candidate;
+            selectedIndex = candidate;
             changed = true;
         }
         if (selected)
@@ -361,16 +361,17 @@ void drawMorphOperations(DocumentSession &session) {
         ImGui::EndPopup();
     }
 
-    auto otherIndex = morphIndex(session, session.deform.operationMorph);
+    // The end index represents no selection in the combo.
+    auto otherIndex = morphIndex(session, session.deform.operationMorph).value_or(model.morphs.size());
     if (optionalMorphCombo("Second morph", model, otherIndex))
-        session.deform.operationMorph = otherIndex ? session.document.morphHandle(*otherIndex) : mmd::MorphHandle{};
-    const auto validOther = otherIndex && *otherIndex != index &&
-                            model.morphs[*otherIndex].type == source.type;
+        session.deform.operationMorph = otherIndex < model.morphs.size() ? session.document.morphHandle(otherIndex) : mmd::MorphHandle{};
+    const auto validOther = otherIndex < model.morphs.size() && otherIndex != index &&
+                            model.morphs[otherIndex].type == source.type;
     if (!validOther)
         ImGui::TextDisabled("Select a different morph of the same type.");
     ImGui::BeginDisabled(!validOther);
     if (ImGui::Button("Combine Morphs")) {
-        const auto &other = model.morphs[*otherIndex];
+        const auto &other = model.morphs[otherIndex];
         const std::array<morph::MorphData, 2> values{morph::copy(source), morph::copy(other)};
         status(session, morph::createMorphFromData(session, morph::combine(values),
                                                    source.name + " + " + other.name, "Combine Morphs"),
@@ -378,7 +379,7 @@ void drawMorphOperations(DocumentSession &session) {
     }
     ImGui::SameLine();
     if (ImGui::Button("Subtract Morph")) {
-        const auto &other = model.morphs[*otherIndex];
+        const auto &other = model.morphs[otherIndex];
         const auto subtracted = morph::subtract(morph::copy(source), morph::copy(other));
         if (!subtracted.success)
             setOperationStatus(session, false, "Subtracted morph was not created", subtracted.message);
