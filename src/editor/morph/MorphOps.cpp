@@ -126,7 +126,7 @@ void addOffset(mmd::PmxMorphOffset &destination, const mmd::PmxMorphOffset &sour
 } // namespace
 
 MorphData copy(const mmd::PmxMorph &morph) {
-    return {morph.type, morph.offsets};
+    return {morph.type, morph.offsets, morph.panel, morph.englishName};
 }
 
 MorphData scale(MorphData value, float factor) {
@@ -187,9 +187,14 @@ MorphData duplicate(const MorphData &value) {
 
 MorphData combine(std::span<const MorphData> values) {
     MorphData result;
+    bool initialized = false;
     for (const auto &value : values) {
-        if (result.offsets.empty())
+        if (!initialized) {
             result.type = value.type;
+            result.panel = value.panel;
+            result.englishName = value.englishName;
+            initialized = true;
+        }
         if (value.type != result.type)
             continue;
         std::map<OffsetKey, std::size_t> offsets;
@@ -214,9 +219,10 @@ MorphData subtract(const MorphData &lhs, const MorphData &rhs) {
 
 SideSplitResult splitSide(const mmd::PmxModel &model, const mmd::PmxMorph &morph,
                           SideSplitOptions options) {
-    SideSplitResult result{{morph.type, {}}, {morph.type, {}}};
+    SideSplitResult result{{morph.type, {}, morph.panel, morph.englishName},
+                           {morph.type, {}, morph.panel, morph.englishName}};
     if (morph.type != 1U)
-        return {copy(morph), {morph.type, {}}};
+        return {copy(morph), {morph.type, {}, 4U, {}}};
     const auto feather = std::max(std::abs(options.feather), 0.0F);
     for (const auto &offset : morph.offsets) {
         if (offset.index < 0 || static_cast<std::size_t>(offset.index) >= model.vertices.size())

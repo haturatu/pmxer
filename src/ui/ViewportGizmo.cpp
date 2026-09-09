@@ -240,17 +240,19 @@ void drawViewportGizmo(DocumentSession &session, const CameraMatrices &camera,
         *operation == ImGuizmo::ROTATE ? 5.0F : 0.1F,
         *operation == ImGuizmo::ROTATE ? 5.0F : 0.1F,
     };
+    const auto startGizmoMatrix = session.ui.gizmoMatrix;
     std::array<float, 16> deltaMatrix{};
     (void)ImGuizmo::Manipulate(
         view.data(), projection.data(), *operation, mode,
         session.ui.gizmoMatrix.data(), deltaMatrix.data(),
         session.ui.snapTransform ? snap : nullptr);
+    static_cast<void>(deltaMatrix);
     const auto usingGizmo = ImGuizmo::IsUsing();
     if (session.deform.active()) {
         if (usingGizmo && !session.ui.gizmoDragging)
-            beginDeformGizmoDrag(session);
+            beginDeformGizmoDrag(session, startGizmoMatrix);
         if (usingGizmo)
-            updateDeformGizmoDrag(session, deltaMatrix);
+            updateDeformGizmoDrag(session, session.ui.gizmoMatrix);
         if (usingGizmo)
             refreshDeformPreview(session);
     } else if (session.ui.gizmoDragging && !usingGizmo) {

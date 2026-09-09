@@ -26,8 +26,9 @@ OperationResult createMorphFromData(DocumentSession &session, MorphData data,
         [&](auto &transaction) {
             mmd::PmxMorph morph;
             morph.name = name.empty() ? "New Morph" : std::move(name);
+            morph.englishName = data.englishName;
             morph.type = data.type;
-            morph.panel = panel;
+            morph.panel = panel == 0U ? data.panel : panel;
             created = transaction.addMorph(std::move(morph));
             if (!created)
                 return false;
@@ -43,7 +44,7 @@ OperationResult createMorphFromData(DocumentSession &session, MorphData data,
 }
 
 OperationResult captureVertexMorph(DocumentSession &session, std::string name) {
-    MorphData data{1U, {}};
+    MorphData data{1U, {}, 4U, {}};
     for (const auto &delta : session.deform.vertices) {
         if (!delta.vertex || !nonZero(delta.offset) || session.document.resolve(delta.vertex) == nullptr)
             continue;
@@ -56,12 +57,12 @@ OperationResult captureVertexMorph(DocumentSession &session, std::string name) {
     const auto result = createMorphFromData(session, std::move(data), std::move(name),
                                              "現在形状から頂点モーフを作成");
     if (result.success)
-        session.deform.clearOverlay();
+        session.deform.clearVertexOverlay();
     return result;
 }
 
 OperationResult captureBoneMorph(DocumentSession &session, std::string name) {
-    MorphData data{2U, {}};
+    MorphData data{2U, {}, 4U, {}};
     for (const auto &delta : session.deform.bones) {
         if (!delta.bone || session.document.resolve(delta.bone) == nullptr)
             continue;
@@ -77,13 +78,13 @@ OperationResult captureBoneMorph(DocumentSession &session, std::string name) {
     const auto result = createMorphFromData(session, std::move(data), std::move(name),
                                              "現在ポーズからボーンモーフを作成");
     if (result.success)
-        session.deform.clearOverlay();
+        session.deform.clearBoneOverlay();
     return result;
 }
 
 OperationResult captureGroupMorph(DocumentSession &session, std::string name) {
-    MorphData data{0U, {}};
-    for (const auto &blend : session.deform.blends) {
+    MorphData data{0U, {}, 4U, {}};
+    for (const auto &blend : session.preview.morphValues) {
         if (!blend.morph || std::abs(blend.weight) <= 1e-7F ||
             session.document.resolve(blend.morph) == nullptr)
             continue;
@@ -194,7 +195,8 @@ OperationResult createSideSplitMorphs(DocumentSession &session, MorphData left,
                 mmd::PmxMorph morph;
                 morph.name = baseName + " Left";
                 morph.type = left.type;
-                morph.panel = 3U;
+                morph.panel = left.panel;
+                morph.englishName = left.englishName;
                 const auto handle = transaction.addMorph(std::move(morph));
                 if (!handle)
                     return false;
@@ -206,7 +208,8 @@ OperationResult createSideSplitMorphs(DocumentSession &session, MorphData left,
                 mmd::PmxMorph morph;
                 morph.name = baseName + " Right";
                 morph.type = right.type;
-                morph.panel = 3U;
+                morph.panel = right.panel;
+                morph.englishName = right.englishName;
                 const auto handle = transaction.addMorph(std::move(morph));
                 if (!handle)
                     return false;

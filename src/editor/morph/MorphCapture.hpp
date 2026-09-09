@@ -13,7 +13,7 @@ namespace pmxer::morph {
                                                    MorphData data,
                                                    std::string name,
                                                    std::string description,
-                                                   std::uint8_t panel = 3U);
+                                                   std::uint8_t panel = 0U);
 [[nodiscard]] OperationResult captureVertexMorph(DocumentSession &session,
                                                   std::string name);
 [[nodiscard]] OperationResult captureBoneMorph(DocumentSession &session,

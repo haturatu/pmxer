@@ -16,9 +16,10 @@ struct DocumentSession;
 [[nodiscard]] mmd::Float3 deformBonePosition(const DocumentSession &session,
                                               mmd::BoneHandle bone);
 
-void beginDeformGizmoDrag(DocumentSession &session);
+void beginDeformGizmoDrag(DocumentSession &session,
+                          const std::array<float, 16> &startGizmoMatrix);
 void updateDeformGizmoDrag(DocumentSession &session,
-                           const std::array<float, 16> &deltaMatrix);
+                           const std::array<float, 16> &currentGizmoMatrix);
 void rebuildSymmetryCache(DocumentSession &session);
 [[nodiscard]] std::vector<mmd::PmxMorphOffset>
 vertexMorphOffsets(const DocumentSession &session);

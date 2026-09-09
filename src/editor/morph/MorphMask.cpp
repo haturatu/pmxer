@@ -31,7 +31,8 @@ MorphData filterByMaterial(const mmd::PmxModel &model, const mmd::PmxMorph &morp
         }
         indexOffset = end;
     }
-    MorphData result{morph.type, {}};
+    auto result = copy(morph);
+    result.offsets.clear();
     const auto keepOnly = mode == MaterialFilterMode::keepOnlyUsed || mode == MaterialFilterMode::keepOnlyExclusive;
     const auto exclusive = mode == MaterialFilterMode::excludeExclusive || mode == MaterialFilterMode::keepOnlyExclusive;
     for (const auto &offset : morph.offsets) {

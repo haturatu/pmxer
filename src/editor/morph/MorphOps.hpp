@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace pmxer::morph {
@@ -12,6 +13,8 @@ namespace pmxer::morph {
 struct MorphData {
     std::uint8_t type{};
     std::vector<mmd::PmxMorphOffset> offsets;
+    std::uint8_t panel{4U};
+    std::string englishName;
 };
 
 struct SideSplitOptions {
