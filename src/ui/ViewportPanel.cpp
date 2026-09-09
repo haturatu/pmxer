@@ -398,7 +398,8 @@ bool drawViewAxis(EditorUiState &ui, ImDrawList *draw, ImVec2 origin,
 void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *frame,
                         GpuModelRenderer *renderer, bool *showDiagnostics,
                         bool *open, EditorWorkspace &activeWorkspace,
-                        WorkspaceViewportProfile *profile) {
+                        WorkspaceViewportProfile *profile,
+                        ViewportLightingSettings &lighting) {
     session.ui.viewportVisible = false;
     if (!ImGui::Begin("ビューポート", open, ImGuiWindowFlags_NoBackground)) {
         ImGui::End();
@@ -416,6 +417,9 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     const auto rotateAvailability = actionAvailability(EditorAction::viewportRotate, session);
     const auto scaleAvailability = actionAvailability(EditorAction::viewportScale, session);
     const auto policy = workspacePolicy(activeWorkspace);
+    const auto sharedToonFallbackCount = renderer == nullptr
+                                             ? std::size_t{}
+                                             : renderer->resourceSummary(session).sharedToonFallbackCount;
     if (renderer != nullptr) {
         const auto resources = renderer->resourceSummary(session);
         if (resources.missingTextureCount != 0U || resources.failedTextureCount != 0U) {
@@ -426,7 +430,11 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             ImGui::TextDisabled("不足テクスチャを代替表示しています");
             ImGui::SameLine();
             if (ImGui::SmallButton("診断##texture-diagnostics") && showDiagnostics != nullptr)
-                *showDiagnostics = true;
+                               *showDiagnostics = true;
+        }
+        if (resources.sharedToonFallbackCount != 0U) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("共有Toonを簡易表示中");
         }
     }
     const auto targetPicking = session.ui.morphOffsetTarget.picking;
@@ -557,9 +565,9 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     }
     ImGui::SameLine();
     const auto shadingLabel = [&] {
-        switch (session.ui.viewportLighting.mode) {
+        switch (lighting.mode) {
         case ViewportShadingMode::mmd:
-            return "表示: MMD";
+            return sharedToonFallbackCount != 0U ? "表示: MMD*" : "表示: MMD";
         case ViewportShadingMode::neutral:
             return "表示: Neutral";
         case ViewportShadingMode::unlit:
@@ -567,10 +575,15 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         }
         return "表示";
     }();
-    if (ImGui::Button(shadingLabel))
+    if (ImGui::Button("表示##viewport-display"))
         ImGui::OpenPopup("viewport-display-settings");
+    if (ImGui::IsItemHovered()) {
+        ImGui::BeginTooltip();
+        ImGui::TextUnformatted("ビューポート表示");
+        ImGui::Text("現在: %s", shadingLabel);
+        ImGui::EndTooltip();
+    }
     if (ImGui::BeginPopup("viewport-display-settings")) {
-        auto &lighting = session.ui.viewportLighting;
         ImGui::SeparatorText("シェーディング");
         if (ImGui::RadioButton("MMD", lighting.mode == ViewportShadingMode::mmd))
             lighting.mode = ViewportShadingMode::mmd;
@@ -581,17 +594,34 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         if (ImGui::RadioButton("Unlit", lighting.mode == ViewportShadingMode::unlit))
             lighting.mode = ViewportShadingMode::unlit;
 
+        if (renderer != nullptr) {
+            if (sharedToonFallbackCount != 0U)
+                ImGui::TextColored(ImVec4{1.0F, 0.72F, 0.25F, 1.0F},
+                                   "⚠ 共有Toonを簡易表示中 (%zu件)",
+                                   sharedToonFallbackCount);
+        }
+
+        const auto unlit = lighting.mode == ViewportShadingMode::unlit;
+        const auto mmd = lighting.mode == ViewportShadingMode::mmd;
         ImGui::SeparatorText("照明");
+        if (unlit)
+            ImGui::BeginDisabled();
         ImGui::SliderAngle("方位", &lighting.lightYaw, -180.0F, 180.0F);
         ImGui::SliderAngle("高さ", &lighting.lightPitch, -89.0F, 89.0F);
         ImGui::SliderFloat("強さ", &lighting.lightIntensity, 0.0F, 2.0F, "%.2f");
         ImGui::SliderFloat("環境光", &lighting.ambientIntensity, 0.0F, 1.0F, "%.2f");
+        if (unlit)
+            ImGui::EndDisabled();
 
         ImGui::SeparatorText("表示");
         ImGui::SliderFloat("Exposure", &lighting.exposure, -3.0F, 3.0F, "%+.2f EV");
+        if (unlit || mmd)
+            ImGui::BeginDisabled();
         ImGui::SliderFloat("Toon強度", &lighting.toonStrength, 0.0F, 1.0F, "%.2f");
         ImGui::SliderFloat("Specular", &lighting.specularStrength, 0.0F, 1.0F, "%.2f");
         ImGui::SliderFloat("Sphere", &lighting.sphereStrength, 0.0F, 1.0F, "%.2f");
+        if (unlit || mmd)
+            ImGui::EndDisabled();
 
         ImGui::SeparatorText("背景");
         ImGui::ColorEdit3("背景色", lighting.background.data());

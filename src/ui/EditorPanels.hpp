@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../editor/WorkspacePolicy.hpp"
+#include "../editor/ViewportLighting.hpp"
 
 #include <array>
 #include <string>
@@ -31,6 +32,7 @@ struct WorkspaceUiState {
     bool resetLayout{};
     bool requestCloseDocument{};
     std::string status;
+    ViewportLightingSettings viewportLighting{};
     std::array<WorkspaceViewportProfile, 5> viewportProfiles{
         defaultViewportProfile(EditorWorkspace::model),
         defaultViewportProfile(EditorWorkspace::rig),

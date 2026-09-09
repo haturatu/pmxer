@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../editor/DocumentSession.hpp"
+#include "../editor/ViewportLighting.hpp"
 
 #include <mmd/animation.hpp>
 
@@ -39,6 +40,7 @@ struct TextureResourceStatus {
 struct RendererResourceSummary {
     std::size_t missingTextureCount{};
     std::size_t failedTextureCount{};
+    std::size_t sharedToonFallbackCount{};
 };
 
 class GpuModelRenderer {
@@ -68,7 +70,8 @@ class GpuModelRenderer {
                 const DocumentSession &session,
                 const mmd::AnimatedModelFrame *frame, float framebufferScale,
                 std::uint32_t framebufferWidth,
-                std::uint32_t framebufferHeight);
+                std::uint32_t framebufferHeight,
+                const ViewportLightingSettings &lighting);
 
   private:
     struct Impl;

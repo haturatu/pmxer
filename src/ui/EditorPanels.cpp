@@ -1487,7 +1487,8 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
         drawViewportPanel(session, preview.frame ? &*preview.frame : nullptr, renderer,
                           &workspace.showDiagnostics, &workspace.showViewport,
                           workspace.active,
-                          &workspace.viewportProfiles[workspaceIndex(workspace.active)]);
+                          &workspace.viewportProfiles[workspaceIndex(workspace.active)],
+                          workspace.viewportLighting);
     else
         session.ui.viewportVisible = false;
     if (workspace.showOutliner)

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../editor/ViewportLighting.hpp"
 #include "../editor/DocumentSession.hpp"
 #include "../editor/WorkspacePolicy.hpp"
 
@@ -13,6 +14,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                        GpuModelRenderer *renderer,
                        bool *showDiagnostics, bool *open,
                        EditorWorkspace &activeWorkspace,
-                       WorkspaceViewportProfile *profile);
+                       WorkspaceViewportProfile *profile,
+                       ViewportLightingSettings &lighting);
 
 } // namespace pmxer

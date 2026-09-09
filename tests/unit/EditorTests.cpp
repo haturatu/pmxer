@@ -5,6 +5,7 @@
 #include "../../src/editor/RecoveryController.hpp"
 #include "../../src/editor/SaveController.hpp"
 #include "../../src/editor/ViewportCapabilities.hpp"
+#include "../../src/editor/ViewportLighting.hpp"
 #include "../../src/editor/WorkspacePolicy.hpp"
 #include "../../src/editor/UiStatus.hpp"
 #include "../../src/render/Camera.hpp"
@@ -52,10 +53,9 @@ mmd::PmxModel sampleModel() {
 } // namespace
 
 int main() {
-    const pmxer::DocumentSession lightingDefaults(sampleModel());
-    assert(lightingDefaults.ui.viewportLighting.mode ==
-           pmxer::ViewportShadingMode::neutral);
-    assert(lightingDefaults.ui.viewportLighting.exposure == 0.5F);
+    const pmxer::ViewportLightingSettings lightingDefaults{};
+    assert(lightingDefaults.mode == pmxer::ViewportShadingMode::neutral);
+    assert(lightingDefaults.exposure == 0.5F);
 
     auto previewModel = sampleModel();
     mmd::PmxMorph previewMorph;

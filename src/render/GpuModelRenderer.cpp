@@ -369,6 +369,12 @@ struct GpuModelRenderer::Impl {
                      status.state == TextureResourceState::uploadFailed)
                 ++textureSummary.failedTextureCount;
         }
+        std::array<bool, 10> sharedToonRequired{};
+        for (const auto &material : model.materials) {
+            if (material.toonMode != 0U && material.toonTextureIndex >= 0 &&
+                material.toonTextureIndex < static_cast<std::int32_t>(sharedToonRequired.size()))
+                sharedToonRequired[static_cast<std::size_t>(material.toonTextureIndex)] = true;
+        }
         for (std::size_t index = 0; index < sharedToons.size(); ++index) {
             const auto number = index + 1U;
             const auto filename = std::string{"toon"} + (number < 10U ? "0" : "") +
@@ -379,6 +385,8 @@ struct GpuModelRenderer::Impl {
                                                    static_cast<int>(image.width), static_cast<int>(image.height),
                                                    transfers);
             if (sharedToons[index] == nullptr) {
+                if (sharedToonRequired[index])
+                    ++textureSummary.sharedToonFallbackCount;
                 const auto gradient = makeSharedToonFallback(index);
                 sharedToons[index] = uploadTexture(device, commands, gradient.data(), 1, 64, transfers);
             }
@@ -617,7 +625,8 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
                               const DocumentSession &session,
                               const mmd::AnimatedModelFrame *frame,
                               float framebufferScale, std::uint32_t framebufferWidth,
-                              std::uint32_t framebufferHeight) {
+                              std::uint32_t framebufferHeight,
+                              const ViewportLightingSettings &lighting) {
     const auto &model = session.document.model();
     const auto &ui = session.ui;
     if (!available() || commands == nullptr || pass == nullptr || impl_->vertexBuffer == nullptr ||
@@ -635,7 +644,7 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
     const CameraState camera{ui.cameraTarget, ui.cameraYaw, ui.cameraPitch,
                              ui.cameraDistance, ui.orthographic};
     const auto frameUniforms = makeUniforms(camera, aspect);
-    const auto fragmentFrameUniforms = makeFragmentUniforms(camera, ui.viewportLighting);
+    const auto fragmentFrameUniforms = makeFragmentUniforms(camera, lighting);
     SDL_GPUViewport viewport{x, y, width, height, 0.0F, 1.0F};
     SDL_SetGPUViewport(pass, &viewport);
     SDL_Rect scissor{static_cast<int>(x), static_cast<int>(y), static_cast<int>(width), static_cast<int>(height)};
@@ -738,7 +747,7 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
             {material.toonMode == 0 ? toonTextureFor(material.toonTextureIndex)
                                     : (material.toonTextureIndex >= 0 && material.toonTextureIndex < 10
                                            ? impl_->sharedToons[static_cast<std::size_t>(material.toonTextureIndex)]
-                                           : impl_->toonFallbackTexture),
+                                           : impl_->defaultTexture),
              impl_->toonSampler},
         }};
         SDL_BindGPUFragmentSamplers(pass, 0, bindings.data(), static_cast<Uint32>(bindings.size()));
