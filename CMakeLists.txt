@@ -66,10 +66,12 @@ add_library(pmxer_editor
   src/editor/ValidationController.cpp
   src/editor/DiffController.cpp
   src/editor/ReferenceInspector.cpp
+  src/editor/UiStatus.cpp
   src/editor/EditorDiagnostics.cpp
   src/editor/RecoveryController.cpp
   src/editor/EditorOperations.cpp
   src/editor/EditorSelectionController.cpp
+  src/editor/EditorSelectionQueries.cpp
   src/editor/WorkspacePolicy.cpp
   src/editor/ViewportCapabilities.cpp
   src/ui/WorkspaceLayout.cpp
@@ -303,6 +305,7 @@ if(PMXER_BUILD_GUI)
     src/ui/EditorPanels.cpp
     src/ui/OutlinerPanel.cpp
     src/ui/InspectorPanel.cpp
+    src/ui/MorphOffsetBrowser.cpp
     src/ui/ViewportPanel.cpp
     src/ui/ViewportGizmo.cpp
     src/ui/ViewportPicking.cpp

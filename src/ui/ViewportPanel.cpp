@@ -4,6 +4,8 @@
 #include "UiSemantics.hpp"
 
 #include "../editor/EditorSelectionController.hpp"
+#include "../editor/EditorSelectionQueries.hpp"
+#include "../editor/UiStatus.hpp"
 #include "../editor/ViewportCapabilities.hpp"
 #include "../render/Camera.hpp"
 #include "../render/GpuModelRenderer.hpp"
@@ -100,7 +102,8 @@ void selectViewportItem(DocumentSession &session, EditorWorkspace &workspace,
     if (selectMorphOffsetTarget(session, item))
         return;
     if (workspace == EditorWorkspace::morph) {
-        session.ui.status = "モーフ本体を選択したまま、オフセット対象pickを開始してください";
+        setStatus(session, "モーフ本体を選択したまま、オフセット対象pickを開始してください",
+                  UiStatusKind::info);
         return;
     }
     if (ImGui::GetIO().KeyCtrl) {
@@ -309,6 +312,18 @@ void appendUnique(std::vector<SelectionItem> &items,
         items.push_back(item);
 }
 
+void selectRelatedItems(DocumentSession &session, EditorWorkspace &workspace,
+                        std::vector<SelectionItem> items) {
+    if (items.empty()) {
+        setStatus(session, "関連する対象がありません", UiStatusKind::info);
+        return;
+    }
+    selectMany(session, workspace, std::move(items), SelectionOrigin::reference);
+    setStatus(session, std::to_string(session.selection.items().size()) +
+                         "件を選択しました",
+              UiStatusKind::success);
+}
+
 void hoverTooltip(const DocumentSession &session, const SelectionItem &item) {
     ImGui::BeginTooltip();
     if (item.kind == SelectionKind::material) {
@@ -414,26 +429,26 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 *showDiagnostics = true;
         }
     }
+    const auto targetPicking = session.ui.morphOffsetTarget.picking;
+    const auto targetMode = [&] {
+        switch (session.ui.morphOffsetTarget.expectedKind) {
+        case SelectionKind::vertex:
+            return ViewportSelectionMode::vertex;
+        case SelectionKind::bone:
+            return ViewportSelectionMode::bone;
+        case SelectionKind::material:
+            return ViewportSelectionMode::material;
+        case SelectionKind::rigidBody:
+            return ViewportSelectionMode::rigidBody;
+        default:
+            return ViewportSelectionMode::material;
+        }
+    }();
     const auto modeButton = [&](const char *label, ViewportSelectionMode mode) {
-        const auto targetPicking = session.ui.morphOffsetTarget.picking;
-        const auto targetMode = [&] {
-            switch (session.ui.morphOffsetTarget.expectedKind) {
-            case SelectionKind::vertex:
-                return ViewportSelectionMode::vertex;
-            case SelectionKind::bone:
-                return ViewportSelectionMode::bone;
-            case SelectionKind::material:
-                return ViewportSelectionMode::material;
-            case SelectionKind::rigidBody:
-                return ViewportSelectionMode::rigidBody;
-            default:
-                return ViewportSelectionMode::material;
-            }
-        }();
         const auto supported = policy.allows(mode) ||
                                (targetPicking && mode == targetMode);
         if (!supported)
-            ImGui::BeginDisabled();
+            return;
         if (ImGui::RadioButton(label, session.ui.selectionMode == mode)) {
             session.ui.selectionMode = mode;
             if (mode == ViewportSelectionMode::bone)
@@ -442,25 +457,36 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 mode == ViewportSelectionMode::joint)
                 setPhysicsOverlay(session, profile, true);
         }
-        if (!supported)
-            ImGui::EndDisabled();
         ImGui::SameLine();
     };
-    modeButton("頂点", ViewportSelectionMode::vertex);
-    modeButton("面", ViewportSelectionMode::face);
-    modeButton("材質", ViewportSelectionMode::material);
-    modeButton("ボーン", ViewportSelectionMode::bone);
-    modeButton("剛体", ViewportSelectionMode::rigidBody);
+    const auto normalMorphWorkspace = activeWorkspace == EditorWorkspace::morph &&
+                                      !targetPicking;
+    if (normalMorphWorkspace) {
+        ImGui::TextDisabled("モーフはアウトライナーから選択");
+        ImGui::SameLine();
+    } else {
+        modeButton("頂点", ViewportSelectionMode::vertex);
+        modeButton("面", ViewportSelectionMode::face);
+        modeButton("材質", ViewportSelectionMode::material);
+        modeButton("ボーン", ViewportSelectionMode::bone);
+        modeButton("剛体", ViewportSelectionMode::rigidBody);
+    }
     const auto jointSupported = policy.allows(ViewportSelectionMode::joint);
-    if (!jointSupported)
-        ImGui::BeginDisabled();
-    if (ImGui::RadioButton("ジョイント", session.ui.selectionMode == ViewportSelectionMode::joint)) {
+    if (jointSupported && ImGui::RadioButton("ジョイント", session.ui.selectionMode == ViewportSelectionMode::joint)) {
         session.ui.selectionMode = ViewportSelectionMode::joint;
         setPhysicsOverlay(session, profile, true);
     }
-    if (!jointSupported)
-        ImGui::EndDisabled();
-    ImGui::SameLine();
+    if (jointSupported)
+        ImGui::SameLine();
+    if (targetPicking) {
+        const auto targetLabel = session.ui.morphOffsetTarget.expectedKind == SelectionKind::bone
+                                     ? "対象選択: ボーン"
+                                 : session.ui.morphOffsetTarget.expectedKind == SelectionKind::rigidBody
+                                     ? "対象選択: 剛体"
+                                     : "対象選択";
+        ImGui::TextDisabled("%s", targetLabel);
+        ImGui::SameLine();
+    }
     ImGui::TextDisabled("|");
     ImGui::SameLine();
     ui::checkbox(ui::UiSemanticId::viewportXray, "X-Ray", &session.ui.xray);
@@ -516,6 +542,19 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     if (ui::checkbox(ui::UiSemanticId::viewportShowPhysics, "物理表示",
                      &session.ui.showPhysics))
         setPhysicsOverlay(session, profile, session.ui.showPhysics);
+    if (profile != nullptr) {
+        static constexpr const char *physicsModes[]{"文脈", "全て", "選択のみ"};
+        const auto modeIndex = static_cast<std::size_t>(profile->physicsMode);
+        ImGui::SameLine();
+        if (ImGui::BeginCombo("##physics-overlay-mode",
+                              physicsModes[std::min(modeIndex, std::size(physicsModes) - 1U)])) {
+            for (std::size_t index = 0; index < std::size(physicsModes); ++index) {
+                if (ImGui::Selectable(physicsModes[index], index == modeIndex))
+                    profile->physicsMode = static_cast<PhysicsOverlayMode>(index);
+            }
+            ImGui::EndCombo();
+        }
+    }
     ImGui::SameLine();
     ImGui::TextDisabled("?");
     if (ImGui::IsItemHovered()) {
@@ -691,7 +730,8 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         ImGui::IsKeyPressed(ImGuiKey_Escape)) {
         if (session.ui.morphOffsetTarget.picking) {
             session.ui.morphOffsetTarget = {};
-            session.ui.status = "モーフオフセット対象の選択をキャンセルしました";
+            setStatus(session, "モーフオフセット対象の選択をキャンセルしました",
+                      UiStatusKind::info);
         } else if (hovered) {
             session.ui.viewportTool = ViewportTool::select;
         }
@@ -719,30 +759,35 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             if (moveAvailability.enabled)
                 session.ui.viewportTool = ViewportTool::move;
             else
-                session.ui.status = std::string(moveAvailability.reason);
+                setStatus(session, std::string(moveAvailability.reason),
+                          UiStatusKind::warning);
         }
         if (ImGui::IsKeyPressed(ImGuiKey_R)) {
             if (rotateAvailability.enabled)
                 session.ui.viewportTool = ViewportTool::rotate;
             else
-                session.ui.status = std::string(rotateAvailability.reason);
+                setStatus(session, std::string(rotateAvailability.reason),
+                          UiStatusKind::warning);
         }
         if (ImGui::IsKeyPressed(ImGuiKey_S)) {
             if (scaleAvailability.enabled)
                 session.ui.viewportTool = ViewportTool::scale;
             else
-                session.ui.status = std::string(scaleAvailability.reason);
+                setStatus(session, std::string(scaleAvailability.reason),
+                          UiStatusKind::warning);
         }
         if (ImGui::IsKeyPressed(ImGuiKey_A)) {
             if (activeWorkspace == EditorWorkspace::morph &&
                 session.ui.morphOffsetTarget.picking) {
-                session.ui.status = "モーフオフセット対象を選択中です";
+            setStatus(session, "モーフオフセット対象を選択中です",
+                      UiStatusKind::info);
             } else if (ImGui::GetIO().KeyAlt)
                 session.selection.clear();
             else if (!selectAllForMode(session, activeWorkspace,
                                        session.ui.selectionMode,
                                        SelectionOrigin::viewport))
-                session.ui.status = "このワークスペースでは一括選択できません";
+            setStatus(session, "このワークスペースでは一括選択できません",
+                      UiStatusKind::warning);
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Z) && ImGui::GetIO().KeyAlt)
             session.ui.xray = !session.ui.xray;
@@ -792,6 +837,17 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         }
     }
     if (session.ui.showPhysics) {
+        const auto relations = physicsSelectionRelations(session);
+        const auto opacityFor = [&](bool selected, bool related) {
+            const auto mode = profile == nullptr
+                                  ? PhysicsOverlayMode::context
+                                  : profile->physicsMode;
+            if (mode == PhysicsOverlayMode::selectedOnly)
+                return selected ? 1.0F : 0.0F;
+            if (mode == PhysicsOverlayMode::all)
+                return selected ? 1.0F : (profile == nullptr ? 0.25F : profile->physicsOpacity);
+            return selected ? 1.0F : (related ? 0.65F : (profile == nullptr ? 0.2F : profile->physicsOpacity));
+        };
         for (std::size_t index = 0; index < model.rigidBodies.size(); ++index) {
             const auto &body = model.rigidBodies[index];
             const auto point = project(body.position, bounds, origin, available,
@@ -799,12 +855,14 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             const auto radius = std::max(3.0F, (std::abs(body.size[0]) + std::abs(body.size[1])) * 0.5F *
                                                    std::min(available.x, available.y) /
                                                    std::max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY));
-            const auto selected = isSelected(
-                session, SelectionKind::rigidBody,
-                session.document.rigidBodyHandle(index));
+            const auto handle = session.document.rigidBodyHandle(index);
+            const auto selected = relations.bodySelected(handle.id);
+            const auto opacity = opacityFor(selected, relations.bodyRelated(handle.id));
+            if (opacity <= 0.0F)
+                continue;
             const auto color = selected ? IM_COL32(255, 225, 90, 255)
                                         : IM_COL32(180, 230, 255,
-                                                   static_cast<int>(255.0F * (profile != nullptr ? profile->physicsOpacity : 0.75F)));
+                                                   static_cast<int>(255.0F * opacity));
             if (body.shape == 1)
                 draw->AddRect({point.x - radius, point.y - radius}, {point.x + radius, point.y + radius},
                               color, 0.0F, ImDrawFlags_None, selected ? 3.0F : 1.0F);
@@ -817,12 +875,14 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 static_cast<std::size_t>(joint.bodyA) >= model.rigidBodies.size() ||
                 static_cast<std::size_t>(joint.bodyB) >= model.rigidBodies.size())
                 continue;
-            const auto selected = isSelected(
-                session, SelectionKind::joint,
-                session.document.jointHandle(index));
+            const auto handle = session.document.jointHandle(index);
+            const auto selected = relations.jointSelected(handle.id);
+            const auto opacity = opacityFor(selected, relations.jointRelated(handle.id));
+            if (opacity <= 0.0F)
+                continue;
             const auto color = selected ? IM_COL32(255, 225, 90, 255)
                                         : IM_COL32(180, 255, 180,
-                                                   static_cast<int>(255.0F * (profile != nullptr ? profile->physicsOpacity : 0.75F)));
+                                                   static_cast<int>(255.0F * opacity));
             draw->AddLine(
                 project(model.rigidBodies[static_cast<std::size_t>(joint.bodyA)].position,
                         bounds, origin, available, session.ui),
@@ -933,7 +993,8 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                         session.ui.jointIndex = first.index;
                 }
             } else if (!targetCaptured && activeWorkspace == EditorWorkspace::morph) {
-                session.ui.status = "モーフ本体を選択したまま、オフセット対象pickを開始してください";
+                setStatus(session, "モーフ本体を選択したまま、オフセット対象pickを開始してください",
+                          UiStatusKind::info);
             }
         } else {
             const auto picked = pickViewport(session, vertices, camera, origin,
@@ -1042,12 +1103,14 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             if (ImGui::MenuItem("選択材質を隠す")) {
                 for (const auto &item : materials)
                     appendUnique(session.ui.hiddenMaterials, item);
-                session.ui.status = "選択材質を非表示にしました";
+                setStatus(session, "選択材質を非表示にしました",
+                          UiStatusKind::success);
             }
             if (ImGui::MenuItem("選択材質だけ表示")) {
                 session.ui.hiddenMaterials.clear();
                 session.ui.isolatedMaterials = materials;
-                session.ui.status = "選択材質を分離表示しました";
+            setStatus(session, "選択材質を分離表示しました",
+                      UiStatusKind::success);
             }
             const auto *material = session.document.resolve(
                 selectionHandle<mmd::MaterialTag>(session.document,
@@ -1067,12 +1130,39 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 session.ui.clearDrafts();
             }
         }
+        if (!session.selection.items().empty()) {
+            const auto selected = session.selection.items().front();
+            if (selected.kind == SelectionKind::bone) {
+                if (ImGui::MenuItem("子ボーンを選択"))
+                    selectRelatedItems(session, activeWorkspace,
+                                       childBones(session, selected));
+                if (ImGui::MenuItem("ウェイト頂点を選択"))
+                    selectRelatedItems(session, activeWorkspace,
+                                       weightedVertices(session, selected));
+            } else if (selected.kind == SelectionKind::material) {
+                if (ImGui::MenuItem("面を選択"))
+                    selectRelatedItems(session, activeWorkspace,
+                                       facesForMaterial(session, selected));
+                if (ImGui::MenuItem("頂点を選択"))
+                    selectRelatedItems(session, activeWorkspace,
+                                       verticesForMaterial(session, selected));
+            } else if (selected.kind == SelectionKind::rigidBody) {
+                if (ImGui::MenuItem("接続ジョイントを選択"))
+                    selectRelatedItems(session, activeWorkspace,
+                                       jointsForRigidBody(session, selected));
+            } else if (selected.kind == SelectionKind::joint) {
+                if (ImGui::MenuItem("接続剛体を選択"))
+                    selectRelatedItems(session, activeWorkspace,
+                                       rigidBodiesForJoint(session, selected));
+            }
+        }
         if ((!session.ui.hiddenMaterials.empty() ||
              !session.ui.isolatedMaterials.empty()) &&
             ImGui::MenuItem("すべて表示")) {
             session.ui.hiddenMaterials.clear();
             session.ui.isolatedMaterials.clear();
-            session.ui.status = "すべての材質を表示しました";
+            setStatus(session, "すべての材質を表示しました",
+                      UiStatusKind::success);
         }
         ImGui::EndPopup();
     }

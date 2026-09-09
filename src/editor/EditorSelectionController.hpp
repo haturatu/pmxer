@@ -20,6 +20,8 @@ enum class SelectionOrigin {
 
 void selectPrimary(DocumentSession &session, EditorWorkspace &workspace,
                    SelectionItem item, SelectionOrigin origin);
+void selectMany(DocumentSession &session, EditorWorkspace &workspace,
+                std::vector<SelectionItem> items, SelectionOrigin origin);
 void addSelection(DocumentSession &session, EditorWorkspace &workspace,
                   SelectionItem item, SelectionOrigin origin);
 void toggleSelection(DocumentSession &session, EditorWorkspace &workspace,

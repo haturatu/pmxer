@@ -1,4 +1,5 @@
 #include "InspectorPanel.hpp"
+#include "MorphOffsetBrowser.hpp"
 
 #include "../editor/EditorSelectionController.hpp"
 
@@ -7,6 +8,7 @@
 #include "../editor/DocumentSession.hpp"
 #include "../editor/EditorOperations.hpp"
 #include "../editor/ReferenceInspector.hpp"
+#include "../editor/UiStatus.hpp"
 #include "../editor/tools/MorphTool.hpp"
 #include "../preview/PreviewController.hpp"
 #include "../render/GpuModelRenderer.hpp"
@@ -21,6 +23,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace pmxer {
 namespace {
@@ -210,23 +213,25 @@ void materialInspector(DocumentSession &session,
     session.ui.materialDraft = *value;
   auto &draft = *session.ui.materialDraft;
   bool commit{};
-  ImGui::SeparatorText("名前");
-  (void)inputText("名前", draft.name);
-  commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)inputText("英語名", draft.englishName);
-  commit |= ImGui::IsItemDeactivatedAfterEdit();
-  ImGui::SeparatorText("表面");
-  (void)ImGui::ColorEdit4("拡散色", draft.diffuse.data());
-  commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)ImGui::ColorEdit3("環境色", draft.ambient.data());
-  commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)ImGui::ColorEdit3("鏡面色", draft.specular.data());
-  commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)ImGui::DragFloat("光沢", &draft.shininess, 0.1F, 0.0F, 1000.0F);
-  commit |= ImGui::IsItemDeactivatedAfterEdit();
+  const auto compact = ImGui::GetContentRegionAvail().x < 380.0F;
+  if (ImGui::CollapsingHeader("基本", ImGuiTreeNodeFlags_DefaultOpen)) {
+    (void)inputText("名前", draft.name);
+    commit |= ImGui::IsItemDeactivatedAfterEdit();
+    (void)inputText("英語名", draft.englishName);
+    commit |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SeparatorText("表面");
+    (void)ImGui::ColorEdit4("拡散色", draft.diffuse.data());
+    commit |= ImGui::IsItemDeactivatedAfterEdit();
+    (void)ImGui::ColorEdit3("環境色", draft.ambient.data());
+    commit |= ImGui::IsItemDeactivatedAfterEdit();
+    (void)ImGui::ColorEdit3("鏡面色", draft.specular.data());
+    commit |= ImGui::IsItemDeactivatedAfterEdit();
+    (void)ImGui::DragFloat("光沢", &draft.shininess, 0.1F, 0.0F, 1000.0F);
+    commit |= ImGui::IsItemDeactivatedAfterEdit();
+  }
 
-  ImGui::SeparatorText("テクスチャ");
-  texturePreviewCard(session, "基本テクスチャ", draft.textureIndex, renderer);
+  if (ImGui::CollapsingHeader("テクスチャ", ImGuiTreeNodeFlags_DefaultOpen)) {
+    texturePreviewCard(session, "基本テクスチャ", draft.textureIndex, renderer);
   static constexpr const char *sphereModes[]{"なし", "乗算", "加算",
                                              "サブテクスチャ"};
   const auto sphere = std::min<std::size_t>(draft.sphereMode, 3U);
@@ -254,8 +259,9 @@ void materialInspector(DocumentSession &session,
   if (draft.toonMode == 0U)
     texturePreviewCard(session, "個別トゥーン", draft.toonTextureIndex,
                        renderer);
+  }
 
-  ImGui::SeparatorText("描画");
+  if (ImGui::CollapsingHeader("詳細描画", compact ? 0 : ImGuiTreeNodeFlags_None)) {
   commit |= flagCheckbox("両面", draft.drawFlags, std::uint8_t{0x01U});
   commit |= flagCheckbox("地面影", draft.drawFlags, std::uint8_t{0x02U});
   commit |= flagCheckbox("セルフシャドウマップ", draft.drawFlags,
@@ -269,9 +275,11 @@ void materialInspector(DocumentSession &session,
     (void)ImGui::DragFloat("輪郭幅", &draft.edgeSize, 0.01F, 0.0F, 100.0F);
     commit |= ImGui::IsItemDeactivatedAfterEdit();
   }
+  }
   if (commit) {
     const auto result = editMaterial(session, handle, draft);
-    session.ui.status = result.success ? "材質を更新しました" : result.message;
+    setOperationStatus(session, result.success, "材質を更新しました",
+                       result.message);
     session.ui.materialDraft.reset();
   }
 }
@@ -316,8 +324,8 @@ void boneInspector(DocumentSession &session, const SelectionItem &selected) {
   }
   if (commit) {
     const auto result = editBone(session, handle, draft);
-    session.ui.status =
-        result.success ? "ボーンを更新しました" : result.message;
+    setOperationStatus(session, result.success, "ボーンを更新しました",
+                       result.message);
     session.ui.boneDraft.reset();
   }
 }
@@ -367,7 +375,8 @@ void vertexInspector(DocumentSession &session, EditorWorkspace &workspace,
   }
   if (commit) {
     const auto result = editVertex(session, handle, draft);
-    session.ui.status = result.success ? "頂点を更新しました" : result.message;
+    setOperationStatus(session, result.success, "頂点を更新しました",
+                       result.message);
     session.ui.vertexDraft.reset();
   }
 }
@@ -439,7 +448,8 @@ void rigidBodyInspector(DocumentSession &session,
   commit |= ImGui::IsItemDeactivatedAfterEdit();
   if (commit) {
     const auto result = editRigidBody(session, handle, draft);
-    session.ui.status = result.success ? "剛体を更新しました" : result.message;
+    setOperationStatus(session, result.success, "剛体を更新しました",
+                       result.message);
     session.ui.rigidBodyDraft.reset();
   }
 }
@@ -497,8 +507,8 @@ void jointInspector(DocumentSession &session, const SelectionItem &selected) {
   commit |= ImGui::IsItemDeactivatedAfterEdit();
   if (commit) {
     const auto result = editJoint(session, handle, draft);
-    session.ui.status =
-        result.success ? "ジョイントを更新しました" : result.message;
+    setOperationStatus(session, result.success, "ジョイントを更新しました",
+                       result.message);
     session.ui.jointDraft.reset();
   }
 }
@@ -570,6 +580,51 @@ bool morphIndexCombo(const char *label, DocumentSession &session,
   return changed;
 }
 
+[[maybe_unused]] std::string indexedOffsetName(std::string_view name,
+                                               std::size_t index) {
+  return name.empty() ? "#" + std::to_string(index) : std::string(name);
+}
+
+[[maybe_unused]] std::string morphOffsetTargetLabel(const DocumentSession &session,
+                                   const mmd::PmxMorph &morph,
+                                   std::size_t offsetIndex) {
+  const auto &offset = morph.offsets[offsetIndex];
+  if (morph.type == 0U || morph.type == 9U) {
+    if (offset.index >= 0 &&
+        static_cast<std::size_t>(offset.index) < session.document.model().morphs.size())
+      return "モーフ " + indexedOffsetName(session.document.model().morphs[
+                                                  static_cast<std::size_t>(offset.index)].name,
+                                              static_cast<std::size_t>(offset.index));
+    return "モーフ " + std::to_string(offset.index);
+  }
+  if (morph.type == 2U && offset.index >= 0 &&
+      static_cast<std::size_t>(offset.index) < session.document.model().bones.size())
+    return "ボーン " + indexedOffsetName(session.document.model().bones[
+                                               static_cast<std::size_t>(offset.index)].name,
+                                           static_cast<std::size_t>(offset.index));
+  if (morph.type == 8U) {
+    if (offset.index < 0)
+      return "材質 全材質";
+    if (static_cast<std::size_t>(offset.index) < session.document.model().materials.size())
+      return "材質 " + indexedOffsetName(session.document.model().materials[
+                                                 static_cast<std::size_t>(offset.index)].name,
+                                             static_cast<std::size_t>(offset.index));
+  }
+  if (morph.type == 10U && offset.index >= 0 &&
+      static_cast<std::size_t>(offset.index) < session.document.model().rigidBodies.size())
+    return "剛体 " + indexedOffsetName(session.document.model().rigidBodies[
+                                               static_cast<std::size_t>(offset.index)].name,
+                                           static_cast<std::size_t>(offset.index));
+  return (morph.type == 2U ? "ボーン " : "頂点 ") +
+         std::to_string(offset.index);
+}
+
+[[maybe_unused]] bool containsOffsetQuery(std::string_view label, std::string_view query,
+                         std::size_t index) {
+  return query.empty() || label.find(query) != std::string_view::npos ||
+         std::to_string(index).find(query) != std::string::npos;
+}
+
 void beginMorphOffsetTargetPick(DocumentSession &session,
                                 mmd::MorphHandle morph,
                                 std::size_t offsetIndex,
@@ -592,7 +647,8 @@ void beginMorphOffsetTargetPick(DocumentSession &session,
   default:
     break;
   }
-  session.ui.status = "ビューポートからモーフオフセットの対象を選択してください";
+  setStatus(session, "ビューポートからモーフオフセットの対象を選択してください",
+            UiStatusKind::info);
 }
 
 bool addMorphOffset(DocumentSession &session, mmd::MorphHandle handle,
@@ -691,11 +747,8 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
 
   ImGui::SeparatorText("オフセット編集");
   if (!draft.offsets.empty()) {
-    auto offsetIndex = static_cast<int>(std::min(
-        session.ui.morphOffsetIndex, draft.offsets.size() - 1U));
-    if (ImGui::InputInt("オフセット番号", &offsetIndex))
-      session.ui.morphOffsetIndex = static_cast<std::size_t>(std::clamp(
-          offsetIndex, 0, static_cast<int>(draft.offsets.size() - 1U)));
+    (void)drawMorphOffsetBrowser(session, draft, session.ui.morphOffsetIndex,
+                                 "inspector", handle);
     auto &offset = draft.offsets[session.ui.morphOffsetIndex];
     bool offsetCommit{};
     if (draft.type != 0 && draft.type != 9)
@@ -749,6 +802,8 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
       beginMorphOffsetTargetPick(session, handle, session.ui.morphOffsetIndex,
                                  draft.type, false);
     }
+    if (offsetCommit)
+      ++session.ui.morphOffsetFilterEpoch;
     if (session.ui.morphOffsetTarget.picking)
       ImGui::TextDisabled("対象を選択中…");
     if (session.ui.morphOffsetTarget.target)
@@ -794,9 +849,11 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
       session.ui.morphDraft.reset();
       session.ui.morphOffsetTarget = {};
       session.ui.morphAddTarget.reset();
-      session.ui.status = "モーフオフセットを追加しました";
+      setStatus(session, "モーフオフセットを追加しました",
+                UiStatusKind::success);
     } else {
-      session.ui.status = "モーフオフセットを追加できません";
+      setStatus(session, "モーフオフセットを追加できません",
+                UiStatusKind::error, std::chrono::milliseconds::zero(), true);
     }
   }
   if (!addEnabled)
@@ -843,7 +900,8 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
 
   if (commit) {
     const auto result = editMorph(session, handle, draft);
-    session.ui.status = result.success ? "モーフを更新しました" : result.message;
+    setOperationStatus(session, result.success, "モーフを更新しました",
+                       result.message);
     if (result.success) {
       session.ui.morphDraft.reset();
       session.ui.morphOffsetTarget = {};
@@ -879,8 +937,8 @@ void readOnlyInspector(DocumentSession &session,
       (void)inputText("保存パス", draft.storedPath);
       if (ImGui::IsItemDeactivatedAfterEdit()) {
         const auto result = editTexture(session, handle, draft);
-        session.ui.status =
-            result.success ? "テクスチャを更新しました" : result.message;
+        setOperationStatus(session, result.success, "テクスチャを更新しました",
+                           result.message);
         session.ui.textureDraft.reset();
         return;
       }
@@ -969,6 +1027,7 @@ void drawInspectorPanel(DocumentSession &session, GpuModelRenderer *renderer,
 
 void drawStatusBar(DocumentSession &session, bool &showDiagnostics,
                    bool &showReferences, bool &showDiff) {
+  updateStatusLifetime(session);
   const auto *viewport = ImGui::GetMainViewport();
   const auto height =
       ImGui::GetFrameHeight() + ImGui::GetStyle().WindowPadding.y * 2.0F;
@@ -995,7 +1054,14 @@ void drawStatusBar(DocumentSession &session, bool &showDiagnostics,
       showDiff = true;
     if (!session.ui.status.empty()) {
       ImGui::SameLine();
-      ImGui::TextDisabled("%s", session.ui.status.c_str());
+      const auto color = session.ui.statusKind == UiStatusKind::success
+                             ? ImVec4{0.35F, 0.85F, 0.45F, 1.0F}
+                         : session.ui.statusKind == UiStatusKind::warning
+                             ? ImVec4{1.0F, 0.75F, 0.3F, 1.0F}
+                         : session.ui.statusKind == UiStatusKind::error
+                             ? ImVec4{1.0F, 0.35F, 0.35F, 1.0F}
+                             : ImVec4{0.7F, 0.75F, 0.82F, 1.0F};
+      ImGui::TextColored(color, "%s", session.ui.status.c_str());
     }
   }
   ImGui::End();

@@ -1,5 +1,6 @@
 #include "EditorPanels.hpp"
 #include "InspectorPanel.hpp"
+#include "MorphOffsetBrowser.hpp"
 #include "OutlinerPanel.hpp"
 #include "UiSemantics.hpp"
 
@@ -13,6 +14,7 @@
 #include "../editor/SaveController.hpp"
 #include "../editor/ValidationController.hpp"
 #include "../editor/WorkspacePolicy.hpp"
+#include "../editor/UiStatus.hpp"
 #include "../editor/tools/PhysicsTool.hpp"
 #include "../editor/tools/ModelMergeTool.hpp"
 #include "../editor/tools/SdefTool.hpp"
@@ -38,6 +40,8 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace pmxer {
@@ -322,10 +326,11 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
             auto loaded = mmd::pmx::load(path);
             session = DocumentSession(std::move(loaded), path);
             session.ui.openPath = path.string();
-            session.ui.status = "読み込みました";
+            setStatus(session, "読み込みました", UiStatusKind::success);
             return true;
         } catch (const std::exception &error) {
-            session.ui.status = error.what();
+            setStatus(session, error.what(), UiStatusKind::error,
+                      std::chrono::milliseconds::zero(), true);
             return false;
         }
     };
@@ -353,7 +358,7 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
             session.changes.topologyChanged = true;
             session.changes.physicsChanged = true;
             session.changes.texturesChanged = true;
-            session.ui.status = "回復情報を復元しました";
+            setStatus(session, "回復情報を復元しました", UiStatusKind::success);
             ImGui::CloseCurrentPopup();
             ImGui::End();
             return;
@@ -362,7 +367,7 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
         if (ImGui::Button("破棄")) {
             session.recoveryModel.reset();
             (void)discardRecovery(session.path);
-            session.ui.status = "回復情報を破棄しました";
+            setStatus(session, "回復情報を破棄しました", UiStatusKind::info);
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
@@ -381,7 +386,13 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
     inputString("コメント", metadata.comment);
     inputString("英語コメント", metadata.englishComment);
     if (ImGui::Button("モデル情報を適用")) {
-        session.ui.status = editMetadata(session, metadata).success ? "モデル情報を更新しました" : "モデル情報更新に失敗しました";
+        const auto result = editMetadata(session, metadata);
+        setStatus(session, result.success ? "モデル情報を更新しました"
+                                          : "モデル情報更新に失敗しました",
+                  result.success ? UiStatusKind::success : UiStatusKind::error,
+                  result.success ? std::chrono::seconds(4)
+                                 : std::chrono::milliseconds::zero(),
+                  !result.success);
         session.ui.metadataDraft.reset();
     }
     ImGui::Separator();
@@ -399,7 +410,8 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
                 return;
             }
         } catch (const std::exception &error) {
-            session.ui.status = error.what();
+            setStatus(session, error.what(), UiStatusKind::error,
+                      std::chrono::milliseconds::zero(), true);
         }
     }
     if (ImGui::BeginPopupModal("未保存の変更##replace-document", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -407,7 +419,8 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
         ImGui::TextUnformatted("別のモデルを開く前に処理を選択してください。");
         if (ImGui::Button("保存して開く")) {
             if (session.path.empty()) {
-                session.ui.status = "先に保存先を指定してください";
+                setStatus(session, "先に保存先を指定してください",
+                          UiStatusKind::warning, std::chrono::milliseconds::zero(), true);
             } else if (saveDocument(session).success) {
                 const auto path = std::filesystem::path(session.ui.pendingOpenPath);
                 session.ui.pendingOpenPath.clear();
@@ -417,7 +430,8 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
                     return;
                 }
             } else {
-                session.ui.status = "保存に失敗しました";
+                setStatus(session, "保存に失敗しました", UiStatusKind::error,
+                          std::chrono::milliseconds::zero(), true);
             }
         }
         ImGui::SameLine();
@@ -438,8 +452,14 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
         ImGui::EndPopup();
     }
     ImGui::SameLine();
-    if (ImGui::Button("保存"))
-        session.ui.status = saveDocument(session).success ? "保存しました" : "保存に失敗しました";
+    if (ImGui::Button("保存")) {
+        const auto result = saveDocument(session);
+        setStatus(session, result.success ? "保存しました" : "保存に失敗しました",
+                  result.success ? UiStatusKind::success : UiStatusKind::error,
+                  result.success ? std::chrono::seconds(4)
+                                 : std::chrono::milliseconds::zero(),
+                  !result.success);
+    }
     ImGui::SameLine();
     if (ImGui::Button("名前を付けて保存") && !fileDialog.busy())
         (void)fileDialog.save(session.path, session.recoveryId);
@@ -448,7 +468,10 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
         const auto saved = writeRecovery(session).success;
         if (saved)
             session.lastRecovery = std::chrono::steady_clock::now();
-        session.ui.status = saved ? "回復情報を保存しました" : "回復保存に失敗しました";
+        setStatus(session, saved ? "回復情報を保存しました" : "回復保存に失敗しました",
+                  saved ? UiStatusKind::success : UiStatusKind::error,
+                  saved ? std::chrono::seconds(4)
+                        : std::chrono::milliseconds::zero(), !saved);
     }
     inputString("追加するモデル", session.ui.mergePath);
     if (ImGui::Button("モデルを追加") && !session.ui.mergePath.empty()) {
@@ -456,14 +479,17 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
             const auto other = mmd::pmx::load(session.ui.mergePath);
             MergeReport report;
             if (mergeAppend(session, other, &report)) {
-                session.ui.status = "モデルを追加しました";
+                auto message = std::string{"モデルを追加しました"};
                 if (!report.conflicts.empty())
-                    session.ui.status += "（名前の衝突 " + std::to_string(report.conflicts.size()) + "件）";
+                    message += "（名前の衝突 " + std::to_string(report.conflicts.size()) + "件）";
+                setStatus(session, std::move(message), UiStatusKind::success);
             } else {
-                session.ui.status = "モデル追加に失敗しました";
+                setStatus(session, "モデル追加に失敗しました", UiStatusKind::error,
+                          std::chrono::milliseconds::zero(), true);
             }
         } catch (const std::exception &error) {
-            session.ui.status = error.what();
+            setStatus(session, error.what(), UiStatusKind::error,
+                      std::chrono::milliseconds::zero(), true);
         }
         ImGui::End();
         return;
@@ -481,9 +507,10 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
             preview.accumulator = 0.0;
             preview.clockInitialized = false;
             replacePreviewFrame(preview, preview.controller->evaluate());
-            session.ui.status = "モーションを読み込みました";
+            setStatus(session, "モーションを読み込みました", UiStatusKind::success);
         } catch (const std::exception &error) {
-            session.ui.status = error.what();
+            setStatus(session, error.what(), UiStatusKind::error,
+                      std::chrono::milliseconds::zero(), true);
         }
     }
     ImGui::SameLine();
@@ -497,9 +524,10 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
             preview.accumulator = 0.0;
             preview.clockInitialized = false;
             replacePreviewFrame(preview, preview.controller->evaluate());
-            session.ui.status = "ポーズを読み込みました";
+            setStatus(session, "ポーズを読み込みました", UiStatusKind::success);
         } catch (const std::exception &error) {
-            session.ui.status = error.what();
+            setStatus(session, error.what(), UiStatusKind::error,
+                      std::chrono::milliseconds::zero(), true);
         }
     }
     if (!session.ui.status.empty())
@@ -509,7 +537,11 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
     const auto recipes = inspectStandardBones(model);
     ImGui::Text("準標準骨格: %zu / 不足 %zu", recipes.available, recipes.missing);
     if (ImGui::Button("不足骨格を追加") && recipes.missing != 0) {
-        session.ui.status = applyStandardBones(session, standardBoneRecipes()) ? "骨格を追加しました" : "骨格追加に失敗しました";
+        const auto result = applyStandardBones(session, standardBoneRecipes());
+        setStatus(session, result ? "骨格を追加しました" : "骨格追加に失敗しました",
+                  result ? UiStatusKind::success : UiStatusKind::error,
+                  result ? std::chrono::seconds(4)
+                         : std::chrono::milliseconds::zero(), !result);
     }
     ImGui::End();
 }
@@ -584,27 +616,36 @@ void drawVertexPanel(DocumentSession &session, bool *open) {
         ImGui::InputFloat3("SDEF R1", draft.sdefR1.data());
     }
     if (ImGui::Button("適用")) {
-        session.ui.status = editVertex(session, handle, draft).success ? "頂点を更新しました" : "頂点更新に失敗しました";
+        const auto result = editVertex(session, handle, draft);
+        setOperationStatus(session, result.success, "頂点を更新しました",
+                           "頂点更新に失敗しました");
         session.ui.vertexDraft.reset();
     }
     ImGui::SameLine();
-    if (ImGui::Button("ウェイト正規化"))
-        session.ui.status = normalizeWeights(session).success ? "ウェイトを正規化しました" : "正規化に失敗しました";
+    if (ImGui::Button("ウェイト正規化")) {
+        const auto result = normalizeWeights(session);
+        setOperationStatus(session, result.success, "ウェイトを正規化しました",
+                           "正規化に失敗しました");
+    }
     ImGui::SameLine();
     if (ImGui::Button("BDEF2→SDEF")) {
         const auto report = convertBdef2ToSdef(session, targets);
-        session.ui.status = report.converted != 0 ? "SDEFへ変換しました" : "SDEFへ変換できませんでした";
+        setOperationStatus(session, report.converted != 0, "SDEFへ変換しました",
+                           "SDEFへ変換できませんでした");
         session.ui.vertexDraft.reset();
     }
     ImGui::SameLine();
     if (ImGui::Button("SDEF→BDEF2")) {
         const auto report = convertSdefToBdef2(session, targets);
-        session.ui.status = report.converted != 0 ? "BDEF2へ変換しました" : "BDEF2へ変換できませんでした";
+        setOperationStatus(session, report.converted != 0, "BDEF2へ変換しました",
+                           "BDEF2へ変換できませんでした");
         session.ui.vertexDraft.reset();
     }
     ImGui::SameLine();
     if (ImGui::Button("SDEFミラー")) {
-        session.ui.status = mirrorSdef(session, targets) ? "SDEFをミラーしました" : "SDEFミラーに失敗しました";
+        const auto result = mirrorSdef(session, targets);
+        setOperationStatus(session, result, "SDEFをミラーしました",
+                           "SDEFミラーに失敗しました");
         session.ui.vertexDraft.reset();
     }
     ImGui::End();
@@ -648,7 +689,9 @@ void drawMaterialPanel(DocumentSession &session, bool *open) {
     ImGui::InputInt("描画フラグ", &flags);
     draft.drawFlags = static_cast<std::uint8_t>(std::clamp(flags, 0, 255));
     if (ImGui::Button("適用")) {
-        session.ui.status = editMaterial(session, handle, draft).success ? "材質を更新しました" : "材質更新に失敗しました";
+        const auto result = editMaterial(session, handle, draft);
+        setOperationStatus(session, result.success, "材質を更新しました",
+                           "材質更新に失敗しました");
         session.ui.materialDraft.reset();
     }
     ImGui::SameLine();
@@ -688,13 +731,18 @@ void drawTexturePanel(DocumentSession &session, EditorWorkspace &workspace,
             replacement = model.textures[session.ui.textureIndex].storedPath;
         inputString("新しいパス", replacement);
         if (ImGui::Button("再リンク")) {
-            session.ui.status = relinkTexture(session, texture, replacement) ? "テクスチャを更新しました" : "更新に失敗しました";
+            const auto result = relinkTexture(session, texture, replacement);
+            setOperationStatus(session, result, "テクスチャを更新しました",
+                               "更新に失敗しました");
             replacement.clear();
         }
         const auto missing = missingTextures(model);
         ImGui::Text("不足: %zu", missing.size());
-        if (ImGui::Button("絶対パスを相対化") && !session.path.empty())
-            session.ui.status = convertAbsoluteTextures(session, session.path.parent_path()) ? "パスを変換しました" : "変換に失敗しました";
+        if (ImGui::Button("絶対パスを相対化") && !session.path.empty()) {
+            const auto result = convertAbsoluteTextures(session, session.path.parent_path());
+            setOperationStatus(session, result, "パスを変換しました",
+                               "変換に失敗しました");
+        }
     }
     ImGui::End();
 }
@@ -752,14 +800,16 @@ void drawBonePanel(DocumentSession &session, bool *open) {
     const bool hasIk = (draft.flags & 0x0020U) != 0;
     if (ImGui::Button("適用")) {
         const auto result = editBone(session, handle, draft);
-        session.ui.status = result.success ? "ボーンを更新しました" : result.message;
+        setOperationStatus(session, result.success, "ボーンを更新しました",
+                           result.message);
         session.ui.boneDraft.reset();
     }
     if (hasIk) {
         if (ImGui::Button("IKリンク追加")) {
             draft.ikLinks.emplace_back();
             const auto result = editBone(session, handle, draft);
-            session.ui.status = result.success ? "IKリンクを追加しました" : result.message;
+            setOperationStatus(session, result.success, "IKリンクを追加しました",
+                               result.message);
             session.ui.boneDraft.reset();
             ImGui::End();
             return;
@@ -770,7 +820,8 @@ void drawBonePanel(DocumentSession &session, bool *open) {
                 draft.ikLinks.erase(draft.ikLinks.begin() +
                                     static_cast<std::ptrdiff_t>(session.ui.boneIkLinkIndex));
                 const auto result = editBone(session, handle, draft);
-                session.ui.status = result.success ? "IKリンクを削除しました" : result.message;
+                setOperationStatus(session, result.success, "IKリンクを削除しました",
+                                   result.message);
                 session.ui.boneIkLinkIndex = 0;
                 session.ui.boneDraft.reset();
                 ImGui::End();
@@ -817,13 +868,15 @@ void drawMorphPanel(DocumentSession &session, bool *open) {
     int panel = draft.panel;
     int type = draft.type;
     ImGui::InputInt("パネル", &panel);
-    ImGui::InputInt("種類", &type);
+    const auto typeChanged = ImGui::InputInt("種類", &type);
     draft.panel = static_cast<std::uint8_t>(std::clamp(panel, 0, 4));
     draft.type = static_cast<std::uint8_t>(std::clamp(type, 0, 10));
     ImGui::Text("オフセット: %zu", draft.offsets.size());
-    bool offsetDirty = false;
+    bool offsetDirty = typeChanged;
     if (!draft.offsets.empty()) {
-        if (selectIndex("オフセット番号", draft.offsets.size(), session.ui.morphOffsetIndex))
+        if (drawMorphOffsetBrowser(
+                session, draft, session.ui.morphOffsetIndex, "advanced", handle)
+                .selectionChanged)
             offsetDirty = true;
         auto &offset = draft.offsets[session.ui.morphOffsetIndex];
         switch (draft.type) {
@@ -877,9 +930,13 @@ void drawMorphPanel(DocumentSession &session, bool *open) {
         }
     }
     session.ui.morphOffsetDirty = session.ui.morphOffsetDirty || offsetDirty;
+    if (offsetDirty)
+        ++session.ui.morphOffsetFilterEpoch;
     if (ImGui::Button("適用")) {
         const auto result = editMorph(session, handle, draft);
-        session.ui.status = result.success ? "モーフを更新しました" : (result.message.empty() ? "モーフ更新に失敗しました" : result.message);
+        setOperationStatus(session, result.success, "モーフを更新しました",
+                           result.message.empty() ? "モーフ更新に失敗しました"
+                                                  : result.message);
         session.ui.morphDraft.reset();
         session.ui.morphOffsetDirty = false;
         ImGui::End();
@@ -966,7 +1023,8 @@ void drawDisplayFramePanel(DocumentSession &session, bool *open) {
     }
     if (ImGui::Button("適用")) {
         const auto result = editDisplayFrame(session, handle, draft);
-        session.ui.status = result.success ? "表示枠を更新しました" : result.message;
+        setOperationStatus(session, result.success, "表示枠を更新しました",
+                           result.message);
         session.ui.displayFrameDraft.reset();
         ImGui::End();
         return;
@@ -975,7 +1033,8 @@ void drawDisplayFramePanel(DocumentSession &session, bool *open) {
         draft.items.erase(draft.items.begin() +
                           static_cast<std::ptrdiff_t>(session.ui.displayItemIndex));
         const auto result = editDisplayFrame(session, handle, draft);
-        session.ui.status = result.success ? "表示枠項目を削除しました" : result.message;
+        setOperationStatus(session, result.success, "表示枠項目を削除しました",
+                           result.message);
         session.ui.displayItemIndex = 0;
         session.ui.displayFrameDraft.reset();
         ImGui::End();
@@ -986,7 +1045,8 @@ void drawDisplayFramePanel(DocumentSession &session, bool *open) {
         std::swap(draft.items[session.ui.displayItemIndex],
                   draft.items[session.ui.displayItemIndex - 1]);
         const auto result = editDisplayFrame(session, handle, draft);
-        session.ui.status = result.success ? "表示枠項目を移動しました" : result.message;
+        setOperationStatus(session, result.success, "表示枠項目を移動しました",
+                           result.message);
         --session.ui.displayItemIndex;
         session.ui.displayFrameDraft.reset();
         ImGui::End();
@@ -997,7 +1057,8 @@ void drawDisplayFramePanel(DocumentSession &session, bool *open) {
         std::swap(draft.items[session.ui.displayItemIndex],
                   draft.items[session.ui.displayItemIndex + 1]);
         const auto result = editDisplayFrame(session, handle, draft);
-        session.ui.status = result.success ? "表示枠項目を移動しました" : result.message;
+        setOperationStatus(session, result.success, "表示枠項目を移動しました",
+                           result.message);
         ++session.ui.displayItemIndex;
         session.ui.displayFrameDraft.reset();
         ImGui::End();
@@ -1007,7 +1068,8 @@ void drawDisplayFramePanel(DocumentSession &session, bool *open) {
     if (ImGui::Button("ボーン項目追加") && !model.bones.empty()) {
         draft.items.push_back({true, 0});
         const auto result = editDisplayFrame(session, handle, draft);
-        session.ui.status = result.success ? "表示枠項目を追加しました" : result.message;
+        setOperationStatus(session, result.success, "表示枠項目を追加しました",
+                           result.message);
         session.ui.displayFrameDraft.reset();
         ImGui::End();
         return;
@@ -1016,7 +1078,8 @@ void drawDisplayFramePanel(DocumentSession &session, bool *open) {
     if (ImGui::Button("モーフ項目追加") && !model.morphs.empty()) {
         draft.items.push_back({false, 0});
         const auto result = editDisplayFrame(session, handle, draft);
-        session.ui.status = result.success ? "表示枠項目を追加しました" : result.message;
+        setOperationStatus(session, result.success, "表示枠項目を追加しました",
+                           result.message);
         session.ui.displayFrameDraft.reset();
         ImGui::End();
         return;
@@ -1079,7 +1142,8 @@ void drawPhysicsPanel(DocumentSession &session, bool *open) {
             draft.mode = static_cast<std::uint8_t>(std::clamp(mode, 0, 2));
             if (ImGui::Button("剛体を適用")) {
                 const auto result = editRigidBody(session, handle, draft);
-                session.ui.status = result.success ? "剛体を更新しました" : result.message;
+                setOperationStatus(session, result.success, "剛体を更新しました",
+                                   result.message);
                 session.ui.rigidBodyDraft.reset();
                 ImGui::End();
                 return;
@@ -1110,7 +1174,8 @@ void drawPhysicsPanel(DocumentSession &session, bool *open) {
             ImGui::InputFloat3("回転ばね", draft.rotationSpring.data());
             if (ImGui::Button("ジョイントを適用")) {
                 const auto result = editJoint(session, handle, draft);
-                session.ui.status = result.success ? "ジョイントを更新しました" : result.message;
+                setOperationStatus(session, result.success, "ジョイントを更新しました",
+                                   result.message);
                 session.ui.jointDraft.reset();
                 ImGui::End();
                 return;
@@ -1154,7 +1219,8 @@ void drawPhysicsPanel(DocumentSession &session, bool *open) {
             ImGui::Text("アンカー %zu / 固定頂点 %zu", draft.anchors.size(), draft.pinnedVertices.size());
             if (ImGui::Button("ソフトボディを適用")) {
                 const auto result = editSoftBody(session, handle, draft);
-                session.ui.status = result.success ? "ソフトボディを更新しました" : result.message;
+                setOperationStatus(session, result.success, "ソフトボディを更新しました",
+                                   result.message);
                 session.ui.softBodyDraft.reset();
                 ImGui::End();
                 return;
@@ -1166,12 +1232,15 @@ void drawPhysicsPanel(DocumentSession &session, bool *open) {
         handles.reserve(model.bones.size());
         for (std::size_t i = 0; i < model.bones.size(); ++i)
             handles.push_back(session.document.boneHandle(i));
-        session.ui.status = generateRigidBodyChain(session, handles, 1) ? "剛体を生成しました" : "剛体生成に失敗しました";
+        const auto result = generateRigidBodyChain(session, handles, 1);
+        setOperationStatus(session, result, "剛体を生成しました",
+                           "剛体生成に失敗しました");
     }
     ImGui::End();
 }
 
-void drawDiagnosticsPanel(DocumentSession &session, GpuModelRenderer *renderer,
+void drawDiagnosticsPanel(DocumentSession &session, FileDialog &fileDialog,
+                          GpuModelRenderer *renderer,
                           EditorWorkspace &workspace, bool *open) {
     if (ImGui::Begin("診断", open)) {
         if (session.derived.diagnosticsRevision != session.revision) {
@@ -1223,6 +1292,15 @@ void drawDiagnosticsPanel(DocumentSession &session, GpuModelRenderer *renderer,
                                       SelectionOrigin::diagnostics);
                         session.ui.textureIndex = texture.textureIndex;
                     }
+                    ImGui::SameLine();
+                    const auto relinkButton = "再リンク##texture-resource" +
+                                              std::to_string(texture.textureIndex);
+                    if (ImGui::SmallButton(relinkButton.c_str()) &&
+                        !fileDialog.busy())
+                        (void)fileDialog.open(
+                            texture.resolvedPath.parent_path(),
+                            "relink-texture:" + session.recoveryId + ":" +
+                                std::to_string(texture.textureIndex));
                 }
             }
         }
@@ -1296,10 +1374,11 @@ void drawMainMenu(DocumentSession *session, FileDialog &fileDialog,
                             ImGuiInputFlags_RouteGlobal)) {
             if (session->path.empty())
                 (void)fileDialog.save({}, session->recoveryId);
-            else
-                session->ui.status = saveDocument(*session).success
-                                          ? "保存しました"
-                                          : "保存に失敗しました";
+            else {
+                const auto result = saveDocument(*session);
+                setOperationStatus(*session, result.success, "保存しました",
+                                   "保存に失敗しました");
+            }
         }
         if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S,
                             ImGuiInputFlags_RouteGlobal))
@@ -1319,10 +1398,11 @@ void drawMainMenu(DocumentSession *session, FileDialog &fileDialog,
         if (ImGui::MenuItem("保存", "Ctrl+S", false, hasSession)) {
             if (session->path.empty())
                 (void)fileDialog.save({}, session->recoveryId);
-            else
-                session->ui.status = saveDocument(*session).success
-                                          ? "保存しました"
-                                          : "保存に失敗しました";
+            else {
+                const auto result = saveDocument(*session);
+                setOperationStatus(*session, result.success, "保存しました",
+                                   "保存に失敗しました");
+            }
         }
         if (ImGui::MenuItem("名前を付けて保存…", "Ctrl+Shift+S", false,
                             hasSession && !fileDialog.busy()))
@@ -1433,7 +1513,7 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
     if (workspace.showPhysics)
         drawPhysicsPanel(session, &workspace.showPhysics);
     if (workspace.showDiagnostics)
-        drawDiagnosticsPanel(session, renderer, workspace.active,
+        drawDiagnosticsPanel(session, fileDialog, renderer, workspace.active,
                              &workspace.showDiagnostics);
     if (workspace.showReferences)
         drawReferencePanel(session, &workspace.showReferences);

@@ -705,10 +705,17 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
             return textureLoaded(index) ? impl_->textures[static_cast<std::size_t>(index)]
                                         : impl_->toonFallbackTexture;
         };
-        uniforms.textureFlags[0] = material.textureIndex >= 0 &&
-                                           !textureLoaded(material.textureIndex)
-                                       ? 1.0F
-                                       : 0.0F;
+        const auto baseMissing = material.textureIndex >= 0 &&
+                                 !textureLoaded(material.textureIndex);
+        const auto sphereMissing = material.sphereMode != 0U &&
+                                   material.sphereTextureIndex >= 0 &&
+                                   !textureLoaded(material.sphereTextureIndex);
+        const auto toonMissing = material.toonMode == 0U &&
+                                 material.toonTextureIndex >= 0 &&
+                                 !textureLoaded(material.toonTextureIndex);
+        uniforms.textureFlags = {baseMissing ? 1.0F : 0.0F,
+                                 sphereMissing ? 1.0F : 0.0F,
+                                 toonMissing ? 1.0F : 0.0F, 0.0F};
         const std::array<SDL_GPUTextureSamplerBinding, 3> bindings{{
             {baseTextureFor(material.textureIndex), impl_->baseSampler},
             {sphereTextureFor(material.sphereTextureIndex), impl_->sphereSampler},

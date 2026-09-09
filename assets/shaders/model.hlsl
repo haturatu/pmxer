@@ -58,6 +58,8 @@ float4 mainPS(VertexOutput input) : SV_Target0 {
     if (textureFlags.x > 0.5)
         baseDiffuse = lerp(baseDiffuse, float3(0.72, 0.74, 0.78), 0.70);
     float3 color = baseDiffuse * (textureColor.rgb * textureMultiply.rgb + textureAdd.rgb);
+    if (textureFlags.y > 0.5)
+        color = lerp(color, max(color, float3(0.42, 0.44, 0.48)), 0.45);
     if (materialModes.x > 0.5) {
         const float2 sphereUv = materialModes.x < 2.5
                                     ? normalize(input.normal).xy * 0.5 + 0.5
@@ -76,6 +78,8 @@ float4 mainPS(VertexOutput input) : SV_Target0 {
     const float2 toonUv = float2(0.5, 1.0 - lightValue);
     const float4 toonColor = toonTexture.Sample(toonSampler, toonUv);
     lighting *= toonColor.rgb * toonMultiply.rgb + toonAdd.rgb;
+    if (textureFlags.z > 0.5)
+        lighting = max(lighting, float3(0.38, 0.38, 0.38));
     return float4(color * lighting,
                   saturate(diffuse.a * (textureColor.a * textureMultiply.a + textureAdd.a)));
 }

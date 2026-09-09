@@ -7,6 +7,7 @@
 #include <mmd/document.hpp>
 #include <mmd/animation.hpp>
 
+#include <array>
 #include <filesystem>
 #include <atomic>
 #include <chrono>
@@ -29,6 +30,22 @@ inline std::string makeRecoveryId() {
 }
 
 class PreviewController;
+
+enum class UiStatusKind;
+
+struct OutlinerViewState {
+    std::array<char, 128> query{};
+};
+
+struct MorphOffsetFilterCache {
+    std::uint64_t morphId{};
+    std::uint32_t morphGeneration{};
+    std::uint8_t morphType{};
+    std::uint64_t documentRevision{std::numeric_limits<std::uint64_t>::max()};
+    std::uint64_t sourceEpoch{};
+    std::string query;
+    std::vector<std::size_t> visible;
+};
 
 struct MorphOffsetTargetState {
     bool picking{};
@@ -68,6 +85,14 @@ struct EditorUiState {
     std::string motionPath;
     std::string posePath;
     std::string status;
+    UiStatusKind statusKind{};
+    std::chrono::steady_clock::time_point statusExpiresAt{};
+    bool statusSticky{};
+    std::array<OutlinerViewState, 5> outliner{};
+    std::array<char, 128> morphOffsetSearch{};
+    MorphOffsetFilterCache morphOffsetFilter;
+    std::uint64_t morphOffsetFilterEpoch{};
+    std::optional<SelectionItem> pendingOutlinerReveal;
     bool previewPlaying{};
     bool morphOffsetDirty{};
     float cameraYaw{};
