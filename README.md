@@ -45,8 +45,20 @@ make test
 ```
 
 Makefile は CMake preset を呼び出す薄い操作 UI です。初回の `make` では
-`external/libmmd` サブモジュールも自動初期化されます。利用できる操作は
-`make help` で確認できます。
+`external/libmmd` サブモジュールも自動初期化されます。CMakeを直接操作する場合は、
+`CMakePresets.json` の `linux-dev`、`linux-cli`、`linux-clang`、
+`linux-release` などを利用できます。
+
+```sh
+make cli
+make sanitize
+make run ARGS="model.pmx"
+make run ARGS="info model.pmx"
+make PRESET=linux-cli test
+make release JOBS=16
+```
+
+利用できる操作は `make help` で確認できます。
 
 CLI は GUI なしでもビルドできます。
 
@@ -61,7 +73,8 @@ GUI を起動する場合は `make run ARGS="model.pmx"`、ビルドの並列数
 ## Transform View
 
 GUI の `Transform View` は、ビューポートと同じドックレイアウトで使える変形ワークスペースです。
-`Vertex` では選択頂点を Move / Rotate / Scale して `Create Morph from Current Shape` で頂点モーフにできます。
+`Vertex` ではPMXの基準形状上で選択頂点を Move / Rotate / Scale して `Create Morph from Edit` で頂点モーフにできます。
+Morph Mixer、VMD、ポーズは変形作業のコンテキストプレビューであり、Capture対象ではありません。
 `Bone` ではボーンポーズを `Create Bone Morph` として保存できます。編集中の変形は一時プレビューに保持され、
 Capture操作を実行するまでPMX本体を変更しません。
 

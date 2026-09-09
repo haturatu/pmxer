@@ -5,7 +5,6 @@ SHELL := /bin/bash
 PRESET ?= linux-dev
 BUILD_DIR := build/$(PRESET)
 BINARY := $(BUILD_DIR)/pmxer
-
 JOBS ?=
 ARGS ?=
 CMAKE_ARGS ?=
