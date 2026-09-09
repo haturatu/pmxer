@@ -136,8 +136,24 @@ set(PMXER_SHADER_OUTPUTS_CROSS
   "${PMXER_SHADER_OUTPUT_DIR}/model.frag.msl"
 )
 set(PMXER_SHADER_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/model.hlsl")
+file(SHA256 "${PMXER_SHADER_SOURCE}" PMXER_SHADER_SOURCE_HASH)
 if(PMXER_PRECOMPILED_SHADER_DIR)
   list(APPEND PMXER_SHADER_OUTPUTS ${PMXER_SHADER_OUTPUTS_CROSS})
+  set(PMXER_PRECOMPILED_SHADER_HASH
+      "${PMXER_PRECOMPILED_SHADER_DIR}/model.hlsl.sha256")
+  if(NOT EXISTS "${PMXER_PRECOMPILED_SHADER_HASH}")
+    message(FATAL_ERROR
+      "Missing precompiled shader source hash: ${PMXER_PRECOMPILED_SHADER_HASH}")
+  endif()
+  file(READ "${PMXER_PRECOMPILED_SHADER_HASH}"
+       PMXER_PRECOMPILED_SHADER_SOURCE_HASH)
+  string(STRIP "${PMXER_PRECOMPILED_SHADER_SOURCE_HASH}"
+         PMXER_PRECOMPILED_SHADER_SOURCE_HASH)
+  if(NOT PMXER_SHADER_SOURCE_HASH STREQUAL
+         PMXER_PRECOMPILED_SHADER_SOURCE_HASH)
+    message(FATAL_ERROR
+      "Precompiled shaders do not match assets/shaders/model.hlsl")
+  endif()
   foreach(shader IN ITEMS model.vert.spv model.frag.spv model.vert.dxil model.frag.dxil model.vert.msl model.frag.msl)
     if(NOT EXISTS "${PMXER_PRECOMPILED_SHADER_DIR}/${shader}")
       message(FATAL_ERROR "Missing precompiled shader: ${PMXER_PRECOMPILED_SHADER_DIR}/${shader}")

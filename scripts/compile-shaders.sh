@@ -8,6 +8,8 @@ prefix_dir=$work_dir/prefix
 
 mkdir -p "$work_dir" "$prefix_dir" "$output_dir"
 
+sha256sum "$source_file" | cut -d' ' -f1 > "$output_dir/model.hlsl.sha256"
+
 clone_at() {
   local repository=$1
   local revision=$2
