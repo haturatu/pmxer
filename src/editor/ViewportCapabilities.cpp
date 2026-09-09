@@ -38,6 +38,20 @@ TransformCapabilities capabilitiesFor(SelectionKind kind) noexcept {
 TransformCapabilities transformCapabilities(const DocumentSession &session) noexcept {
     if (session.selection.items().empty())
         return {};
+    if (session.deform.mode == DeformMode::mix)
+        return {};
+    if (session.deform.mode == DeformMode::shape) {
+        for (const auto &item : session.selection.items())
+            if (item.kind != SelectionKind::vertex)
+                return {};
+        return {true, true, true};
+    }
+    if (session.deform.mode == DeformMode::pose) {
+        for (const auto &item : session.selection.items())
+            if (item.kind != SelectionKind::bone)
+                return {};
+        return {true, true, false};
+    }
     auto result = capabilitiesFor(session.selection.items().front().kind);
     for (const auto &item : session.selection.items()) {
         const auto current = capabilitiesFor(item.kind);

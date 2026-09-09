@@ -3,6 +3,7 @@
 #include "ViewportPicking.hpp"
 #include "UiSemantics.hpp"
 
+#include "../editor/DeformController.hpp"
 #include "../editor/EditorSelectionController.hpp"
 #include "../editor/EditorSelectionQueries.hpp"
 #include "../editor/UiStatus.hpp"
@@ -913,7 +914,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             const auto &bone = model.bones[i];
             const auto handle = session.document.boneHandle(i);
             const auto selected = isSelected(session, SelectionKind::bone, handle);
-            const auto point = project(bone.position, bounds, origin, available,
+            const auto point = project(deformBonePosition(session, handle), bounds, origin, available,
                                        session.ui);
             draw->AddCircleFilled(point, selected ? 5.0F : 3.0F,
                                   selected ? IM_COL32(255, 225, 90, 255)
@@ -924,7 +925,8 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 continue;
             draw->AddLine(
                 point,
-                project(model.bones[static_cast<std::size_t>(bone.parent)].position,
+                project(deformBonePosition(session, session.document.boneHandle(
+                                               static_cast<std::size_t>(bone.parent))),
                         bounds, origin, available, session.ui),
                 selected ? IM_COL32(255, 225, 90, 255)
                          : IM_COL32(245, 190, 80,
@@ -996,7 +998,9 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         const auto *vertex = session.document.resolve(
             selectionHandle<mmd::VertexTag>(session.document, selected));
         if (vertex != nullptr)
-            draw->AddCircleFilled(project(vertex->position, bounds, origin,
+            draw->AddCircleFilled(project(deformVertexPosition(
+                                              session, selectionHandle<mmd::VertexTag>(session.document, selected)),
+                                          bounds, origin,
                                           available, session.ui),
                                   4.0F, IM_COL32(255, 180, 60, 255));
     }

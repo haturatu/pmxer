@@ -3,6 +3,7 @@
 #include "WorkspaceLayout.hpp"
 
 #include "../editor/DocumentSession.hpp"
+#include "../editor/DeformController.hpp"
 #include "../editor/RecoveryController.hpp"
 #include "../editor/SaveController.hpp"
 #include "../editor/UiStatus.hpp"
@@ -64,7 +65,8 @@ void buildDefaultDockLayout(ImGuiID dockspaceId) {
 
     ImGuiID center = dockspaceId;
     const auto left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.22F, nullptr, &center);
-    const auto right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.30F, nullptr, &center);
+    auto right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.30F, nullptr, &center);
+    const auto transform = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.50F, nullptr, &right);
     const auto bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.25F, nullptr, &center);
     auto leftTop = left;
     const auto leftBottom = ImGui::DockBuilderSplitNode(leftTop, ImGuiDir_Down, 0.72F, nullptr, &leftTop);
@@ -73,6 +75,7 @@ void buildDefaultDockLayout(ImGuiID dockspaceId) {
     ImGui::DockBuilderDockWindow("ドキュメント", leftTop);
     ImGui::DockBuilderDockWindow("アウトライナー", leftBottom);
     ImGui::DockBuilderDockWindow("インスペクター", right);
+    ImGui::DockBuilderDockWindow("Transform View", transform);
     ImGui::DockBuilderDockWindow("診断", bottom);
     ImGui::DockBuilderDockWindow("参照", bottom);
     ImGui::DockBuilderDockWindow("差分", bottom);
@@ -344,9 +347,8 @@ int runApplication(const EditCommand &options) {
                           UiStatusKind::success);
             }
             if (preview.controller) {
-                preview.frame = preview.controller->evaluate();
-                ++preview.frameRevision;
-                session.ui.previewFrame = &*preview.frame;
+                preview.baseFrame = preview.controller->evaluate();
+                refreshDeformPreview(session);
             }
             preview.accumulator = 0.0;
             preview.clockInitialized = false;

@@ -10,6 +10,7 @@
 #include "../editor/ReferenceInspector.hpp"
 #include "../editor/UiStatus.hpp"
 #include "../editor/tools/MorphTool.hpp"
+#include "../editor/morph/MorphMixer.hpp"
 #include "../preview/PreviewController.hpp"
 #include "../render/GpuModelRenderer.hpp"
 
@@ -513,15 +514,6 @@ void jointInspector(DocumentSession &session, const SelectionItem &selected) {
   }
 }
 
-void refreshPreviewFrame(DocumentSession &session) {
-  auto &preview = session.preview;
-  if (!preview.controller)
-    return;
-  preview.frame = preview.controller->evaluate();
-  ++preview.frameRevision;
-  session.ui.previewFrame = &*preview.frame;
-}
-
 SelectionKind morphOffsetTargetKind(std::uint8_t type) noexcept {
   switch (type) {
   case 0:
@@ -865,35 +857,17 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
   ImGui::SeparatorText("プレビュー");
   auto &values = session.preview.morphValues;
   auto preview = std::find_if(values.begin(), values.end(),
-                              [&](const auto &item) { return item.selection == selected; });
+                              [&](const auto &item) { return item.morph == handle; });
   float weight = preview == values.end() ? 0.0F : preview->weight;
   if (ImGui::SliderFloat("プレビュー強度", &weight, 0.0F, 1.0F, "%.2f")) {
-    if (preview == values.end())
-      values.push_back({selected, weight});
-    else
-      preview->weight = weight;
-    if (session.preview.controller) {
-      session.preview.controller->setMorphPreview(value->name, weight);
-      refreshPreviewFrame(session);
-    }
+    morph::setBlend(session, handle, weight);
   }
   if (ImGui::Button("このモーフをリセット")) {
-    preview = std::find_if(values.begin(), values.end(),
-                           [&](const auto &item) { return item.selection == selected; });
-    if (preview != values.end())
-      values.erase(preview);
-    if (session.preview.controller) {
-      session.preview.controller->clearMorphPreview(value->name);
-      refreshPreviewFrame(session);
-    }
+    morph::clearBlend(session, handle);
   }
   ImGui::SameLine();
   if (ImGui::Button("すべてリセット")) {
-    values.clear();
-    if (session.preview.controller) {
-      session.preview.controller->clearMorphPreviews();
-      refreshPreviewFrame(session);
-    }
+    morph::resetMix(session);
   }
   if (!values.empty())
     ImGui::TextDisabled("%zu個のモーフを同時プレビュー中", values.size());

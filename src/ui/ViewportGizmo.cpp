@@ -1,6 +1,7 @@
 #include "ViewportGizmo.hpp"
 
 #include "../editor/DocumentSession.hpp"
+#include "../editor/DeformController.hpp"
 #include "../editor/UiStatus.hpp"
 #include "../editor/EditorOperations.hpp"
 
@@ -35,6 +36,39 @@ struct TransformSource {
 
 std::optional<TransformSource> sourceFor(const DocumentSession &session,
                                          const SelectionItem &selected) {
+    if (session.deform.mode == DeformMode::shape || session.deform.mode == DeformMode::pose) {
+        const auto expected = session.deform.mode == DeformMode::shape
+                                  ? SelectionKind::vertex
+                                  : SelectionKind::bone;
+        if (selected.kind != expected)
+            return std::nullopt;
+        if (session.deform.pivotMode == PivotMode::origin)
+            return TransformSource{};
+        if (session.deform.pivotMode == PivotMode::active || session.selection.items().size() == 1U) {
+            if (expected == SelectionKind::vertex)
+                return TransformSource{deformVertexPosition(
+                    session, selectionHandle<mmd::VertexTag>(session.document, selected)), {}};
+            return TransformSource{deformBonePosition(
+                session, selectionHandle<mmd::BoneTag>(session.document, selected)), {}};
+        }
+        mmd::Float3 center{};
+        std::size_t count{};
+        for (const auto &item : session.selection.items()) {
+            if (item.kind != expected)
+                continue;
+            const auto position = expected == SelectionKind::vertex
+                                      ? deformVertexPosition(session, selectionHandle<mmd::VertexTag>(session.document, item))
+                                      : deformBonePosition(session, selectionHandle<mmd::BoneTag>(session.document, item));
+            for (std::size_t component = 0; component < 3U; ++component)
+                center[component] += position[component];
+            ++count;
+        }
+        if (count == 0U)
+            return std::nullopt;
+        for (auto &component : center)
+            component /= static_cast<float>(count);
+        return TransformSource{center, {}};
+    }
     if (selected.kind == SelectionKind::vertex) {
         const auto *value = session.document.resolve(
             selectionHandle<mmd::VertexTag>(session.document, selected));
@@ -179,7 +213,7 @@ operationFor(ViewportTool tool, const TransformCapabilities &capabilities) noexc
 void drawViewportGizmo(DocumentSession &session, const CameraMatrices &camera,
                        ImVec2 origin, ImVec2 size) {
     if (session.ui.viewportTool == ViewportTool::select ||
-        session.selection.items().size() != 1U)
+        (session.selection.items().size() != 1U && !session.deform.active()))
         return;
     const auto selected = session.selection.items().front();
     const auto capabilities = transformCapabilities(session);
@@ -206,13 +240,22 @@ void drawViewportGizmo(DocumentSession &session, const CameraMatrices &camera,
         *operation == ImGuizmo::ROTATE ? 5.0F : 0.1F,
         *operation == ImGuizmo::ROTATE ? 5.0F : 0.1F,
     };
+    std::array<float, 16> deltaMatrix{};
     (void)ImGuizmo::Manipulate(
         view.data(), projection.data(), *operation, mode,
-        session.ui.gizmoMatrix.data(), nullptr,
+        session.ui.gizmoMatrix.data(), deltaMatrix.data(),
         session.ui.snapTransform ? snap : nullptr);
     const auto usingGizmo = ImGuizmo::IsUsing();
-    if (session.ui.gizmoDragging && !usingGizmo)
+    if (session.deform.active()) {
+        if (usingGizmo && !session.ui.gizmoDragging)
+            beginDeformGizmoDrag(session);
+        if (usingGizmo)
+            updateDeformGizmoDrag(session, deltaMatrix);
+        if (usingGizmo)
+            refreshDeformPreview(session);
+    } else if (session.ui.gizmoDragging && !usingGizmo) {
         commit(session, selected, capabilities);
+    }
     session.ui.gizmoDragging = usingGizmo;
 }
 

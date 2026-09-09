@@ -22,6 +22,8 @@ pmxer は PMX 形式の編集、検証、保存、プレビューを行うクロ
 - 材質色、面、ボーン、剛体、ジョイント、SDEFマーカーを同じビューポートで確認
 - PNG等の一般画像と、非圧縮RGB(A)・BC1・BC2・BC3・BC4・BC5・BC7のDDSテクスチャ
 - 安定ハンドルとトランザクションを使用した構造編集
+- Transform View による一時的な頂点変形・ボーンポーズ編集とモーフ作成
+- Morph Mixer、左右分割、変化量の反転・倍率変更、材質マスク、Bake & Reverse
 
 保存は既定で保持モードを使い、元ファイルを直接上書きしません。一時ファイルへ書き出し、再読み込みした内容の意味比較が成功した場合だけ原子置換します。
 
@@ -55,6 +57,17 @@ make PRESET=linux-cli run ARGS="info model.pmx"
 
 GUI を起動する場合は `make run ARGS="model.pmx"`、ビルドの並列数を指定する場合は
 `make JOBS=8` のように実行します。CMake preset を直接操作することもできます。
+
+## Transform View
+
+GUI の `Transform View` は、ビューポートと同じドックレイアウトで使える変形ワークスペースです。
+`Vertex` では選択頂点を Move / Rotate / Scale して `Create Morph from Current Shape` で頂点モーフにできます。
+`Bone` ではボーンポーズを `Create Bone Morph` として保存できます。編集中の変形は一時プレビューに保持され、
+Capture操作を実行するまでPMX本体を変更しません。
+
+`Morph` では複数モーフをstable handleでMixer表示し、`Create Group Morph from Mix`、
+`Bake Mix to Vertex Morph`、`Scale Delta`、`Invert Delta`、`Reverse Base and Morph`、
+`Side Split Left / Right`、材質単位のKeep / Excludeを利用できます。各PMX変更はUndo 1回で戻せます。
 
 ## CLI
 

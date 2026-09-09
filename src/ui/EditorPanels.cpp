@@ -1,10 +1,12 @@
 #include "EditorPanels.hpp"
+#include "DeformLabPanel.hpp"
 #include "InspectorPanel.hpp"
 #include "MorphOffsetBrowser.hpp"
 #include "OutlinerPanel.hpp"
 #include "UiSemantics.hpp"
 
 #include "../editor/DocumentSession.hpp"
+#include "../editor/DeformController.hpp"
 #include "../editor/DiffController.hpp"
 #include "../editor/EditorDiagnostics.hpp"
 #include "../editor/EditorOperations.hpp"
@@ -20,6 +22,7 @@
 #include "../editor/tools/SdefTool.hpp"
 #include "../editor/tools/StandardBoneTool.hpp"
 #include "../editor/tools/TextureTool.hpp"
+#include "../editor/morph/MorphMixer.hpp"
 #include "../platform/FileDialog.hpp"
 #include "../preview/PreviewController.hpp"
 #include "../render/GpuModelRenderer.hpp"
@@ -48,6 +51,7 @@ namespace pmxer {
 namespace {
 
 void replacePreviewFrame(PreviewSession &state, mmd::AnimatedModelFrame frame) {
+    state.baseFrame = frame;
     state.frame = std::move(frame);
     ++state.frameRevision;
 }
@@ -55,7 +59,11 @@ void replacePreviewFrame(PreviewSession &state, mmd::AnimatedModelFrame frame) {
 PreviewSession &updatePreview(DocumentSession &session) {
     auto &state = session.preview;
     if (!state.controller || state.revision != session.revision) {
-        state.controller = std::make_shared<PreviewController>(session.document.model());
+        if (state.revision != session.revision) {
+            session.deform.clearOverlay();
+            session.deform.sourceRevision = session.revision;
+        }
+        state.controller = std::make_shared<PreviewController>(session.document);
         state.revision = session.revision;
         state.accumulator = 0.0;
         state.clockInitialized = false;
@@ -64,20 +72,31 @@ PreviewSession &updatePreview(DocumentSession &session) {
         if (state.pose)
             state.controller->setPose(&*state.pose);
         std::erase_if(state.morphValues, [&](const auto &preview) {
-            return session.document.resolve(
-                       selectionHandle<mmd::MorphTag>(session.document, preview.selection)) == nullptr;
+            return session.document.resolve(preview.morph) == nullptr;
+        });
+        std::erase_if(session.deform.blends, [&](const auto &blend) {
+            return session.document.resolve(blend.morph) == nullptr;
         });
         for (const auto &preview : state.morphValues) {
-            const auto *morph = session.document.resolve(
-                selectionHandle<mmd::MorphTag>(session.document, preview.selection));
-            state.controller->setMorphPreview(morph->name, preview.weight);
+            if (session.document.resolve(preview.morph) != nullptr)
+                state.controller->setMorphPreview(preview.morph, preview.weight);
         }
         state.controller->setPhysicsEnabled(session.previewPhysics);
         state.controller->setIkEnabled(session.previewIk);
         replacePreviewFrame(state, state.controller->evaluate());
+        state.appliedMorphRevision = state.morphRevision;
     } else {
         state.controller->setPhysicsEnabled(session.previewPhysics);
         state.controller->setIkEnabled(session.previewIk);
+    }
+    if (state.controller && state.appliedMorphRevision != state.morphRevision) {
+        state.controller->clearMorphPreviews();
+        for (const auto &preview : state.morphValues) {
+            if (session.document.resolve(preview.morph) != nullptr)
+                state.controller->setMorphPreview(preview.morph, preview.weight);
+        }
+        replacePreviewFrame(state, state.controller->evaluate());
+        state.appliedMorphRevision = state.morphRevision;
     }
     const auto now = std::chrono::steady_clock::now();
     if (!state.clockInitialized) {
@@ -95,6 +114,11 @@ PreviewSession &updatePreview(DocumentSession &session) {
         }
     } else {
         state.lastTick = now;
+    }
+    if (state.baseFrame) {
+        state.frame = *state.baseFrame;
+        applyDeformOverlay(session, *state.frame);
+        ++state.frameRevision;
     }
     session.ui.previewFrame = state.frame ? &*state.frame : nullptr;
     return state;
@@ -1432,6 +1456,7 @@ void drawMainMenu(DocumentSession *session, FileDialog &fileDialog,
             ImGui::MenuItem("ビューポート", nullptr, &workspace.showViewport);
             ImGui::MenuItem("アウトライナー", nullptr, &workspace.showOutliner);
             ImGui::MenuItem("インスペクター", nullptr, &workspace.showInspector);
+            ImGui::MenuItem("Transform View", nullptr, &workspace.showTransformView);
             ImGui::SeparatorText("高度なパネル");
             ImGui::MenuItem("モデル", nullptr, &workspace.showModel);
             ImGui::MenuItem("頂点", nullptr, &workspace.showVertex);
@@ -1491,6 +1516,8 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
                           workspace.viewportLighting);
     else
         session.ui.viewportVisible = false;
+    if (workspace.showTransformView)
+        drawTransformView(session, &workspace.showTransformView);
     if (workspace.showOutliner)
         drawOutlinerPanel(session, workspace, &workspace.showOutliner);
     if (workspace.showInspector)

@@ -18,6 +18,7 @@ struct WorkspaceUiState {
     bool showViewport{true};
     bool showOutliner{true};
     bool showInspector{true};
+    bool showTransformView{true};
     bool showModel{};
     bool showVertex{};
     bool showMaterial{};
@@ -43,6 +44,7 @@ struct WorkspaceUiState {
 
     void resetPanels() noexcept {
         showDocuments = showViewport = showOutliner = showInspector = true;
+        showTransformView = true;
         showModel = showVertex = showMaterial = showTexture = showBone = false;
         showMorph = showDisplayFrame = showPhysics = showDiagnostics = false;
         showReferences = showDiff = false;

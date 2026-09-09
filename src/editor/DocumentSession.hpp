@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CommandStack.hpp"
+#include "DeformSession.hpp"
 #include "Selection.hpp"
 #include "ViewportPickCache.hpp"
 
@@ -164,11 +165,6 @@ struct EditorUiState {
 };
 
 struct PreviewSession {
-    struct MorphValue {
-        SelectionItem selection;
-        float weight{};
-    };
-
     std::shared_ptr<PreviewController> controller;
     std::optional<mmd::VmdMotion> motion;
     std::optional<mmd::VpdPose> pose;
@@ -178,7 +174,10 @@ struct PreviewSession {
     double accumulator{};
     std::chrono::steady_clock::time_point lastTick{};
     bool clockInitialized{};
-    std::vector<MorphValue> morphValues;
+    std::vector<MorphBlend> morphValues;
+    std::optional<mmd::AnimatedModelFrame> baseFrame;
+    std::uint64_t morphRevision{};
+    std::uint64_t appliedMorphRevision{std::numeric_limits<std::uint64_t>::max()};
 };
 
 struct DerivedEditorState {
@@ -207,6 +206,7 @@ struct DocumentSession {
     std::uint64_t resourceRevision{};
     std::chrono::steady_clock::time_point lastRecovery{};
     PreviewSession preview;
+    DeformSession deform;
     DerivedEditorState derived;
     EditorUiState ui;
 
@@ -227,6 +227,11 @@ struct DocumentSession {
         ui.viewportHover.reset();
         ui.viewportHoverFace.reset();
         ui.viewportPickCache.clear();
+        deform.mode = DeformMode::inactive;
+        deform.clearOverlay();
+        preview.baseFrame.reset();
+        preview.frame.reset();
+        preview.appliedMorphRevision = std::numeric_limits<std::uint64_t>::max();
         changes.topologyChanged = true;
         changes.physicsChanged = true;
         changes.texturesChanged = true;
@@ -247,6 +252,11 @@ struct DocumentSession {
         ui.viewportHover.reset();
         ui.viewportHoverFace.reset();
         ui.viewportPickCache.clear();
+        deform.mode = DeformMode::inactive;
+        deform.clearOverlay();
+        preview.baseFrame.reset();
+        preview.frame.reset();
+        preview.appliedMorphRevision = std::numeric_limits<std::uint64_t>::max();
         changes.topologyChanged = true;
         changes.physicsChanged = true;
         changes.texturesChanged = true;
