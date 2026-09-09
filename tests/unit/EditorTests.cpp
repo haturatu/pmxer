@@ -2,6 +2,7 @@
 #include "../../src/editor/DeformController.hpp"
 #include "../../src/editor/morph/MorphCapture.hpp"
 #include "../../src/editor/morph/MorphMask.hpp"
+#include "../../src/editor/morph/MorphMixer.hpp"
 #include "../../src/editor/morph/MorphOps.hpp"
 #include "../../src/editor/EditorSelectionController.hpp"
 #include "../../src/editor/EditorSelectionQueries.hpp"
@@ -139,13 +140,37 @@ int main() {
     pmxer::PreviewController materialPreview(materialDocument);
     materialPreview.setMorphPreview(materialDocument.morphHandle(0), 1.0F);
     const auto materialFrame = materialPreview.evaluate();
+    assert(std::abs(materialFrame.materials[0].diffuse[0] - 0.3F) < 1e-6F);
     assert(std::abs(materialFrame.materials[0].specular[2] - 0.7F) < 1e-6F);
     assert(std::abs(materialFrame.materials[0].shininess - 2.5F) < 1e-6F);
     assert(std::abs(materialFrame.materials[0].ambient[0] - 0.6F) < 1e-6F);
+    assert(std::abs(materialFrame.materials[0].edgeColor[2] - 1.2F) < 1e-6F);
     assert(std::abs(materialFrame.materials[0].edgeSize - 1.6F) < 1e-6F);
     assert(std::abs(materialFrame.materials[0].textureAdd[1] - 0.6F) < 1e-6F);
     assert(std::abs(materialFrame.materials[0].sphereAdd[2] - 0.8F) < 1e-6F);
     assert(std::abs(materialFrame.materials[0].toonAdd[3] - 1.0F) < 1e-6F);
+
+    auto mixerModel = sampleModel();
+    mixerModel.morphs.push_back(previewMorph);
+    pmxer::DocumentSession mixerSession(std::move(mixerModel));
+    mixerSession.deform.mode = pmxer::DeformMode::inactive;
+    mixerSession.selection.set(pmxer::SelectionItem{
+        pmxer::SelectionKind::vertex, mixerSession.document.vertexHandle(0).domain,
+        mixerSession.document.vertexHandle(0).id, mixerSession.document.vertexHandle(0).generation});
+    pmxer::morph::setBlend(mixerSession, mixerSession.document.morphHandle(0), 0.5F);
+    assert(mixerSession.deform.mode == pmxer::DeformMode::inactive);
+    const auto normalCapabilities = pmxer::transformCapabilities(mixerSession);
+    assert(normalCapabilities.move);
+    assert(!normalCapabilities.rotate);
+    assert(!normalCapabilities.scale);
+    mixerSession.deform.mode = pmxer::DeformMode::shape;
+    mixerSession.deform.engaged = true;
+    mixerSession.deform.suspended = true;
+    assert(!mixerSession.deform.active());
+    const auto suspendedCapabilities = pmxer::transformCapabilities(mixerSession);
+    assert(suspendedCapabilities.move);
+    assert(!suspendedCapabilities.rotate);
+    assert(!suspendedCapabilities.scale);
 
     pmxer::DocumentSession bonePreviewSession(sampleModel());
     bonePreviewSession.deform.bones.push_back(
@@ -155,13 +180,29 @@ int main() {
     bonePreview.setBonePreview(pmxer::boneMorphOffsets(bonePreviewSession));
     assert(std::abs(bonePreview.evaluate().vertices[0].position[0] - 1.0F) < 1e-6F);
 
+    pmxer::DocumentSession orderedPreviewSession(sampleModel());
+    orderedPreviewSession.deform.vertices.push_back(
+        {orderedPreviewSession.document.vertexHandle(0), {0.0F, 1.0F, 0.0F}});
+    const auto orderedBone = orderedPreviewSession.document.boneHandle(0);
+    constexpr auto pi = 3.14159265358979323846F;
+    orderedPreviewSession.deform.bones.push_back(
+        {orderedBone, {}, {0.0F, 0.0F, std::sin(0.25F * pi), std::cos(0.25F * pi)}});
+    pmxer::PreviewController orderedPreview(orderedPreviewSession.document);
+    orderedPreview.setVertexPreview(pmxer::vertexMorphOffsets(orderedPreviewSession));
+    orderedPreview.setBonePreview(pmxer::boneMorphOffsets(orderedPreviewSession));
+    const auto orderedFrame = orderedPreview.evaluate();
+    assert(std::abs(orderedFrame.vertices[0].position[0] + 1.0F) < 1e-5F);
+    assert(std::abs(orderedFrame.vertices[0].position[1]) < 1e-5F);
+
     mmd::PmxModel operationModel = sampleModel();
     operationModel.vertices[0].position[0] = -1.0F;
     operationModel.vertices[1].position[0] = 0.0F;
     operationModel.vertices[2].position[0] = 1.0F;
     mmd::PmxMorph operationMorph;
     operationMorph.name = "operation";
+    operationMorph.englishName = "operation-en";
     operationMorph.type = 1U;
+    operationMorph.panel = 2U;
     for (std::int32_t index = 0; index < 3; ++index) {
         mmd::PmxMorphOffset offset;
         offset.index = index;
@@ -180,12 +221,18 @@ int main() {
     const auto &operationSource = operationModel.morphs.front();
     const auto scaled = pmxer::morph::scale(pmxer::morph::copy(operationSource), 2.0F);
     assert(scaled.offsets[0].vector3[0] == 2.0F);
+    assert(scaled.panel == 2U);
+    assert(scaled.englishName == "operation-en");
     const auto inverted = pmxer::morph::negate(pmxer::morph::copy(operationSource));
     assert(inverted.offsets[0].vector3[0] == -1.0F);
+    assert(inverted.panel == 2U);
+    assert(inverted.englishName == "operation-en");
     const auto split = pmxer::morph::splitSide(
         operationModel, operationSource, {.0F, 0.1F, false, false});
     assert(split.left.offsets.size() == 2U);
     assert(split.right.offsets.size() == 2U);
+    assert(split.left.panel == 2U);
+    assert(split.right.panel == 2U);
     assert(split.left.offsets[0].vector3[0] == 1.0F);
     assert(split.right.offsets[1].vector3[0] == 1.0F);
     const auto masked = pmxer::morph::filterByMaterial(
@@ -199,12 +246,21 @@ int main() {
     captureSession.deform.vertices.push_back({captureVertex, {0.25F, 0.0F, 0.0F}});
     assert(pmxer::morph::captureVertexMorph(captureSession, "captured").success);
     assert(captureSession.document.model().morphs.size() == 1U);
+    assert(captureSession.document.model().morphs[0].panel == 4U);
     assert(captureSession.document.model().morphs[0].offsets[0].vector3[0] == 0.25F);
     assert(captureSession.commands.undoCount() == 1U);
+    captureSession.deform.vertices.push_back({captureVertex, {0.5F, 0.0F, 0.0F}});
+    captureSession.deform.bones.push_back(
+        {captureSession.document.boneHandle(0), {0.1F, 0.0F, 0.0F},
+         {0.0F, 0.0F, 0.0F, 1.0F}});
+    assert(pmxer::morph::captureVertexMorph(captureSession, "captured second").success);
+    assert(captureSession.deform.vertices.empty());
+    assert(captureSession.deform.bones.size() == 1U);
+    assert(captureSession.commands.undoCount() == 2U);
     assert(captureSession.undo());
-    assert(captureSession.document.model().morphs.empty());
-    assert(captureSession.redo());
     assert(captureSession.document.model().morphs.size() == 1U);
+    assert(captureSession.redo());
+    assert(captureSession.document.model().morphs.size() == 2U);
 
     pmxer::DocumentSession reverseSession(std::move(operationModel));
     const auto reverseMorph = reverseSession.document.morphHandle(0);
@@ -229,13 +285,15 @@ int main() {
     symmetrySession.deform.mode = pmxer::DeformMode::shape;
     symmetrySession.deform.engaged = true;
     symmetrySession.deform.symmetryX = true;
-    symmetrySession.deform.symmetryFeather = 0.01F;
+    symmetrySession.deform.symmetryTolerance = 0.01F;
     symmetrySession.selection.set(pmxer::SelectionItem{
         pmxer::SelectionKind::vertex,
         symmetrySession.document.vertexHandle(0).domain,
         symmetrySession.document.vertexHandle(0).id,
         symmetrySession.document.vertexHandle(0).generation});
-    pmxer::beginDeformGizmoDrag(symmetrySession);
+    std::array<float, 16> symmetryStart{};
+    symmetryStart[0] = symmetryStart[5] = symmetryStart[10] = symmetryStart[15] = 1.0F;
+    pmxer::beginDeformGizmoDrag(symmetrySession, symmetryStart);
     std::array<float, 16> symmetryDelta{};
     symmetryDelta[0] = symmetryDelta[5] = symmetryDelta[10] = symmetryDelta[15] = 1.0F;
     symmetryDelta[12] = 0.25F;
@@ -250,6 +308,48 @@ int main() {
     assert(rightDelta != symmetrySession.deform.vertices.end());
     assert(leftDelta->offset[0] == 0.25F);
     assert(rightDelta->offset[0] == -0.25F);
+
+    auto dragModel = sampleModel();
+    dragModel.vertices[1].position[0] = 1.0F;
+    pmxer::DocumentSession dragSession(std::move(dragModel));
+    dragSession.deform.mode = pmxer::DeformMode::shape;
+    dragSession.deform.engaged = true;
+    const auto dragVertex = dragSession.document.vertexHandle(1);
+    dragSession.selection.set(pmxer::SelectionItem{
+        pmxer::SelectionKind::vertex, dragVertex.domain, dragVertex.id, dragVertex.generation});
+    std::array<float, 16> dragStart{};
+    dragStart[0] = dragStart[5] = dragStart[10] = dragStart[15] = 1.0F;
+    pmxer::beginDeformGizmoDrag(dragSession, dragStart);
+    auto dragCurrent = dragStart;
+    dragCurrent[12] = 0.1F;
+    pmxer::updateDeformGizmoDrag(dragSession, dragCurrent);
+    dragCurrent[12] = 0.5F;
+    pmxer::updateDeformGizmoDrag(dragSession, dragCurrent);
+    assert(std::abs(dragSession.deform.vertices.front().offset[0] - 0.5F) < 1e-6F);
+
+    auto rotationMatrix = [](float angle) {
+        std::array<float, 16> matrix{};
+        matrix[0] = matrix[5] = std::cos(angle);
+        matrix[4] = -std::sin(angle);
+        matrix[1] = std::sin(angle);
+        matrix[10] = matrix[15] = 1.0F;
+        return matrix;
+    };
+    pmxer::DocumentSession boneDragSession(sampleModel());
+    boneDragSession.deform.mode = pmxer::DeformMode::pose;
+    boneDragSession.deform.engaged = true;
+    const auto dragBone = boneDragSession.document.boneHandle(0);
+    boneDragSession.selection.set(pmxer::SelectionItem{
+        pmxer::SelectionKind::bone, dragBone.domain, dragBone.id, dragBone.generation});
+    const auto identityMatrix = rotationMatrix(0.0F);
+    const auto thirtyDegrees = rotationMatrix(pi / 6.0F);
+    const auto fiftyDegrees = rotationMatrix(5.0F * pi / 18.0F);
+    pmxer::beginDeformGizmoDrag(boneDragSession, identityMatrix);
+    pmxer::updateDeformGizmoDrag(boneDragSession, thirtyDegrees);
+    pmxer::beginDeformGizmoDrag(boneDragSession, thirtyDegrees);
+    pmxer::updateDeformGizmoDrag(boneDragSession, fiftyDegrees);
+    assert(std::abs(boneDragSession.deform.bones.front().rotation[2] - std::sin(5.0F * pi / 36.0F)) < 1e-5F);
+    assert(std::abs(boneDragSession.deform.bones.front().rotation[3] - std::cos(5.0F * pi / 36.0F)) < 1e-5F);
 
     pmxer::DocumentSession retainedSession(sampleModel());
     const auto retainedVertex = retainedSession.document.vertexHandle(0);
