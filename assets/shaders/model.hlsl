@@ -65,8 +65,8 @@ float4 mainPS(VertexOutput input) : SV_Target0 {
     const float lightIntensity = max(viewportLighting.x, 0.0);
     const float ambientIntensity = max(viewportLighting.y, 0.0);
     const float shadingMode = viewportLighting.w;
-    const float ndotl = clamp(dot(normal, normalize(lightDirection.xyz)) * lightIntensity,
-                              -1.0, 1.0);
+    const float rawNdotL = clamp(dot(normal, normalize(lightDirection.xyz)), -1.0, 1.0);
+    const float directLight = saturate(rawNdotL) * lightIntensity;
     const float4 textureColor = baseTexture.Sample(baseSampler, input.uv);
     float3 baseDiffuse = diffuse.rgb;
     const bool baseMissing = textureFlags.x > 0.5;
@@ -74,7 +74,7 @@ float4 mainPS(VertexOutput input) : SV_Target0 {
         baseDiffuse = lerp(baseDiffuse, float3(0.72, 0.74, 0.78), 0.70);
     const float3 baseSample = textureColor.rgb * textureMultiply.rgb + textureAdd.rgb;
 
-    const float2 toonUv = float2(0.5, 0.5 - ndotl * 0.5);
+    const float2 toonUv = float2(0.5, 0.5 - rawNdotL * 0.5);
     const float4 toonColor = toonTexture.Sample(toonSampler, toonUv);
     float3 toonFactor = toonColor.rgb * toonMultiply.rgb + toonAdd.rgb;
     if (baseMissing)
@@ -84,11 +84,12 @@ float4 mainPS(VertexOutput input) : SV_Target0 {
     if (shadingMode > 1.5) {
         color = baseDiffuse * baseSample;
     } else if (shadingMode > 0.5) {
-        const float diffuseLight = lerp(1.0, saturate(ndotl), 0.55);
+        const float diffuseLight = 0.25 + 0.75 * directLight;
         color = baseSample * saturate(baseDiffuse * diffuseLight +
                                       ambientShininess.rgb * ambientIntensity);
     } else {
-        color = baseSample * saturate(baseDiffuse +
+        const float diffuseLight = 0.25 + 0.75 * directLight;
+        color = baseSample * saturate(baseDiffuse * diffuseLight +
                                       ambientShininess.rgb * ambientIntensity);
     }
 
@@ -115,7 +116,7 @@ float4 mainPS(VertexOutput input) : SV_Target0 {
     if (shadingMode <= 1.5) {
         const float3 viewDirection = normalize(cameraPosition.xyz - input.worldPosition);
         const float3 halfVector = normalize(normalize(lightDirection.xyz) + viewDirection);
-        const float specularLight = ndotl > 0.0
+        const float specularLight = rawNdotL > 0.0
                                         ? pow(saturate(dot(normal, halfVector)),
                                               max(ambientShininess.w, 1.0))
                                         : 0.0;
