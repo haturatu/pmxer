@@ -56,6 +56,11 @@ int main() {
     const pmxer::ViewportLightingSettings lightingDefaults{};
     assert(lightingDefaults.mode == pmxer::ViewportShadingMode::neutral);
     assert(lightingDefaults.exposure == 0.5F);
+    auto mmdLighting = lightingDefaults;
+    pmxer::applyViewportShadingPreset(mmdLighting, pmxer::ViewportShadingMode::mmd);
+    assert(mmdLighting.lightIntensity == 0.6F);
+    assert(mmdLighting.ambientIntensity == 1.0F);
+    assert(mmdLighting.exposure == 0.0F);
 
     auto previewModel = sampleModel();
     mmd::PmxMorph previewMorph;
