@@ -554,6 +554,10 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         static constexpr const char *physicsModes[]{"文脈", "全て", "選択のみ"};
         const auto modeIndex = static_cast<std::size_t>(profile->physicsMode);
         ImGui::SameLine();
+        const auto &style = ImGui::GetStyle();
+        ImGui::SetNextItemWidth(
+            ImGui::CalcTextSize("選択のみ").x + ImGui::GetFrameHeight() +
+            style.FramePadding.x * 2.0F);
         if (ImGui::BeginCombo("##physics-overlay-mode",
                               physicsModes[std::min(modeIndex, std::size(physicsModes) - 1U)])) {
             for (std::size_t index = 0; index < std::size(physicsModes); ++index) {
@@ -567,11 +571,11 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     const auto shadingLabel = [&] {
         switch (lighting.mode) {
         case ViewportShadingMode::mmd:
-            return sharedToonFallbackCount != 0U ? "表示: MMD*" : "表示: MMD";
+            return sharedToonFallbackCount != 0U ? "MMD*" : "MMD";
         case ViewportShadingMode::neutral:
-            return "表示: Neutral";
+            return "Neutral";
         case ViewportShadingMode::unlit:
-            return "表示: Unlit";
+            return "Unlit";
         }
         return "表示";
     }();
