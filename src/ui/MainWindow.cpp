@@ -441,9 +441,10 @@ int runApplication(const EditCommand &options) {
                                             : findSession(result->context);
                     if (target) {
                         const auto targetId = sessions[*target]->recoveryId;
-                        const auto saved = saveDocument(*sessions[*target], result->path).success;
-                        sessions[*target]->ui.status = saved ? "保存しました" : "保存に失敗しました";
-                        if (saved && closeAfterSaveSession &&
+                        const auto saveResult = saveDocument(*sessions[*target], result->path);
+                        setOperationStatus(*sessions[*target], saveResult.success,
+                                           "保存しました", "保存に失敗しました");
+                        if (saveResult.success && closeAfterSaveSession &&
                             *closeAfterSaveSession == targetId) {
                             closeAfterSaveSession.reset();
                             closeSession(*target);

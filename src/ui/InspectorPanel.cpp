@@ -802,6 +802,8 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
       beginMorphOffsetTargetPick(session, handle, session.ui.morphOffsetIndex,
                                  draft.type, false);
     }
+    if (offsetCommit)
+      ++session.ui.morphOffsetFilterEpoch;
     if (session.ui.morphOffsetTarget.picking)
       ImGui::TextDisabled("対象を選択中…");
     if (session.ui.morphOffsetTarget.target)

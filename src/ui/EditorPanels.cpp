@@ -868,11 +868,11 @@ void drawMorphPanel(DocumentSession &session, bool *open) {
     int panel = draft.panel;
     int type = draft.type;
     ImGui::InputInt("パネル", &panel);
-    ImGui::InputInt("種類", &type);
+    const auto typeChanged = ImGui::InputInt("種類", &type);
     draft.panel = static_cast<std::uint8_t>(std::clamp(panel, 0, 4));
     draft.type = static_cast<std::uint8_t>(std::clamp(type, 0, 10));
     ImGui::Text("オフセット: %zu", draft.offsets.size());
-    bool offsetDirty = false;
+    bool offsetDirty = typeChanged;
     if (!draft.offsets.empty()) {
         if (drawMorphOffsetBrowser(
                 session, draft, session.ui.morphOffsetIndex, "advanced", handle)
@@ -930,6 +930,8 @@ void drawMorphPanel(DocumentSession &session, bool *open) {
         }
     }
     session.ui.morphOffsetDirty = session.ui.morphOffsetDirty || offsetDirty;
+    if (offsetDirty)
+        ++session.ui.morphOffsetFilterEpoch;
     if (ImGui::Button("適用")) {
         const auto result = editMorph(session, handle, draft);
         setOperationStatus(session, result.success, "モーフを更新しました",
@@ -1372,10 +1374,11 @@ void drawMainMenu(DocumentSession *session, FileDialog &fileDialog,
                             ImGuiInputFlags_RouteGlobal)) {
             if (session->path.empty())
                 (void)fileDialog.save({}, session->recoveryId);
-            else
-                session->ui.status = saveDocument(*session).success
-                                          ? "保存しました"
-                                          : "保存に失敗しました";
+            else {
+                const auto result = saveDocument(*session);
+                setOperationStatus(*session, result.success, "保存しました",
+                                   "保存に失敗しました");
+            }
         }
         if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S,
                             ImGuiInputFlags_RouteGlobal))
@@ -1395,10 +1398,11 @@ void drawMainMenu(DocumentSession *session, FileDialog &fileDialog,
         if (ImGui::MenuItem("保存", "Ctrl+S", false, hasSession)) {
             if (session->path.empty())
                 (void)fileDialog.save({}, session->recoveryId);
-            else
-                session->ui.status = saveDocument(*session).success
-                                          ? "保存しました"
-                                          : "保存に失敗しました";
+            else {
+                const auto result = saveDocument(*session);
+                setOperationStatus(*session, result.success, "保存しました",
+                                   "保存に失敗しました");
+            }
         }
         if (ImGui::MenuItem("名前を付けて保存…", "Ctrl+Shift+S", false,
                             hasSession && !fileDialog.busy()))

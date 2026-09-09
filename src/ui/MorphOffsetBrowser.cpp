@@ -69,10 +69,15 @@ MorphOffsetBrowserResult drawMorphOffsetBrowser(
         auto &cache = session.ui.morphOffsetFilter;
         if (cache.morphId != morphHandle.id ||
             cache.morphGeneration != morphHandle.generation ||
-            cache.documentRevision != session.revision || cache.query != query) {
+            cache.morphType != morph.type ||
+            cache.documentRevision != session.revision ||
+            cache.sourceEpoch != session.ui.morphOffsetFilterEpoch ||
+            cache.query != query) {
             cache.morphId = morphHandle.id;
             cache.morphGeneration = morphHandle.generation;
+            cache.morphType = morph.type;
             cache.documentRevision = session.revision;
+            cache.sourceEpoch = session.ui.morphOffsetFilterEpoch;
             cache.query = query;
             cache.visible.clear();
             cache.visible.reserve(morph.offsets.size());

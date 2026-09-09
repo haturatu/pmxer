@@ -234,6 +234,7 @@ bool selectMorphOffsetTarget(DocumentSession &session, SelectionItem item) {
         session.ui.morphDraft->offsets[target.offsetIndex].index =
             static_cast<std::int32_t>(*index);
         session.ui.morphOffsetDirty = true;
+        ++session.ui.morphOffsetFilterEpoch;
     }
     target.target = item;
     target.picking = false;
