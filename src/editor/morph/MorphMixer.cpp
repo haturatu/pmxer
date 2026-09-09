@@ -78,7 +78,6 @@ void syncPreview(DocumentSession &session) {
     session.preview.controller->setBonePreview(
         session.deform.mode == DeformMode::pose ? boneMorphOffsets(session)
                                                 : std::vector<mmd::PmxMorphOffset>{});
-    session.preview.baseFrame = session.preview.controller->evaluate();
     refreshDeformPreview(session);
     session.preview.appliedMorphRevision = session.preview.morphRevision;
 }

@@ -50,4 +50,21 @@ mmd::Float3 evaluatedBonePosition(const DocumentSession &session, mmd::BoneHandl
     return evaluatedBonePosition(session, index, frame);
 }
 
+mmd::Float4 evaluatedBoneRotation(const DocumentSession &session, std::size_t index,
+                                  const mmd::AnimatedModelFrame *frame) noexcept {
+    if (index >= session.document.model().bones.size() || frame == nullptr ||
+        index >= frame->bones.size())
+        return {0.0F, 0.0F, 0.0F, 1.0F};
+    return frame->bones[index].rotation;
+}
+
+mmd::Float4 evaluatedBoneRotation(const DocumentSession &session, mmd::BoneHandle bone,
+                                  const mmd::AnimatedModelFrame *frame) noexcept {
+    const auto *value = session.document.resolve(bone);
+    if (value == nullptr)
+        return {0.0F, 0.0F, 0.0F, 1.0F};
+    const auto index = static_cast<std::size_t>(value - session.document.model().bones.data());
+    return evaluatedBoneRotation(session, index, frame);
+}
+
 } // namespace pmxer

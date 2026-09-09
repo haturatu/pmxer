@@ -43,8 +43,10 @@ struct DragBone {
     mmd::BoneHandle bone{};
     mmd::Float3 position{};
     mmd::Float3 translation{};
-    mmd::Float4 rotation{0.0F, 0.0F, 0.0F, 1.0F};
-    mmd::Float4 parentRotation{0.0F, 0.0F, 0.0F, 1.0F};
+    mmd::Float4 startWorldRotation{0.0F, 0.0F, 0.0F, 1.0F};
+    mmd::Float4 startOverlayRotation{0.0F, 0.0F, 0.0F, 1.0F};
+    mmd::Float4 preOverlayWorldRotation{0.0F, 0.0F, 0.0F, 1.0F};
+    mmd::Float4 parentWorldRotation{0.0F, 0.0F, 0.0F, 1.0F};
 };
 
 struct MirrorPositionGroup {
@@ -69,6 +71,7 @@ struct DeformSession {
     bool symmetryX{};
     float symmetryCenterX{};
     float symmetryTolerance{0.02F};
+    float symmetryDuplicateEpsilon{1e-6F};
     bool symmetrySwapSides{};
     MirrorDriverSide mirrorDriverSide{MirrorDriverSide::negativeX};
     float sideSplitCenterX{};
@@ -89,6 +92,7 @@ struct DeformSession {
     std::uint64_t symmetryCacheRevision{std::numeric_limits<std::uint64_t>::max()};
     float symmetryCacheCenterX{};
     float symmetryCacheTolerance{};
+    float symmetryCacheDuplicateEpsilon{};
     std::vector<std::int32_t> symmetryMirrorGroupIndices;
     std::vector<MirrorPositionGroup> symmetryMirrorGroups;
 
@@ -124,6 +128,7 @@ struct DeformSession {
         symmetryX = false;
         symmetryCenterX = 0.0F;
         symmetryTolerance = 0.02F;
+        symmetryDuplicateEpsilon = 1e-6F;
         symmetrySwapSides = false;
         mirrorDriverSide = MirrorDriverSide::negativeX;
         sideSplitCenterX = 0.0F;
@@ -143,6 +148,7 @@ struct DeformSession {
         symmetryCacheRevision = std::numeric_limits<std::uint64_t>::max();
         symmetryCacheCenterX = 0.0F;
         symmetryCacheTolerance = 0.0F;
+        symmetryCacheDuplicateEpsilon = 0.0F;
         symmetryMirrorGroupIndices.clear();
         symmetryMirrorGroups.clear();
         dragStartGizmoMatrix = {};

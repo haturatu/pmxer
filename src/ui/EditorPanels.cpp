@@ -130,10 +130,6 @@ PreviewSession &updatePreview(DocumentSession &session) {
     } else {
         state.lastTick = now;
     }
-    if (state.baseFrame) {
-        state.frame = *state.baseFrame;
-        ++state.frameRevision;
-    }
     session.ui.previewFrame = state.frame ? &*state.frame : nullptr;
     return state;
 }

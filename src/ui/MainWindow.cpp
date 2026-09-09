@@ -357,7 +357,6 @@ int runApplication(const EditCommand &options) {
                 preview.controller->setBonePreview(
                     session.deform.mode == DeformMode::pose ? boneMorphOffsets(session)
                                                             : std::vector<mmd::PmxMorphOffset>{});
-                preview.baseFrame = preview.controller->evaluate();
                 refreshDeformPreview(session);
             }
             preview.accumulator = 0.0;

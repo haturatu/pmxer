@@ -19,8 +19,8 @@
 namespace pmxer {
 namespace {
 
-constexpr float radiansToDegrees = 57.2957795F;
 constexpr float degreesToRadians = 0.0174532925F;
+constexpr mmd::Float4 identityQuaternion{0.0F, 0.0F, 0.0F, 1.0F};
 
 std::array<float, 16> transpose(const std::array<float, 16> &source) {
     std::array<float, 16> result{};
@@ -32,8 +32,38 @@ std::array<float, 16> transpose(const std::array<float, 16> &source) {
 
 struct TransformSource {
     mmd::Float3 position{};
-    mmd::Float3 rotation{};
+    mmd::Float4 rotation{0.0F, 0.0F, 0.0F, 1.0F};
 };
+
+mmd::Float4 normalizeQuaternion(mmd::Float4 value) {
+    float length{};
+    for (const auto component : value)
+        length += component * component;
+    if (length <= 1e-12F)
+        return identityQuaternion;
+    for (auto &component : value)
+        component /= std::sqrt(length);
+    return value;
+}
+
+mmd::Float4 multiplyQuaternion(const mmd::Float4 &lhs, const mmd::Float4 &rhs) {
+    return normalizeQuaternion({
+        lhs[3] * rhs[0] + lhs[0] * rhs[3] + lhs[1] * rhs[2] - lhs[2] * rhs[1],
+        lhs[3] * rhs[1] - lhs[0] * rhs[2] + lhs[1] * rhs[3] + lhs[2] * rhs[0],
+        lhs[3] * rhs[2] + lhs[0] * rhs[1] - lhs[1] * rhs[0] + lhs[2] * rhs[3],
+        lhs[3] * rhs[3] - lhs[0] * rhs[0] - lhs[1] * rhs[1] - lhs[2] * rhs[2],
+    });
+}
+
+mmd::Float4 quaternionFromEuler(const mmd::Float3 &euler) {
+    const auto halfX = euler[0] * 0.5F;
+    const auto halfY = euler[1] * 0.5F;
+    const auto halfZ = euler[2] * 0.5F;
+    const mmd::Float4 x{std::sin(halfX), 0.0F, 0.0F, std::cos(halfX)};
+    const mmd::Float4 y{0.0F, std::sin(halfY), 0.0F, std::cos(halfY)};
+    const mmd::Float4 z{0.0F, 0.0F, std::sin(halfZ), std::cos(halfZ)};
+    return multiplyQuaternion(z, multiplyQuaternion(y, x));
+}
 
 std::optional<TransformSource> sourceFor(const DocumentSession &session,
                                          const SelectionItem &selected) {
@@ -48,10 +78,11 @@ std::optional<TransformSource> sourceFor(const DocumentSession &session,
         if (session.deform.pivotMode == PivotMode::active || session.selection.items().size() == 1U) {
             if (expected == SelectionKind::vertex)
                 return TransformSource{deformVertexPosition(
-                    session, selectionHandle<mmd::VertexTag>(session.document, selected)), {}};
-            return TransformSource{evaluatedBonePosition(
-                session, selectionHandle<mmd::BoneTag>(session.document, selected),
-                session.ui.previewFrame), {}};
+                    session, selectionHandle<mmd::VertexTag>(session.document, selected)),
+                                        identityQuaternion};
+            const auto handle = selectionHandle<mmd::BoneTag>(session.document, selected);
+            return TransformSource{evaluatedBonePosition(session, handle, session.ui.previewFrame),
+                                   evaluatedBoneRotation(session, handle, session.ui.previewFrame)};
         }
         mmd::Float3 center{};
         std::size_t count{};
@@ -59,7 +90,8 @@ std::optional<TransformSource> sourceFor(const DocumentSession &session,
             if (item.kind != expected)
                 continue;
             const auto position = expected == SelectionKind::vertex
-                                      ? deformVertexPosition(session, selectionHandle<mmd::VertexTag>(session.document, item))
+                                      ? deformVertexPosition(
+                                            session, selectionHandle<mmd::VertexTag>(session.document, item))
                                       : evaluatedBonePosition(
                                             session, selectionHandle<mmd::BoneTag>(session.document, item),
                                             session.ui.previewFrame);
@@ -71,39 +103,57 @@ std::optional<TransformSource> sourceFor(const DocumentSession &session,
             return std::nullopt;
         for (auto &component : center)
             component /= static_cast<float>(count);
-        return TransformSource{center, {}};
+        if (expected == SelectionKind::bone) {
+            const auto handle = selectionHandle<mmd::BoneTag>(session.document, selected);
+            return TransformSource{center, evaluatedBoneRotation(
+                                            session, handle, session.ui.previewFrame)};
+        }
+        return TransformSource{center, identityQuaternion};
     }
     if (selected.kind == SelectionKind::vertex) {
         const auto *value = session.document.resolve(
             selectionHandle<mmd::VertexTag>(session.document, selected));
         if (value != nullptr)
-            return TransformSource{value->position, {}};
+            return TransformSource{value->position, identityQuaternion};
     } else if (selected.kind == SelectionKind::bone) {
         const auto handle = selectionHandle<mmd::BoneTag>(session.document, selected);
         if (session.document.resolve(handle) != nullptr)
-            return TransformSource{evaluatedBonePosition(session, handle, session.ui.previewFrame), {}};
+            return TransformSource{evaluatedBonePosition(session, handle, session.ui.previewFrame),
+                                   evaluatedBoneRotation(session, handle, session.ui.previewFrame)};
     } else if (selected.kind == SelectionKind::rigidBody) {
         const auto *value = session.document.resolve(
             selectionHandle<mmd::RigidBodyTag>(session.document, selected));
         if (value != nullptr)
-            return TransformSource{value->position, value->rotation};
+            return TransformSource{value->position, quaternionFromEuler(value->rotation)};
     } else if (selected.kind == SelectionKind::joint) {
         const auto *value = session.document.resolve(
             selectionHandle<mmd::JointTag>(session.document, selected));
         if (value != nullptr)
-            return TransformSource{value->position, value->rotation};
+            return TransformSource{value->position, quaternionFromEuler(value->rotation)};
     }
     return std::nullopt;
 }
 
 void compose(const TransformSource &source, std::array<float, 16> &matrix) {
-    const float translation[]{source.position[0], source.position[1], source.position[2]};
-    const float rotation[]{source.rotation[0] * radiansToDegrees,
-                           source.rotation[1] * radiansToDegrees,
-                           source.rotation[2] * radiansToDegrees};
-    constexpr float scale[]{1.0F, 1.0F, 1.0F};
-    ImGuizmo::RecomposeMatrixFromComponents(translation, rotation, scale,
-                                            matrix.data());
+    const auto rotation = normalizeQuaternion(source.rotation);
+    const auto x = rotation[0];
+    const auto y = rotation[1];
+    const auto z = rotation[2];
+    const auto w = rotation[3];
+    matrix = {};
+    matrix[0] = 1.0F - 2.0F * (y * y + z * z);
+    matrix[4] = 2.0F * (x * y - z * w);
+    matrix[8] = 2.0F * (x * z + y * w);
+    matrix[1] = 2.0F * (x * y + z * w);
+    matrix[5] = 1.0F - 2.0F * (x * x + z * z);
+    matrix[9] = 2.0F * (y * z - x * w);
+    matrix[2] = 2.0F * (x * z - y * w);
+    matrix[6] = 2.0F * (y * z + x * w);
+    matrix[10] = 1.0F - 2.0F * (x * x + y * y);
+    matrix[12] = source.position[0];
+    matrix[13] = source.position[1];
+    matrix[14] = source.position[2];
+    matrix[15] = 1.0F;
 }
 
 void decompose(const std::array<float, 16> &matrix, mmd::Float3 &position,
