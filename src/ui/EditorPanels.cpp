@@ -874,10 +874,8 @@ void drawMorphPanel(DocumentSession &session, bool *open) {
     ImGui::Text("オフセット: %zu", draft.offsets.size());
     bool offsetDirty = typeChanged;
     if (!draft.offsets.empty()) {
-        if (drawMorphOffsetBrowser(
-                session, draft, session.ui.morphOffsetIndex, "advanced", handle)
-                .selectionChanged)
-            offsetDirty = true;
+        (void)drawMorphOffsetBrowser(
+            session, draft, session.ui.morphOffsetIndex, "advanced", handle);
         auto &offset = draft.offsets[session.ui.morphOffsetIndex];
         switch (draft.type) {
         case 0:
