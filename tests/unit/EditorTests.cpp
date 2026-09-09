@@ -9,6 +9,7 @@
 #include "../../src/editor/EditorOperations.hpp"
 #include "../../src/editor/RecoveryController.hpp"
 #include "../../src/editor/SaveController.hpp"
+#include "../../src/editor/PreviewPoseQueries.hpp"
 #include "../../src/editor/ViewportCapabilities.hpp"
 #include "../../src/editor/ViewportLighting.hpp"
 #include "../../src/editor/WorkspacePolicy.hpp"
@@ -194,6 +195,23 @@ int main() {
     assert(std::abs(orderedFrame.vertices[0].position[0] + 1.0F) < 1e-5F);
     assert(std::abs(orderedFrame.vertices[0].position[1]) < 1e-5F);
 
+    auto posedBoneModel = sampleModel();
+    mmd::PmxBone childBone;
+    childBone.name = "child";
+    childBone.parent = 0;
+    childBone.position = {1.0F, 0.0F, 0.0F};
+    posedBoneModel.bones.push_back(childBone);
+    pmxer::DocumentSession posedBoneSession(std::move(posedBoneModel));
+    mmd::AnimatedModelFrame posedFrame;
+    posedFrame.bones.resize(2U);
+    posedFrame.bones[0].rotation = {0.0F, 0.0F, std::sin(0.25F * pi),
+                                    std::cos(0.25F * pi)};
+    posedFrame.bones[1].rotation = posedFrame.bones[0].rotation;
+    const auto evaluatedChild = pmxer::evaluatedBonePosition(
+        posedBoneSession, posedBoneSession.document.boneHandle(1), &posedFrame);
+    assert(std::abs(evaluatedChild[0]) < 1e-5F);
+    assert(std::abs(evaluatedChild[1] - 1.0F) < 1e-5F);
+
     mmd::PmxModel operationModel = sampleModel();
     operationModel.vertices[0].position[0] = -1.0F;
     operationModel.vertices[1].position[0] = 0.0F;
@@ -262,6 +280,58 @@ int main() {
     assert(captureSession.redo());
     assert(captureSession.document.model().morphs.size() == 2U);
 
+    pmxer::DocumentSession noOpBoneSession(sampleModel());
+    noOpBoneSession.deform.bones.push_back(
+        {noOpBoneSession.document.boneHandle(0), {},
+         {0.0F, 0.0F, 0.0F, 1.0F}});
+    assert(!pmxer::morph::captureBoneMorph(noOpBoneSession, "no-op bone").success);
+    assert(noOpBoneSession.document.model().morphs.empty());
+
+    auto soloModel = sampleModel();
+    auto soloFirst = previewMorph;
+    soloFirst.name = "blink";
+    soloFirst.offsets.front().vector3 = {1.0F, 0.0F, 0.0F};
+    soloModel.morphs.push_back(soloFirst);
+    auto soloSecond = soloFirst;
+    soloSecond.name = "smile";
+    soloSecond.offsets.front().vector3 = {2.0F, 0.0F, 0.0F};
+    soloModel.morphs.push_back(soloSecond);
+    pmxer::DocumentSession soloSession(std::move(soloModel));
+    pmxer::morph::setBlend(soloSession, soloSession.document.morphHandle(0), 0.5F);
+    pmxer::morph::setBlend(soloSession, soloSession.document.morphHandle(1), 0.8F);
+    pmxer::morph::setSoloMorph(soloSession, soloSession.document.morphHandle(1));
+    assert(pmxer::morph::effectiveMorphMix(soloSession).size() == 1U);
+    assert(pmxer::morph::effectiveMorphMix(soloSession).front().morph ==
+           soloSession.document.morphHandle(1));
+    assert(pmxer::morph::captureGroupMorph(soloSession, "solo group").success);
+    assert(soloSession.document.model().morphs.back().type == 0U);
+    assert(soloSession.document.model().morphs.back().offsets.size() == 1U);
+    assert(soloSession.document.model().morphs.back().offsets.front().index == 1);
+    assert(std::abs(soloSession.document.model().morphs.back().offsets.front().scalar - 0.8F) < 1e-6F);
+
+    auto mixedBakeModel = sampleModel();
+    mixedBakeModel.morphs.push_back(soloFirst);
+    mmd::PmxMorph bonePart;
+    bonePart.name = "bone part";
+    bonePart.type = 2U;
+    mmd::PmxMorphOffset bonePartOffset;
+    bonePartOffset.index = 0;
+    bonePartOffset.vector3 = {0.1F, 0.0F, 0.0F};
+    bonePartOffset.vector4 = {0.0F, 0.0F, 0.0F, 1.0F};
+    bonePart.offsets.push_back(bonePartOffset);
+    mixedBakeModel.morphs.push_back(bonePart);
+    pmxer::DocumentSession mixedBakeSession(std::move(mixedBakeModel));
+    pmxer::morph::setBlend(mixedBakeSession, mixedBakeSession.document.morphHandle(0), 1.0F);
+    pmxer::morph::setBlend(mixedBakeSession, mixedBakeSession.document.morphHandle(1), 1.0F);
+    const auto bakeAnalysis = pmxer::morph::analyzeVertexMix(mixedBakeSession);
+    assert(bakeAnalysis.vertexParts.size() == 1U);
+    assert(bakeAnalysis.ignoredTypes.contains(2U));
+    assert(!pmxer::morph::bakeMixAsVertexMorph(mixedBakeSession, "mixed bake").success);
+    assert(pmxer::morph::bakeMixAsVertexMorph(
+               mixedBakeSession, "mixed bake", {.allowIgnoredTypes = true})
+               .success);
+    assert(mixedBakeSession.document.model().morphs.back().type == 1U);
+
     pmxer::DocumentSession reverseSession(std::move(operationModel));
     const auto reverseMorph = reverseSession.document.morphHandle(0);
     assert(pmxer::morph::bakeAndReverseBase(reverseSession, reverseMorph).success);
@@ -276,6 +346,52 @@ int main() {
     assert(reverseSession.commands.undoCount() == 1U);
     assert(reverseSession.undo());
     assert(reverseSession.document.model().vertices[0].position[0] == -1.0F);
+
+    auto referencedReverseModel = sampleModel();
+    referencedReverseModel.vertices[0].position[0] = 0.0F;
+    mmd::PmxMorph referencedSource;
+    referencedSource.name = "referenced source";
+    referencedSource.type = 1U;
+    mmd::PmxMorphOffset referencedOffset;
+    referencedOffset.index = 0;
+    referencedOffset.vector3 = {1.0F, 0.0F, 0.0F};
+    referencedSource.offsets.push_back(referencedOffset);
+    referencedReverseModel.morphs.push_back(referencedSource);
+    mmd::PmxMorph referenceGroup;
+    referenceGroup.name = "reference group";
+    referenceGroup.type = 0U;
+    mmd::PmxMorphOffset referenceOffset;
+    referenceOffset.index = 0;
+    referenceOffset.scalar = 1.0F;
+    referenceGroup.offsets.push_back(referenceOffset);
+    referencedReverseModel.morphs.push_back(referenceGroup);
+    pmxer::DocumentSession referencedReverseSession(std::move(referencedReverseModel));
+    const auto referencedSourceHandle = referencedReverseSession.document.morphHandle(0);
+    assert(!pmxer::morph::bakeAndReverseBase(referencedReverseSession,
+                                              referencedSourceHandle)
+                .success);
+    assert(referencedReverseSession.document.model().vertices[0].position[0] == 0.0F);
+    assert(pmxer::morph::bakeAndReverseBase(
+               referencedReverseSession, referencedSourceHandle,
+               {.allowReferencedMorph = true})
+               .success);
+    assert(referencedReverseSession.document.model().vertices[0].position[0] == 1.0F);
+
+    pmxer::DocumentSession pendingTransformSession(sampleModel());
+    assert(!pendingTransformSession.hasUnsavedWork());
+    pendingTransformSession.deform.vertices.push_back(
+        {pendingTransformSession.document.vertexHandle(0), {0.1F, 0.0F, 0.0F}});
+    pendingTransformSession.deform.dirty = true;
+    assert(pendingTransformSession.hasPendingTransformEdit());
+    assert(pendingTransformSession.hasUnsavedWork());
+    pendingTransformSession.deform.clearVertexOverlay();
+    assert(!pendingTransformSession.hasPendingTransformEdit());
+    pendingTransformSession.modified = true;
+    assert(pendingTransformSession.hasUnsavedWork());
+    pmxer::DocumentSession pendingSaveSession(sampleModel());
+    pendingSaveSession.path = std::filesystem::temp_directory_path() / "pmxer-pending-transform-save.pmx";
+    pendingSaveSession.deform.dirty = true;
+    assert(!pmxer::saveDocument(pendingSaveSession).success);
 
     auto symmetryModel = sampleModel();
     symmetryModel.vertices[0].position[0] = -1.0F;
@@ -308,6 +424,44 @@ int main() {
     assert(rightDelta != symmetrySession.deform.vertices.end());
     assert(leftDelta->offset[0] == 0.25F);
     assert(rightDelta->offset[0] == -0.25F);
+
+    auto mirrorGroupModel = sampleModel();
+    mirrorGroupModel.vertices[0].position = {-1.0F, 0.0F, 0.0F};
+    mirrorGroupModel.vertices[1].position = {-1.0F, 0.0F, 0.0F};
+    mirrorGroupModel.vertices[2].position = {1.0F, 0.0F, 0.0F};
+    mirrorGroupModel.vertices.push_back(mirrorGroupModel.vertices[2]);
+    pmxer::DocumentSession mirrorGroupSession(std::move(mirrorGroupModel));
+    mirrorGroupSession.deform.mode = pmxer::DeformMode::shape;
+    mirrorGroupSession.deform.engaged = true;
+    mirrorGroupSession.deform.symmetryX = true;
+    mirrorGroupSession.deform.symmetryTolerance = 0.01F;
+    const auto makeVertexItem = [&](std::size_t index) {
+        const auto handle = mirrorGroupSession.document.vertexHandle(index);
+        return pmxer::SelectionItem{pmxer::SelectionKind::vertex, handle.domain,
+                                    handle.id, handle.generation};
+    };
+    mirrorGroupSession.selection.set(std::vector<pmxer::SelectionItem>{
+        makeVertexItem(0), makeVertexItem(1), makeVertexItem(2)});
+    pmxer::beginDeformGizmoDrag(mirrorGroupSession, symmetryStart);
+    pmxer::updateDeformGizmoDrag(mirrorGroupSession, symmetryDelta);
+    for (std::size_t index = 0; index < 2U; ++index) {
+        const auto found = std::find_if(
+            mirrorGroupSession.deform.vertices.begin(),
+            mirrorGroupSession.deform.vertices.end(), [&](const auto &delta) {
+                return delta.vertex == mirrorGroupSession.document.vertexHandle(index);
+            });
+        assert(found != mirrorGroupSession.deform.vertices.end());
+        assert(std::abs(found->offset[0] - 0.25F) < 1e-6F);
+    }
+    for (std::size_t index = 2U; index < 4U; ++index) {
+        const auto found = std::find_if(
+            mirrorGroupSession.deform.vertices.begin(),
+            mirrorGroupSession.deform.vertices.end(), [&](const auto &delta) {
+                return delta.vertex == mirrorGroupSession.document.vertexHandle(index);
+            });
+        assert(found != mirrorGroupSession.deform.vertices.end());
+        assert(std::abs(found->offset[0] + 0.25F) < 1e-6F);
+    }
 
     auto dragModel = sampleModel();
     dragModel.vertices[1].position[0] = 1.0F;
