@@ -52,6 +52,11 @@ mmd::PmxModel sampleModel() {
 } // namespace
 
 int main() {
+    const pmxer::DocumentSession lightingDefaults(sampleModel());
+    assert(lightingDefaults.ui.viewportLighting.mode ==
+           pmxer::ViewportShadingMode::neutral);
+    assert(lightingDefaults.ui.viewportLighting.exposure == 0.5F);
+
     auto previewModel = sampleModel();
     mmd::PmxMorph previewMorph;
     previewMorph.name = "preview";

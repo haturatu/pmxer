@@ -556,6 +556,50 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         }
     }
     ImGui::SameLine();
+    const auto shadingLabel = [&] {
+        switch (session.ui.viewportLighting.mode) {
+        case ViewportShadingMode::mmd:
+            return "表示: MMD";
+        case ViewportShadingMode::neutral:
+            return "表示: Neutral";
+        case ViewportShadingMode::unlit:
+            return "表示: Unlit";
+        }
+        return "表示";
+    }();
+    if (ImGui::Button(shadingLabel))
+        ImGui::OpenPopup("viewport-display-settings");
+    if (ImGui::BeginPopup("viewport-display-settings")) {
+        auto &lighting = session.ui.viewportLighting;
+        ImGui::SeparatorText("シェーディング");
+        if (ImGui::RadioButton("MMD", lighting.mode == ViewportShadingMode::mmd))
+            lighting.mode = ViewportShadingMode::mmd;
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Neutral", lighting.mode == ViewportShadingMode::neutral))
+            lighting.mode = ViewportShadingMode::neutral;
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Unlit", lighting.mode == ViewportShadingMode::unlit))
+            lighting.mode = ViewportShadingMode::unlit;
+
+        ImGui::SeparatorText("照明");
+        ImGui::SliderAngle("方位", &lighting.lightYaw, -180.0F, 180.0F);
+        ImGui::SliderAngle("高さ", &lighting.lightPitch, -89.0F, 89.0F);
+        ImGui::SliderFloat("強さ", &lighting.lightIntensity, 0.0F, 2.0F, "%.2f");
+        ImGui::SliderFloat("環境光", &lighting.ambientIntensity, 0.0F, 1.0F, "%.2f");
+
+        ImGui::SeparatorText("表示");
+        ImGui::SliderFloat("Exposure", &lighting.exposure, -3.0F, 3.0F, "%+.2f EV");
+        ImGui::SliderFloat("Toon強度", &lighting.toonStrength, 0.0F, 1.0F, "%.2f");
+        ImGui::SliderFloat("Specular", &lighting.specularStrength, 0.0F, 1.0F, "%.2f");
+        ImGui::SliderFloat("Sphere", &lighting.sphereStrength, 0.0F, 1.0F, "%.2f");
+
+        ImGui::SeparatorText("背景");
+        ImGui::ColorEdit3("背景色", lighting.background.data());
+        if (ImGui::Button("初期値に戻す"))
+            lighting = ViewportLightingSettings{};
+        ImGui::EndPopup();
+    }
+    ImGui::SameLine();
     ImGui::TextDisabled("?");
     if (ImGui::IsItemHovered()) {
         ImGui::BeginTooltip();

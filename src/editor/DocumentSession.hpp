@@ -2,6 +2,7 @@
 
 #include "CommandStack.hpp"
 #include "Selection.hpp"
+#include "ViewportLighting.hpp"
 #include "ViewportPickCache.hpp"
 
 #include <mmd/document.hpp>
@@ -95,6 +96,7 @@ struct EditorUiState {
     std::optional<SelectionItem> pendingOutlinerReveal;
     bool previewPlaying{};
     bool morphOffsetDirty{};
+    ViewportLightingSettings viewportLighting{};
     float cameraYaw{};
     float cameraPitch{};
     float cameraDistance{3.0F};

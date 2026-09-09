@@ -783,6 +783,10 @@ int runApplication(const EditCommand &options) {
             SDL_GPUColorTargetInfo target{};
             target.texture = swapchain;
             target.clear_color = {0.055F, 0.065F, 0.08F, 1.0F};
+            if (!sessions.empty() && activeSession < sessions.size()) {
+                const auto &background = sessions[activeSession]->ui.viewportLighting.background;
+                target.clear_color = {background[0], background[1], background[2], background[3]};
+            }
             target.load_op = SDL_GPU_LOADOP_CLEAR;
             target.store_op = SDL_GPU_STOREOP_STORE;
             const auto hasDepth = ensureDepthTexture(width, height);
