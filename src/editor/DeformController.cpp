@@ -251,6 +251,11 @@ mmd::Float3 deformVertexPosition(const DocumentSession &session, mmd::VertexHand
     return found == session.deform.vertices.end() ? value->position : add(value->position, found->offset);
 }
 
+void discardPendingTransformEdit(DocumentSession &session) {
+    session.deform.clearOverlay();
+    refreshDeformPreview(session);
+}
+
 void beginDeformGizmoDrag(DocumentSession &session,
                           const std::array<float, 16> &startGizmoMatrix) {
     session.deform.dragStartGizmoMatrix = startGizmoMatrix;
@@ -419,12 +424,16 @@ void updateDeformGizmoDrag(DocumentSession &session,
         for (const auto &drag : deform.dragBones) {
             const auto transformed = transformPoint(dragMatrix, drag.position);
             const auto *base = session.document.resolve(drag.bone);
-            if (base != nullptr)
+            if (base != nullptr) {
+                const auto localRotation = multiplyQuaternion(
+                    multiplyQuaternion(conjugateQuaternion(drag.parentRotation), rotation),
+                    drag.parentRotation);
                 setBoneDelta(deform, drag.bone,
                              add(drag.translation,
                                  rotate(conjugateQuaternion(drag.parentRotation),
                                         subtract(transformed, drag.position))),
-                             multiplyQuaternion(drag.rotation, rotation));
+                             multiplyQuaternion(drag.rotation, localRotation));
+            }
         }
     }
     deform.sourceRevision = session.revision;

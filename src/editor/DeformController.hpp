@@ -13,6 +13,7 @@ struct DocumentSession;
 
 [[nodiscard]] mmd::Float3 deformVertexPosition(const DocumentSession &session,
                                                 mmd::VertexHandle vertex);
+void discardPendingTransformEdit(DocumentSession &session);
 
 void beginDeformGizmoDrag(DocumentSession &session,
                           const std::array<float, 16> &startGizmoMatrix);

@@ -82,11 +82,6 @@ void buildDefaultDockLayout(ImGuiID dockspaceId) {
     ImGui::DockBuilderFinish(dockspaceId);
 }
 
-void discardPendingTransformEdit(DocumentSession &session) {
-    session.deform.clearOverlay();
-    refreshDeformPreview(session);
-}
-
 std::string documentBaseName(const DocumentSession &session) {
     return session.path.empty() ? std::string{"無題"}
                                 : session.path.filename().string();
@@ -299,6 +294,7 @@ int runApplication(const EditCommand &options) {
     std::vector<bool> quitDiscarded;
     std::optional<std::string> pendingCloseSession;
     std::optional<std::string> closeAfterSaveSession;
+    std::optional<std::string> discardTransformAfterSaveSession;
     bool closePromptOpened = false;
     std::optional<std::string> pendingTransformSaveSession;
     bool pendingTransformSaveAs = false;
@@ -390,6 +386,15 @@ int runApplication(const EditCommand &options) {
             activeSession = sessions.size() - 1U;
         }
     };
+    const auto saveForPendingAction = [&](DocumentSession &session,
+                                          const std::filesystem::path &destination) {
+        const auto pendingTransform = session.hasPendingTransformEdit();
+        auto result = saveDocument(
+            session, destination, {.allowPendingTransformEdit = pendingTransform});
+        if (result.success && pendingTransform)
+            discardPendingTransformEdit(session);
+        return result;
+    };
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -420,6 +425,9 @@ int runApplication(const EditCommand &options) {
                     if (closeAfterSaveSession &&
                         *closeAfterSaveSession == result->context)
                         closeAfterSaveSession.reset();
+                    if (discardTransformAfterSaveSession &&
+                        *discardTransformAfterSaveSession == result->context)
+                        discardTransformAfterSaveSession.reset();
                 } else if (result->save) {
                     const auto target = result->context.empty()
                                             ? (activeSession < sessions.size()
@@ -428,9 +436,19 @@ int runApplication(const EditCommand &options) {
                                             : findSession(result->context);
                     if (target) {
                         const auto targetId = sessions[*target]->recoveryId;
-                        const auto saveResult = saveDocument(*sessions[*target], result->path);
+                        const bool discardTransform =
+                            discardTransformAfterSaveSession &&
+                            *discardTransformAfterSaveSession == targetId;
+                        const auto saveResult = discardTransform
+                                                    ? saveForPendingAction(*sessions[*target], result->path)
+                                                    : saveDocument(*sessions[*target], result->path);
+                        if (discardTransform)
+                            discardTransformAfterSaveSession.reset();
                         setOperationStatus(*sessions[*target], saveResult.success,
                                            "保存しました", "保存に失敗しました");
+                        if (!saveResult.success && closeAfterSaveSession &&
+                            *closeAfterSaveSession == targetId)
+                            closeAfterSaveSession.reset();
                         if (saveResult.success && closeAfterSaveSession &&
                             *closeAfterSaveSession == targetId) {
                             closeAfterSaveSession.reset();
@@ -569,15 +587,13 @@ int runApplication(const EditCommand &options) {
             if (pendingTransform)
                 ImGui::TextWrapped("Temporary Transform View edits are not part of the PMX yet.");
             if (ImGui::Button(pendingTransform ? "一時編集を破棄して保存して終了" : "保存して終了")) {
-                if (pendingTransform)
-                    discardPendingTransformEdit(session);
                 if (session.path.empty()) {
                     setStatus(session, "保存先を指定してください。終了はキャンセルされました",
                               UiStatusKind::warning, std::chrono::milliseconds::zero(), true);
                     quitRequested = false;
                     quitPromptOpened = false;
                     ImGui::CloseCurrentPopup();
-                } else if (saveDocument(session).success) {
+                } else if (saveForPendingAction(session, {}).success) {
                     ++quitSessionIndex;
                     quitPromptOpened = false;
                     ImGui::CloseCurrentPopup();
@@ -686,17 +702,17 @@ int runApplication(const EditCommand &options) {
                 if (pendingTransform)
                     ImGui::TextWrapped("Temporary Transform View edits are not part of the PMX yet.");
                 if (ImGui::Button(pendingTransform ? "一時編集を破棄して保存して閉じる" : "保存して閉じる")) {
-                    if (pendingTransform)
-                        discardPendingTransformEdit(session);
                     if (session.path.empty()) {
                         if (!fileDialog.busy() &&
                             fileDialog.save({}, session.recoveryId)) {
                             closeAfterSaveSession = session.recoveryId;
+                            if (pendingTransform)
+                                discardTransformAfterSaveSession = session.recoveryId;
                             closePromptOpened = false;
                             pendingCloseSession.reset();
                             ImGui::CloseCurrentPopup();
                         }
-                    } else if (saveDocument(session).success) {
+                    } else if (saveForPendingAction(session, {}).success) {
                         closeSession(*target);
                         closePromptOpened = false;
                         pendingCloseSession.reset();
@@ -770,19 +786,22 @@ int runApplication(const EditCommand &options) {
                 }
                 ImGui::SameLine();
                 if (ImGui::Button("一時編集を破棄して保存")) {
-                    discardPendingTransformEdit(session);
                     const bool saveAs = pendingTransformSaveAs;
+                    const bool pendingTransform = session.hasPendingTransformEdit();
                     pendingTransformSaveSession.reset();
                     pendingTransformSaveAs = false;
                     pendingTransformSavePromptOpened = false;
                     ImGui::CloseCurrentPopup();
                     if (saveAs || session.path.empty()) {
-                        if (!fileDialog.busy())
-                            (void)fileDialog.save(saveAs ? session.path
-                                                         : std::filesystem::path{},
-                                                   session.recoveryId);
+                        if (!fileDialog.busy()) {
+                            const auto opened = fileDialog.save(
+                                saveAs ? session.path : std::filesystem::path{},
+                                session.recoveryId);
+                            if (opened && pendingTransform)
+                                discardTransformAfterSaveSession = session.recoveryId;
+                        }
                     } else {
-                        const auto result = saveDocument(session);
+                        const auto result = saveForPendingAction(session, {});
                         setOperationStatus(session, result.success,
                                            "保存しました", "保存に失敗しました");
                     }

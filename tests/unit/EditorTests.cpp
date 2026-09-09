@@ -390,8 +390,19 @@ int main() {
     assert(pendingTransformSession.hasUnsavedWork());
     pmxer::DocumentSession pendingSaveSession(sampleModel());
     pendingSaveSession.path = std::filesystem::temp_directory_path() / "pmxer-pending-transform-save.pmx";
+    pendingSaveSession.deform.vertices.push_back(
+        {pendingSaveSession.document.vertexHandle(0), {0.2F, 0.0F, 0.0F}});
     pendingSaveSession.deform.dirty = true;
     assert(!pmxer::saveDocument(pendingSaveSession).success);
+    assert(pendingSaveSession.hasPendingTransformEdit());
+    assert(pmxer::saveDocument(
+               pendingSaveSession, {}, {.allowPendingTransformEdit = true})
+               .success);
+    assert(pendingSaveSession.hasPendingTransformEdit());
+    pmxer::discardPendingTransformEdit(pendingSaveSession);
+    assert(!pendingSaveSession.hasPendingTransformEdit());
+    std::error_code pendingSaveError;
+    std::filesystem::remove(pendingSaveSession.path, pendingSaveError);
 
     auto symmetryModel = sampleModel();
     symmetryModel.vertices[0].position[0] = -1.0F;
@@ -504,6 +515,39 @@ int main() {
     pmxer::updateDeformGizmoDrag(boneDragSession, fiftyDegrees);
     assert(std::abs(boneDragSession.deform.bones.front().rotation[2] - std::sin(5.0F * pi / 36.0F)) < 1e-5F);
     assert(std::abs(boneDragSession.deform.bones.front().rotation[3] - std::cos(5.0F * pi / 36.0F)) < 1e-5F);
+
+    auto childBoneModel = sampleModel();
+    mmd::PmxBone posedChild;
+    posedChild.name = "posed child";
+    posedChild.parent = 0;
+    posedChild.position = {1.0F, 0.0F, 0.0F};
+    childBoneModel.bones.push_back(posedChild);
+    pmxer::DocumentSession childBoneSession(std::move(childBoneModel));
+    mmd::AnimatedModelFrame childFrame;
+    childFrame.bones.resize(2U);
+    const mmd::Float4 parentRotation{0.0F, 0.0F, std::sin(0.25F * pi),
+                                     std::cos(0.25F * pi)};
+    childFrame.bones[0].rotation = parentRotation;
+    childFrame.bones[1].rotation = parentRotation;
+    childBoneSession.ui.previewFrame = &childFrame;
+    childBoneSession.deform.mode = pmxer::DeformMode::pose;
+    childBoneSession.deform.engaged = true;
+    const auto childHandle = childBoneSession.document.boneHandle(1);
+    childBoneSession.selection.set(pmxer::SelectionItem{
+        pmxer::SelectionKind::bone, childHandle.domain, childHandle.id,
+        childHandle.generation});
+    std::array<float, 16> xRotation{};
+    xRotation[0] = xRotation[15] = 1.0F;
+    xRotation[5] = xRotation[10] = std::cos(0.5F * pi);
+    xRotation[6] = std::sin(0.5F * pi);
+    xRotation[9] = -std::sin(0.5F * pi);
+    pmxer::beginDeformGizmoDrag(childBoneSession, identityMatrix);
+    pmxer::updateDeformGizmoDrag(childBoneSession, xRotation);
+    assert(childBoneSession.deform.bones.size() == 1U);
+    assert(std::abs(childBoneSession.deform.bones.front().rotation[0]) < 1e-5F);
+    assert(std::abs(childBoneSession.deform.bones.front().rotation[1] + std::sin(0.25F * pi)) < 1e-5F);
+    assert(std::abs(childBoneSession.deform.bones.front().rotation[2]) < 1e-5F);
+    assert(std::abs(childBoneSession.deform.bones.front().rotation[3] - std::cos(0.25F * pi)) < 1e-5F);
 
     pmxer::DocumentSession retainedSession(sampleModel());
     const auto retainedVertex = retainedSession.document.vertexHandle(0);

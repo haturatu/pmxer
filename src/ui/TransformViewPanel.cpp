@@ -439,14 +439,16 @@ void drawTransformView(DocumentSession &session, bool *open) {
     }
     session.deform.engaged = true;
     session.deform.suspended = false;
-    if (session.deform.dirty && ImGui::Button("Discard Temporary Edit")) {
-        session.deform.clearOverlay();
-        session.deform.mode = session.deform.tab == TransformViewTab::bone
-                                  ? DeformMode::pose
-                                  : session.deform.tab == TransformViewTab::vertex
-                                        ? DeformMode::shape
-                                        : DeformMode::inactive;
-        refreshDeformPreview(session);
+    if (session.deform.dirty) {
+        ImGui::TextWrapped("Temporary edits are not crash-recovered. Capture the edit to preserve it.");
+        if (ImGui::Button("Discard Temporary Edit")) {
+            session.deform.mode = session.deform.tab == TransformViewTab::bone
+                                      ? DeformMode::pose
+                                      : session.deform.tab == TransformViewTab::vertex
+                                            ? DeformMode::shape
+                                            : DeformMode::inactive;
+            discardPendingTransformEdit(session);
+        }
     }
     if (ImGui::RadioButton("Vertex", session.deform.tab == TransformViewTab::vertex)) {
         session.deform.tab = TransformViewTab::vertex;
