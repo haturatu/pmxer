@@ -225,6 +225,11 @@ struct GpuModelRenderer::Impl {
     SDL_GPUTexture *neutralTexture{};
     SDL_GPUTexture *blackTexture{};
     SDL_GPUTexture *toonFallbackTexture{};
+    SDL_GPUTexture *viewportColor{};
+    SDL_GPUTexture *viewportDepth{};
+    std::uint32_t viewportWidth{};
+    std::uint32_t viewportHeight{};
+    SDL_GPUTextureFormat colorFormat{SDL_GPU_TEXTUREFORMAT_INVALID};
     std::vector<SDL_GPUTexture *> textures;
     std::vector<std::array<std::uint32_t, 2>> textureSizes;
     std::vector<TextureResourceStatus> textureStatus;
@@ -257,6 +262,19 @@ struct GpuModelRenderer::Impl {
             indexBuffer = nullptr;
             indexCapacity = 0;
         }
+    }
+
+    void clearViewportRenderTarget() {
+        if (viewportColor != nullptr) {
+            SDL_ReleaseGPUTexture(device, viewportColor);
+            viewportColor = nullptr;
+        }
+        if (viewportDepth != nullptr) {
+            SDL_ReleaseGPUTexture(device, viewportDepth);
+            viewportDepth = nullptr;
+        }
+        viewportWidth = 0;
+        viewportHeight = 0;
     }
 
     void clearTransfers() {
@@ -414,6 +432,7 @@ struct GpuModelRenderer::Impl {
 
     ~Impl() {
         clearBuffers();
+        clearViewportRenderTarget();
         clearTextures();
         clearTransfers();
         if (baseSampler != nullptr)
@@ -439,6 +458,7 @@ GpuModelRenderer::GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path 
                                    std::filesystem::path resourceDirectory, std::uint32_t colorFormat)
     : impl_(std::make_unique<Impl>()) {
     impl_->device = device;
+    impl_->colorFormat = static_cast<SDL_GPUTextureFormat>(colorFormat);
     impl_->shaderDirectory = std::move(shaderDirectory);
     impl_->resourceDirectory = std::move(resourceDirectory);
     const auto shaders = selectShaders(device, impl_->shaderDirectory);
@@ -541,6 +561,57 @@ bool GpuModelRenderer::available() const noexcept {
     return impl_ != nullptr && impl_->available;
 }
 
+bool GpuModelRenderer::ensureViewportRenderTarget(std::uint32_t width,
+                                                  std::uint32_t height) {
+    if (!available() || width == 0U || height == 0U)
+        return false;
+    if (impl_->viewportColor != nullptr && impl_->viewportDepth != nullptr &&
+        impl_->viewportWidth == width && impl_->viewportHeight == height)
+        return true;
+
+    impl_->clearViewportRenderTarget();
+
+    SDL_GPUTextureCreateInfo colorInfo{};
+    colorInfo.type = SDL_GPU_TEXTURETYPE_2D;
+    colorInfo.format = impl_->colorFormat;
+    colorInfo.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET |
+                      SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    colorInfo.width = width;
+    colorInfo.height = height;
+    colorInfo.layer_count_or_depth = 1;
+    colorInfo.num_levels = 1;
+    colorInfo.sample_count = SDL_GPU_SAMPLECOUNT_1;
+    impl_->viewportColor = SDL_CreateGPUTexture(impl_->device, &colorInfo);
+    if (impl_->viewportColor == nullptr) {
+        impl_->errorMessage = SDL_GetError();
+        return false;
+    }
+
+    SDL_GPUTextureCreateInfo depthInfo{};
+    depthInfo.type = SDL_GPU_TEXTURETYPE_2D;
+    depthInfo.format = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
+    depthInfo.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
+    depthInfo.width = width;
+    depthInfo.height = height;
+    depthInfo.layer_count_or_depth = 1;
+    depthInfo.num_levels = 1;
+    depthInfo.sample_count = SDL_GPU_SAMPLECOUNT_1;
+    impl_->viewportDepth = SDL_CreateGPUTexture(impl_->device, &depthInfo);
+    if (impl_->viewportDepth == nullptr) {
+        impl_->errorMessage = SDL_GetError();
+        impl_->clearViewportRenderTarget();
+        return false;
+    }
+
+    impl_->viewportWidth = width;
+    impl_->viewportHeight = height;
+    return true;
+}
+
+SDL_GPUTexture *GpuModelRenderer::viewportTexture() const noexcept {
+    return impl_ == nullptr ? nullptr : impl_->viewportColor;
+}
+
 const char *GpuModelRenderer::error() const noexcept {
     return impl_ == nullptr ? "GPU renderer is unavailable" : impl_->errorMessage.c_str();
 }
@@ -639,34 +710,52 @@ bool GpuModelRenderer::prepare(SDL_GPUCommandBuffer *commands, const mmd::PmxMod
     return true;
 }
 
-void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass *pass,
-                              const DocumentSession &session,
-                              const mmd::AnimatedModelFrame *frame,
-                              float framebufferScale, std::uint32_t framebufferWidth,
-                              std::uint32_t framebufferHeight,
-                              const ViewportLightingSettings &lighting) {
+void GpuModelRenderer::renderViewport(
+    SDL_GPUCommandBuffer *commands, const DocumentSession &session,
+    const mmd::AnimatedModelFrame *frame,
+    const ViewportLightingSettings &lighting) {
     const auto &model = session.document.model();
     const auto &ui = session.ui;
-    if (!available() || commands == nullptr || pass == nullptr || impl_->vertexBuffer == nullptr ||
-        impl_->indexBuffer == nullptr || impl_->indexCount == 0 || !ui.viewportVisible)
+    if (!available() || commands == nullptr || impl_->viewportColor == nullptr ||
+        impl_->viewportDepth == nullptr || impl_->viewportWidth == 0U ||
+        impl_->viewportHeight == 0U)
         return;
-    const auto x = std::max(0.0F, ui.viewportX * framebufferScale);
-    const auto y = std::max(0.0F, ui.viewportY * framebufferScale);
-    const auto width = std::min(std::max(0.0F, ui.viewportWidth * framebufferScale),
-                                static_cast<float>(framebufferWidth) - x);
-    const auto height = std::min(std::max(0.0F, ui.viewportHeight * framebufferScale),
-                                 static_cast<float>(framebufferHeight) - y);
-    if (width <= 1.0F || height <= 1.0F)
+
+    SDL_GPUColorTargetInfo colorTarget{};
+    colorTarget.texture = impl_->viewportColor;
+    colorTarget.clear_color = {lighting.background[0], lighting.background[1],
+                               lighting.background[2], lighting.background[3]};
+    colorTarget.load_op = SDL_GPU_LOADOP_CLEAR;
+    colorTarget.store_op = SDL_GPU_STOREOP_STORE;
+    SDL_GPUDepthStencilTargetInfo depthTarget{};
+    depthTarget.texture = impl_->viewportDepth;
+    depthTarget.clear_depth = 1.0F;
+    depthTarget.load_op = SDL_GPU_LOADOP_CLEAR;
+    depthTarget.store_op = SDL_GPU_STOREOP_STORE;
+    depthTarget.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
+    depthTarget.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+    auto *pass = SDL_BeginGPURenderPass(commands, &colorTarget, 1, &depthTarget);
+    if (pass == nullptr) {
+        impl_->errorMessage = SDL_GetError();
         return;
+    }
+
+    const auto width = static_cast<float>(impl_->viewportWidth);
+    const auto height = static_cast<float>(impl_->viewportHeight);
     const auto aspect = width / height;
     const CameraState camera{ui.cameraTarget, ui.cameraYaw, ui.cameraPitch,
                              ui.cameraDistance, ui.orthographic};
     const auto frameUniforms = makeUniforms(camera, aspect);
     const auto fragmentFrameUniforms = makeFragmentUniforms(camera, lighting);
-    SDL_GPUViewport viewport{x, y, width, height, 0.0F, 1.0F};
+    SDL_GPUViewport viewport{0.0F, 0.0F, width, height, 0.0F, 1.0F};
     SDL_SetGPUViewport(pass, &viewport);
-    SDL_Rect scissor{static_cast<int>(x), static_cast<int>(y), static_cast<int>(width), static_cast<int>(height)};
+    SDL_Rect scissor{0, 0, static_cast<int>(width), static_cast<int>(height)};
     SDL_SetGPUScissor(pass, &scissor);
+    if (impl_->vertexBuffer == nullptr || impl_->indexBuffer == nullptr ||
+        impl_->indexCount == 0U) {
+        SDL_EndGPURenderPass(pass);
+        return;
+    }
     const SDL_GPUBufferBinding vertexBinding{impl_->vertexBuffer, 0};
     const SDL_GPUBufferBinding indexBinding{impl_->indexBuffer, 0};
     SDL_BindGPUVertexBuffers(pass, 0, &vertexBinding, 1);
@@ -817,6 +906,7 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
         SDL_DrawGPUIndexedPrimitives(pass, static_cast<Uint32>(impl_->indexCount - indexBegin), 1,
                                      static_cast<Uint32>(indexBegin), 0, 0);
     }
+    SDL_EndGPURenderPass(pass);
 }
 
 } // namespace pmxer

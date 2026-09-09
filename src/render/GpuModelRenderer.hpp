@@ -66,12 +66,13 @@ class GpuModelRenderer {
                  const mmd::AnimatedModelFrame *frame, std::uint64_t revision,
                  std::uint64_t resourceRevision, std::uint64_t frameRevision,
                  const mmd::PmxChangeSet &changes);
-    void render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass *pass,
-                const DocumentSession &session,
-                const mmd::AnimatedModelFrame *frame, float framebufferScale,
-                std::uint32_t framebufferWidth,
-                std::uint32_t framebufferHeight,
-                const ViewportLightingSettings &lighting);
+    bool ensureViewportRenderTarget(std::uint32_t width,
+                                    std::uint32_t height);
+    [[nodiscard]] SDL_GPUTexture *viewportTexture() const noexcept;
+    void renderViewport(SDL_GPUCommandBuffer *commands,
+                        const DocumentSession &session,
+                        const mmd::AnimatedModelFrame *frame,
+                        const ViewportLightingSettings &lighting);
 
   private:
     struct Impl;
