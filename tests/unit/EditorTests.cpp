@@ -441,6 +441,9 @@ int main() {
     mirrorGroupModel.vertices[1].position = {-1.0F, 0.0F, 0.0F};
     mirrorGroupModel.vertices[2].position = {1.0F, 0.0F, 0.0F};
     mirrorGroupModel.vertices.push_back(mirrorGroupModel.vertices[2]);
+    auto distinctMirrorTarget = mirrorGroupModel.vertices[2];
+    distinctMirrorTarget.position[0] = 1.015F;
+    mirrorGroupModel.vertices.push_back(distinctMirrorTarget);
     pmxer::DocumentSession mirrorGroupSession(std::move(mirrorGroupModel));
     mirrorGroupSession.deform.mode = pmxer::DeformMode::shape;
     mirrorGroupSession.deform.engaged = true;
@@ -473,6 +476,12 @@ int main() {
         assert(found != mirrorGroupSession.deform.vertices.end());
         assert(std::abs(found->offset[0] + 0.25F) < 1e-6F);
     }
+    const auto distinctMirrorDelta = std::find_if(
+        mirrorGroupSession.deform.vertices.begin(),
+        mirrorGroupSession.deform.vertices.end(), [&](const auto &delta) {
+            return delta.vertex == mirrorGroupSession.document.vertexHandle(4);
+        });
+    assert(distinctMirrorDelta == mirrorGroupSession.deform.vertices.end());
 
     auto dragModel = sampleModel();
     dragModel.vertices[1].position[0] = 1.0F;
@@ -492,13 +501,37 @@ int main() {
     pmxer::updateDeformGizmoDrag(dragSession, dragCurrent);
     assert(std::abs(dragSession.deform.vertices.front().offset[0] - 0.5F) < 1e-6F);
 
-    auto rotationMatrix = [](float angle) {
+    auto quaternionMatrix = [](const mmd::Float4 &rotation) {
+        const auto x = rotation[0];
+        const auto y = rotation[1];
+        const auto z = rotation[2];
+        const auto w = rotation[3];
         std::array<float, 16> matrix{};
-        matrix[0] = matrix[5] = std::cos(angle);
-        matrix[4] = -std::sin(angle);
-        matrix[1] = std::sin(angle);
-        matrix[10] = matrix[15] = 1.0F;
+        matrix[0] = 1.0F - 2.0F * (y * y + z * z);
+        matrix[4] = 2.0F * (x * y - z * w);
+        matrix[8] = 2.0F * (x * z + y * w);
+        matrix[1] = 2.0F * (x * y + z * w);
+        matrix[5] = 1.0F - 2.0F * (x * x + z * z);
+        matrix[9] = 2.0F * (y * z - x * w);
+        matrix[2] = 2.0F * (x * z - y * w);
+        matrix[6] = 2.0F * (y * z + x * w);
+        matrix[10] = 1.0F - 2.0F * (x * x + y * y);
+        matrix[15] = 1.0F;
         return matrix;
+    };
+    auto rotationMatrix = [&](float angle) {
+        return quaternionMatrix({0.0F, 0.0F, std::sin(angle * 0.5F),
+                                  std::cos(angle * 0.5F)});
+    };
+    auto multiplyMatrices = [](const std::array<float, 16> &lhs,
+                               const std::array<float, 16> &rhs) {
+        std::array<float, 16> result{};
+        for (std::size_t column = 0; column < 4U; ++column)
+            for (std::size_t row = 0; row < 4U; ++row)
+                for (std::size_t component = 0; component < 4U; ++component)
+                    result[column * 4U + row] +=
+                        lhs[component * 4U + row] * rhs[column * 4U + component];
+        return result;
     };
     pmxer::DocumentSession boneDragSession(sampleModel());
     boneDragSession.deform.mode = pmxer::DeformMode::pose;
@@ -511,10 +544,70 @@ int main() {
     const auto fiftyDegrees = rotationMatrix(5.0F * pi / 18.0F);
     pmxer::beginDeformGizmoDrag(boneDragSession, identityMatrix);
     pmxer::updateDeformGizmoDrag(boneDragSession, thirtyDegrees);
+    mmd::AnimatedModelFrame boneDragFrame;
+    boneDragFrame.bones.resize(1U);
+    boneDragFrame.bones[0].rotation = {0.0F, 0.0F, std::sin(pi / 12.0F),
+                                       std::cos(pi / 12.0F)};
+    boneDragSession.ui.previewFrame = &boneDragFrame;
     pmxer::beginDeformGizmoDrag(boneDragSession, thirtyDegrees);
     pmxer::updateDeformGizmoDrag(boneDragSession, fiftyDegrees);
     assert(std::abs(boneDragSession.deform.bones.front().rotation[2] - std::sin(5.0F * pi / 36.0F)) < 1e-5F);
     assert(std::abs(boneDragSession.deform.bones.front().rotation[3] - std::cos(5.0F * pi / 36.0F)) < 1e-5F);
+
+    pmxer::DocumentSession vmdRotationSession(sampleModel());
+    mmd::AnimatedModelFrame vmdRotationFrame;
+    vmdRotationFrame.bones.resize(1U);
+    vmdRotationFrame.bones[0].rotation = {0.0F, 0.0F, std::sin(0.25F * pi),
+                                          std::cos(0.25F * pi)};
+    vmdRotationSession.ui.previewFrame = &vmdRotationFrame;
+    vmdRotationSession.deform.mode = pmxer::DeformMode::pose;
+    vmdRotationSession.deform.engaged = true;
+    const auto vmdRotationBone = vmdRotationSession.document.boneHandle(0);
+    vmdRotationSession.selection.set(pmxer::SelectionItem{
+        pmxer::SelectionKind::bone, vmdRotationBone.domain, vmdRotationBone.id,
+        vmdRotationBone.generation});
+    const auto zNinety = rotationMatrix(0.5F * pi);
+    const auto xNinety = quaternionMatrix({std::sin(0.25F * pi), 0.0F, 0.0F,
+                                           std::cos(0.25F * pi)});
+    pmxer::beginDeformGizmoDrag(vmdRotationSession, zNinety);
+    pmxer::updateDeformGizmoDrag(
+        vmdRotationSession, multiplyMatrices(xNinety, zNinety));
+    assert(vmdRotationSession.deform.bones.size() == 1U);
+    assert(std::abs(vmdRotationSession.deform.bones.front().rotation[0]) < 1e-5F);
+    assert(std::abs(vmdRotationSession.deform.bones.front().rotation[1] + std::sin(0.25F * pi)) < 1e-5F);
+    assert(std::abs(vmdRotationSession.deform.bones.front().rotation[2]) < 1e-5F);
+    assert(std::abs(vmdRotationSession.deform.bones.front().rotation[3] - std::cos(0.25F * pi)) < 1e-5F);
+
+    pmxer::DocumentSession nonCommutativeSession(sampleModel());
+    mmd::AnimatedModelFrame nonCommutativeFrame;
+    nonCommutativeFrame.bones.resize(1U);
+    const auto xThirty = mmd::Float4{std::sin(pi / 12.0F), 0.0F, 0.0F,
+                                     std::cos(pi / 12.0F)};
+    nonCommutativeFrame.bones[0].rotation = xThirty;
+    nonCommutativeSession.ui.previewFrame = &nonCommutativeFrame;
+    nonCommutativeSession.deform.mode = pmxer::DeformMode::pose;
+    nonCommutativeSession.deform.engaged = true;
+    const auto nonCommutativeBone = nonCommutativeSession.document.boneHandle(0);
+    nonCommutativeSession.selection.set(pmxer::SelectionItem{
+        pmxer::SelectionKind::bone, nonCommutativeBone.domain,
+        nonCommutativeBone.id, nonCommutativeBone.generation});
+    nonCommutativeSession.deform.bones.push_back({nonCommutativeBone, {}, xThirty});
+    nonCommutativeSession.deform.dirty = true;
+    const auto yTwenty = mmd::Float4{0.0F, std::sin(pi / 18.0F), 0.0F,
+                                     std::cos(pi / 18.0F)};
+    const auto expectedNonCommutative = mmd::Float4{
+        yTwenty[3] * xThirty[0] + yTwenty[1] * xThirty[2],
+        yTwenty[3] * xThirty[1] + yTwenty[1] * xThirty[3],
+        -yTwenty[1] * xThirty[0],
+        yTwenty[3] * xThirty[3] - yTwenty[1] * xThirty[1]};
+    pmxer::beginDeformGizmoDrag(nonCommutativeSession, quaternionMatrix(xThirty));
+    pmxer::updateDeformGizmoDrag(
+        nonCommutativeSession,
+        multiplyMatrices(quaternionMatrix(yTwenty), quaternionMatrix(xThirty)));
+    assert(nonCommutativeSession.deform.bones.size() == 1U);
+    for (std::size_t component = 0; component < 4U; ++component)
+        assert(std::abs(nonCommutativeSession.deform.bones.front().rotation[component] -
+                        expectedNonCommutative[component]) < 1e-5F);
 
     auto childBoneModel = sampleModel();
     mmd::PmxBone posedChild;
@@ -541,8 +634,10 @@ int main() {
     xRotation[5] = xRotation[10] = std::cos(0.5F * pi);
     xRotation[6] = std::sin(0.5F * pi);
     xRotation[9] = -std::sin(0.5F * pi);
-    pmxer::beginDeformGizmoDrag(childBoneSession, identityMatrix);
-    pmxer::updateDeformGizmoDrag(childBoneSession, xRotation);
+    const auto childStart = rotationMatrix(0.5F * pi);
+    pmxer::beginDeformGizmoDrag(childBoneSession, childStart);
+    pmxer::updateDeformGizmoDrag(childBoneSession,
+                                 multiplyMatrices(xRotation, childStart));
     assert(childBoneSession.deform.bones.size() == 1U);
     assert(std::abs(childBoneSession.deform.bones.front().rotation[0]) < 1e-5F);
     assert(std::abs(childBoneSession.deform.bones.front().rotation[1] + std::sin(0.25F * pi)) < 1e-5F);
