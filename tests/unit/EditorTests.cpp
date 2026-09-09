@@ -10,6 +10,7 @@
 #include "../../src/editor/RecoveryController.hpp"
 #include "../../src/editor/SaveController.hpp"
 #include "../../src/editor/PreviewPoseQueries.hpp"
+#include "../../src/editor/TransformMath.hpp"
 #include "../../src/editor/ViewportCapabilities.hpp"
 #include "../../src/editor/ViewportLighting.hpp"
 #include "../../src/editor/WorkspacePolicy.hpp"
@@ -448,7 +449,7 @@ int main() {
     mirrorGroupSession.deform.mode = pmxer::DeformMode::shape;
     mirrorGroupSession.deform.engaged = true;
     mirrorGroupSession.deform.symmetryX = true;
-    mirrorGroupSession.deform.symmetryTolerance = 0.01F;
+    mirrorGroupSession.deform.symmetryTolerance = 0.02F;
     const auto makeVertexItem = [&](std::size_t index) {
         const auto handle = mirrorGroupSession.document.vertexHandle(index);
         return pmxer::SelectionItem{pmxer::SelectionKind::vertex, handle.domain,
@@ -643,6 +644,115 @@ int main() {
     assert(std::abs(childBoneSession.deform.bones.front().rotation[1] + std::sin(0.25F * pi)) < 1e-5F);
     assert(std::abs(childBoneSession.deform.bones.front().rotation[2]) < 1e-5F);
     assert(std::abs(childBoneSession.deform.bones.front().rotation[3] - std::cos(0.25F * pi)) < 1e-5F);
+
+    // The quaternion composition used for rigid bodies and joints must retain
+    // the legacy ImGuizmo X * Y * Z Euler order for compound rotations.
+    const auto legacyAxisMatrix = [](std::size_t axis, float angle) {
+        std::array<float, 16> matrix{};
+        matrix[0] = matrix[5] = matrix[10] = matrix[15] = 1.0F;
+        const auto sine = std::sin(angle);
+        const auto cosine = std::cos(angle);
+        if (axis == 0U) {
+            matrix[5] = matrix[10] = cosine;
+            matrix[6] = sine;
+            matrix[9] = -sine;
+        } else if (axis == 1U) {
+            matrix[0] = matrix[10] = cosine;
+            matrix[2] = -sine;
+            matrix[8] = sine;
+        } else {
+            matrix[0] = matrix[5] = cosine;
+            matrix[1] = sine;
+            matrix[4] = -sine;
+        }
+        return matrix;
+    };
+    const auto legacyMultiply = [](const std::array<float, 16> &lhs,
+                                   const std::array<float, 16> &rhs) {
+        std::array<float, 16> result{};
+        for (std::size_t row = 0; row < 4U; ++row)
+            for (std::size_t column = 0; column < 4U; ++column)
+                for (std::size_t component = 0; component < 4U; ++component)
+                    result[row * 4U + column] +=
+                        lhs[row * 4U + component] * rhs[component * 4U + column];
+        return result;
+    };
+    const mmd::Float3 compoundEuler{20.0F * pi / 180.0F,
+                                    30.0F * pi / 180.0F,
+                                    40.0F * pi / 180.0F};
+    const auto legacyCompound = legacyMultiply(
+        legacyMultiply(legacyAxisMatrix(0U, compoundEuler[0]),
+                       legacyAxisMatrix(1U, compoundEuler[1])),
+        legacyAxisMatrix(2U, compoundEuler[2]));
+    const auto quaternionCompound = pmxer::composeRotationMatrix(
+        pmxer::quaternionFromEuler(compoundEuler));
+    for (std::size_t component = 0; component < 16U; ++component)
+        assert(std::abs(quaternionCompound[component] - legacyCompound[component]) < 1e-5F);
+
+    auto multiBoneModel = sampleModel();
+    mmd::PmxBone childForSelection;
+    childForSelection.name = "child";
+    childForSelection.parent = 0;
+    childForSelection.position = {1.0F, 0.0F, 0.0F};
+    multiBoneModel.bones.push_back(childForSelection);
+    pmxer::DocumentSession multiBoneSession(std::move(multiBoneModel));
+    multiBoneSession.deform.mode = pmxer::DeformMode::pose;
+    multiBoneSession.deform.engaged = true;
+    const auto multiBoneItem = [&](std::size_t index) {
+        const auto handle = multiBoneSession.document.boneHandle(index);
+        return pmxer::SelectionItem{pmxer::SelectionKind::bone, handle.domain,
+                                    handle.id, handle.generation};
+    };
+    multiBoneSession.selection.set(std::vector<pmxer::SelectionItem>{
+        multiBoneItem(0), multiBoneItem(1)});
+    const auto multiBoneCapabilities = pmxer::transformCapabilities(multiBoneSession);
+    assert(!multiBoneCapabilities.move);
+    assert(!multiBoneCapabilities.rotate);
+    assert(!multiBoneCapabilities.scale);
+    pmxer::beginDeformGizmoDrag(multiBoneSession, identityMatrix);
+    assert(multiBoneSession.deform.dragBones.empty());
+
+    auto appendBoneModel = sampleModel();
+    appendBoneModel.bones[0].flags = 0x0100U;
+    pmxer::DocumentSession appendBoneSession(std::move(appendBoneModel));
+    appendBoneSession.deform.mode = pmxer::DeformMode::pose;
+    appendBoneSession.deform.engaged = true;
+    const auto appendBone = appendBoneSession.document.boneHandle(0);
+    appendBoneSession.selection.set(pmxer::SelectionItem{
+        pmxer::SelectionKind::bone, appendBone.domain, appendBone.id,
+        appendBone.generation});
+    assert(!pmxer::transformCapabilities(appendBoneSession).move);
+
+    auto ikBoneModel = sampleModel();
+    mmd::PmxBone ikTargetBone;
+    ikTargetBone.name = "ik target";
+    ikTargetBone.position = {1.0F, 0.0F, 0.0F};
+    ikBoneModel.bones.push_back(ikTargetBone);
+    ikBoneModel.bones[0].flags = 0x0020U;
+    ikBoneModel.bones[0].ikTarget = 1;
+    ikBoneModel.bones[0].ikLinks.push_back({1});
+    pmxer::DocumentSession ikBoneSession(std::move(ikBoneModel));
+    ikBoneSession.deform.mode = pmxer::DeformMode::pose;
+    ikBoneSession.deform.engaged = true;
+    const auto ikTarget = ikBoneSession.document.boneHandle(1);
+    ikBoneSession.selection.set(pmxer::SelectionItem{
+        pmxer::SelectionKind::bone, ikTarget.domain, ikTarget.id,
+        ikTarget.generation});
+    assert(!pmxer::transformCapabilities(ikBoneSession).move);
+
+    auto physicsBoneModel = sampleModel();
+    mmd::PmxRigidBody physicsBody;
+    physicsBody.bone = 0;
+    physicsBody.mode = 1U;
+    physicsBoneModel.rigidBodies.push_back(physicsBody);
+    pmxer::DocumentSession physicsBoneSession(std::move(physicsBoneModel));
+    physicsBoneSession.deform.mode = pmxer::DeformMode::pose;
+    physicsBoneSession.deform.engaged = true;
+    const auto physicsBone = physicsBoneSession.document.boneHandle(0);
+    physicsBoneSession.selection.set(pmxer::SelectionItem{
+        pmxer::SelectionKind::bone, physicsBone.domain, physicsBone.id,
+        physicsBone.generation});
+    assert(!pmxer::transformCapabilities(physicsBoneSession).move);
 
     pmxer::DocumentSession retainedSession(sampleModel());
     const auto retainedVertex = retainedSession.document.vertexHandle(0);
