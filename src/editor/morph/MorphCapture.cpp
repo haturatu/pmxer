@@ -1,6 +1,7 @@
 #include "MorphCapture.hpp"
 
 #include "MorphMixer.hpp"
+#include "../ViewportCapabilities.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -82,6 +83,14 @@ OperationResult captureVertexMorph(DocumentSession &session, std::string name) {
 }
 
 OperationResult captureBoneMorph(DocumentSession &session, std::string name) {
+    for (const auto &delta : session.deform.bones) {
+        if (!delta.bone || session.document.resolve(delta.bone) == nullptr)
+            continue;
+        if (!deformBoneTransformAllowed(session, delta.bone))
+            return {false,
+                    "Bone evaluation settings changed after the temporary edit. "
+                    "Discard the edit and transform the bone again."};
+    }
     MorphData data{2U, {}, 4U, {}};
     for (const auto &delta : session.deform.bones) {
         if (!nonZeroBoneDelta(delta) || !delta.bone || session.document.resolve(delta.bone) == nullptr)

@@ -318,6 +318,20 @@ int runApplication(const EditCommand &options) {
                 return index;
         return std::nullopt;
     };
+    const auto revealPendingTransformEdit = [&](std::size_t index) {
+        if (index >= sessions.size())
+            return;
+        activeSession = index;
+        workspace.showTransformView = true;
+        auto &session = *sessions[index];
+        if (!session.deform.bones.empty()) {
+            session.deform.tab = TransformViewTab::bone;
+            session.deform.mode = DeformMode::pose;
+        } else if (!session.deform.vertices.empty()) {
+            session.deform.tab = TransformViewTab::vertex;
+            session.deform.mode = DeformMode::shape;
+        }
+    };
     const auto loadDroppedPreview = [&](const std::filesystem::path &path) {
         if (sessions.empty() || activeSession >= sessions.size()) {
             log::warn("open a model before dropping a motion or pose");
@@ -614,7 +628,7 @@ int runApplication(const EditCommand &options) {
             ImGui::SameLine();
             if (pendingTransform) {
                 if (ImGui::Button("Transform ViewでCapture")) {
-                    workspace.showTransformView = true;
+                    revealPendingTransformEdit(quitSessionIndex);
                     quitRequested = false;
                     quitPromptOpened = false;
                     ImGui::CloseCurrentPopup();
@@ -723,7 +737,7 @@ int runApplication(const EditCommand &options) {
                 }
                 if (pendingTransform) {
                     if (ImGui::Button("Transform ViewでCapture")) {
-                        workspace.showTransformView = true;
+                        revealPendingTransformEdit(*target);
                         closePromptOpened = false;
                         pendingCloseSession.reset();
                         ImGui::CloseCurrentPopup();
@@ -777,7 +791,7 @@ int runApplication(const EditCommand &options) {
                 ImGui::TextWrapped("Temporary Transform View edits are not part of the PMX yet.");
                 ImGui::TextWrapped("Capture the edit as a morph, or discard it before saving.");
                 if (ImGui::Button("Transform ViewでCapture")) {
-                    workspace.showTransformView = true;
+                    revealPendingTransformEdit(*target);
                     pendingTransformSaveSession.reset();
                     pendingTransformSaveAs = false;
                     pendingTransformSavePromptOpened = false;

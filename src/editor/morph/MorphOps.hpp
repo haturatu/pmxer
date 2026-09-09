@@ -29,9 +29,15 @@ struct SideSplitResult {
     MorphData right;
 };
 
+struct InvertResult {
+    bool success{};
+    MorphData data;
+    std::string message;
+};
+
 [[nodiscard]] MorphData copy(const mmd::PmxMorph &morph);
 [[nodiscard]] MorphData scale(MorphData value, float factor);
-[[nodiscard]] MorphData negate(MorphData value);
+[[nodiscard]] InvertResult invert(MorphData value);
 [[nodiscard]] MorphData pruneZeroOffsets(MorphData value);
 [[nodiscard]] MorphData duplicate(const MorphData &value);
 [[nodiscard]] MorphData combine(std::span<const MorphData> values);

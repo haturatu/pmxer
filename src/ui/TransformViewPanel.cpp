@@ -303,10 +303,15 @@ void drawMorphOperations(DocumentSession &session) {
                                                    source.name + " Scaled", "Scale Morph"),
                "Scaled morph created");
     ImGui::SameLine();
-    if (ImGui::Button("Invert Delta"))
-        status(session, morph::createMorphFromData(session, morph::negate(morph::copy(source)),
-                                                   source.name + " Inverted", "Invert Morph Delta"),
-               "Inverted morph created");
+    if (ImGui::Button("Invert Delta")) {
+        const auto inverted = morph::invert(morph::copy(source));
+        if (!inverted.success)
+            setOperationStatus(session, false, "Inverted morph was not created", inverted.message);
+        else
+            status(session, morph::createMorphFromData(
+                              session, inverted.data, source.name + " Inverted", "Invert Morph Delta"),
+                   "Inverted morph created");
+    }
     if (ImGui::Button("Duplicate"))
         status(session, morph::duplicateMorph(session, sourceHandle, source.name + " Copy"),
                "Morph duplicated");

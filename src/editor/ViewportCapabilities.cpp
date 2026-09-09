@@ -50,6 +50,8 @@ bool deformBoneTransformAllowed(const DocumentSession &session,
         return false;
 
     for (const auto &candidate : model.bones) {
+        if ((candidate.flags & ikFlag) == 0U)
+            continue;
         if (candidate.ikTarget == static_cast<std::int32_t>(index))
             return false;
         for (const auto &link : candidate.ikLinks)

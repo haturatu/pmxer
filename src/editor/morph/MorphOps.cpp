@@ -190,7 +190,7 @@ MorphData scale(MorphData value, float factor) {
     return pruneZeroOffsets(std::move(value));
 }
 
-MorphData negate(MorphData value) {
+InvertResult invert(MorphData value) {
     for (auto &offset : value.offsets) {
         if (value.type == 2U) {
             scale3(offset.vector3, -1.0F);
@@ -198,10 +198,14 @@ MorphData negate(MorphData value) {
         } else if (value.type == 8U) {
             for (auto &values : offset.materialVectors) {
                 for (auto &component : values) {
-                    if (offset.operation == 0U)
-                        component = std::abs(component) <= 1e-6F ? 1.0F : 1.0F / component;
-                    else
+                    if (offset.operation == 0U) {
+                        if (std::abs(component) <= 1e-6F)
+                            return {false, {},
+                                    "Material multiply morph contains a zero factor and cannot be inverted exactly."};
+                        component = 1.0F / component;
+                    } else {
                         component = -component;
+                    }
                 }
             }
         } else {
@@ -211,7 +215,7 @@ MorphData negate(MorphData value) {
             scale3(offset.tertiaryVector3, -1.0F);
         }
     }
-    return pruneZeroOffsets(std::move(value));
+    return {true, pruneZeroOffsets(std::move(value)), {}};
 }
 
 MorphData pruneZeroOffsets(MorphData value) {
@@ -250,8 +254,10 @@ MorphData combine(std::span<const MorphData> values) {
 }
 
 MorphData subtract(const MorphData &lhs, const MorphData &rhs) {
-    const auto negated = negate(duplicate(rhs));
-    const std::array<MorphData, 2> values{lhs, negated};
+    const auto inverted = invert(duplicate(rhs));
+    if (!inverted.success)
+        return {};
+    const std::array<MorphData, 2> values{lhs, inverted.data};
     return combine(values);
 }
 
