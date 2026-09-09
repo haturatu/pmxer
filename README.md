@@ -36,20 +36,25 @@ pmxer は PMX 形式の編集、検証、保存、プレビューを行うクロ
 ## ビルド
 
 ```sh
-git clone --recursive <repository-url> pmxer
+git clone <repository-url> pmxer
 cd pmxer
-cmake --preset linux-dev
-cmake --build --preset linux-dev
-ctest --preset linux-dev
+make
+make test
 ```
+
+Makefile は CMake preset を呼び出す薄い操作 UI です。初回の `make` では
+`external/libmmd` サブモジュールも自動初期化されます。利用できる操作は
+`make help` で確認できます。
 
 CLI は GUI なしでもビルドできます。
 
 ```sh
-cmake --preset linux-cli
-cmake --build --preset linux-cli
-./build/linux-cli/pmxer info model.pmx
+make cli
+make PRESET=linux-cli run ARGS="info model.pmx"
 ```
+
+GUI を起動する場合は `make run ARGS="model.pmx"`、ビルドの並列数を指定する場合は
+`make JOBS=8` のように実行します。CMake preset を直接操作することもできます。
 
 ## CLI
 
