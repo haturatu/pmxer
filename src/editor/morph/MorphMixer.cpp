@@ -37,20 +37,23 @@ void collectVertexMorph(const mmd::PmxModel &model, std::size_t index, float wei
 namespace pmxer::morph {
 
 void syncPreview(DocumentSession &session) {
-    session.preview.morphValues = session.deform.blends;
     ++session.preview.morphRevision;
     if (!session.preview.controller)
         return;
     session.preview.controller->clearMorphPreviews();
-    for (const auto &blend : session.deform.blends) {
+    for (const auto &blend : session.preview.morphValues) {
         if (session.document.resolve(blend.morph) == nullptr)
             continue;
-        if (session.deform.solo && blend.morph != session.deform.soloMorph)
+        if (session.preview.solo && blend.morph != session.preview.soloMorph)
             continue;
         session.preview.controller->setMorphPreview(blend.morph, blend.weight);
     }
-    session.preview.controller->setVertexPreview({});
-    session.preview.controller->setBonePreview({});
+    session.preview.controller->setVertexPreview(
+        session.deform.mode == DeformMode::shape ? vertexMorphOffsets(session)
+                                                 : std::vector<mmd::PmxMorphOffset>{});
+    session.preview.controller->setBonePreview(
+        session.deform.mode == DeformMode::pose ? boneMorphOffsets(session)
+                                                : std::vector<mmd::PmxMorphOffset>{});
     session.preview.baseFrame = session.preview.controller->evaluate();
     refreshDeformPreview(session);
     session.preview.appliedMorphRevision = session.preview.morphRevision;
@@ -59,55 +62,54 @@ void syncPreview(DocumentSession &session) {
 void setBlend(DocumentSession &session, mmd::MorphHandle morph, float weight) {
     if (session.document.resolve(morph) == nullptr)
         return;
-    const auto found = std::find_if(session.deform.blends.begin(), session.deform.blends.end(),
+    const auto found = std::find_if(session.preview.morphValues.begin(), session.preview.morphValues.end(),
                                     [&](const auto &blend) { return blend.morph == morph; });
     const auto value = std::clamp(weight, 0.0F, 1.0F);
-    if (found == session.deform.blends.end())
-        session.deform.blends.push_back({morph, value});
+    if (found == session.preview.morphValues.end())
+        session.preview.morphValues.push_back({morph, value});
     else
         found->weight = value;
-    session.deform.mode = DeformMode::mix;
     syncPreview(session);
 }
 
 void clearBlend(DocumentSession &session, mmd::MorphHandle morph) {
-    const auto oldSize = session.deform.blends.size();
-    std::erase_if(session.deform.blends,
+    const auto oldSize = session.preview.morphValues.size();
+    std::erase_if(session.preview.morphValues,
                   [&](const auto &blend) { return blend.morph == morph; });
-    if (session.deform.soloMorph == morph) {
-        session.deform.solo = false;
-        session.deform.soloMorph = {};
+    if (session.preview.soloMorph == morph) {
+        session.preview.solo = false;
+        session.preview.soloMorph = {};
     }
-    if (oldSize != session.deform.blends.size())
+    if (oldSize != session.preview.morphValues.size())
         syncPreview(session);
 }
 
 void resetMix(DocumentSession &session) {
-    session.deform.blends.clear();
-    session.deform.solo = false;
-    session.deform.soloMorph = {};
+    session.preview.morphValues.clear();
+    session.preview.solo = false;
+    session.preview.soloMorph = {};
     syncPreview(session);
 }
 
 void setSoloMorph(DocumentSession &session, mmd::MorphHandle morph) {
     if (session.document.resolve(morph) == nullptr)
         return;
-    session.deform.solo = true;
-    session.deform.soloMorph = morph;
+    session.preview.solo = true;
+    session.preview.soloMorph = morph;
     syncPreview(session);
 }
 
 void clearSoloMorph(DocumentSession &session) {
-    session.deform.solo = false;
-    session.deform.soloMorph = {};
+    session.preview.solo = false;
+    session.preview.soloMorph = {};
     syncPreview(session);
 }
 
 OperationResult bakeMixAsVertexMorph(DocumentSession &session, std::string name) {
     std::vector<MorphData> parts;
     std::vector<std::uint8_t> stack(session.document.model().morphs.size());
-    for (const auto &blend : session.deform.blends) {
-        if (session.deform.solo && blend.morph != session.deform.soloMorph)
+    for (const auto &blend : session.preview.morphValues) {
+        if (session.preview.solo && blend.morph != session.preview.soloMorph)
             continue;
         const auto *morph = session.document.resolve(blend.morph);
         if (morph == nullptr)

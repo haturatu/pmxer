@@ -116,12 +116,11 @@ void drawVertexTransform(DocumentSession &session) {
             session.deform.pivotMode = PivotMode::origin;
         ImGui::EndCombo();
     }
-    ImGui::Checkbox("Symmetry X", &session.deform.symmetryX);
+    ImGui::Checkbox("Mirror X", &session.deform.symmetryX);
     if (session.deform.symmetryX) {
         ImGui::DragFloat("Center X", &session.deform.symmetryCenterX, 0.001F);
-        ImGui::DragFloat("Feather", &session.deform.symmetryFeather, 0.001F, 0.0F, 10.0F);
-        ImGui::Checkbox("Swap sides", &session.deform.symmetrySwap);
-        ImGui::Checkbox("Duplicate center vertices", &session.deform.duplicateCenterVertices);
+        ImGui::DragFloat("Mirror tolerance", &session.deform.symmetryTolerance, 0.001F, 0.0F, 10.0F);
+        ImGui::Checkbox("Swap mirror sides", &session.deform.symmetrySwapSides);
     }
     ImGui::Separator();
     drawCaptureName(session);
@@ -147,14 +146,14 @@ void drawBoneTransform(DocumentSession &session) {
                "Bone morph created");
 }
 
-float blendWeight(const DeformSession &deform, mmd::MorphHandle handle) {
-    const auto found = std::find_if(deform.blends.begin(), deform.blends.end(),
+float blendWeight(const PreviewSession &preview, mmd::MorphHandle handle) {
+    const auto found = std::find_if(preview.morphValues.begin(), preview.morphValues.end(),
                                     [&](const auto &blend) { return blend.morph == handle; });
-    return found == deform.blends.end() ? 0.0F : found->weight;
+    return found == preview.morphValues.end() ? 0.0F : found->weight;
 }
 
 void drawMorphMixer(DocumentSession &session) {
-    session.deform.mode = DeformMode::mix;
+    session.deform.mode = DeformMode::inactive;
     ImGui::SeparatorText("Morph Mixer");
     auto &model = session.document.model();
     ImGui::InputText("Search", session.deform.morphSearch.data(), session.deform.morphSearch.size());
@@ -164,7 +163,7 @@ void drawMorphMixer(DocumentSession &session) {
         if (!search.empty() && morphValue.name.find(search) == std::string::npos)
             continue;
         const auto handle = session.document.morphHandle(index);
-        auto weight = blendWeight(session.deform, handle);
+        auto weight = blendWeight(session.preview, handle);
         ImGui::PushID(static_cast<int>(index));
         ImGui::TextUnformatted(morphValue.name.c_str());
         ImGui::SameLine();
@@ -172,7 +171,7 @@ void drawMorphMixer(DocumentSession &session) {
         if (ImGui::SliderFloat("##weight", &weight, 0.0F, 1.0F, "%.2f"))
             morph::setBlend(session, handle, weight);
         ImGui::SameLine();
-        const bool solo = session.deform.solo && session.deform.soloMorph == handle;
+        const bool solo = session.preview.solo && session.preview.soloMorph == handle;
         if (ImGui::SmallButton(solo ? "Unsolo" : "Solo")) {
             if (solo)
                 morph::clearSoloMorph(session);
@@ -267,16 +266,20 @@ void drawMorphOperations(DocumentSession &session) {
             setStatus(session, "Side Split is available for vertex morphs only",
                       UiStatusKind::warning);
         } else {
-            const morph::SideSplitOptions options{session.deform.symmetryCenterX,
-                                                   session.deform.symmetryFeather,
-                                                   session.deform.symmetrySwap,
-                                                   session.deform.duplicateCenterVertices};
+            const morph::SideSplitOptions options{session.deform.sideSplitCenterX,
+                                                   session.deform.sideSplitFeather,
+                                                   session.deform.sideSplitSwapSides,
+                                                   session.deform.sideSplitDuplicateCenterVertices};
             const auto result = morph::splitSide(model, source, options);
             status(session, morph::createSideSplitMorphs(session, std::move(result.left),
                                                          std::move(result.right), source.name),
                    "Side split morphs created");
         }
     }
+    ImGui::DragFloat("Split center X", &session.deform.sideSplitCenterX, 0.001F);
+    ImGui::DragFloat("Split feather", &session.deform.sideSplitFeather, 0.001F, 0.0F, 10.0F);
+    ImGui::Checkbox("Swap split sides", &session.deform.sideSplitSwapSides);
+    ImGui::Checkbox("Duplicate split center", &session.deform.sideSplitDuplicateCenterVertices);
     ImGui::DragInt("Material index", &session.deform.materialIndex, 1.0F, -1,
                    static_cast<int>(model.materials.size()) - 1);
     const auto material = session.deform.materialIndex < 0
@@ -330,21 +333,31 @@ void drawTransformView(DocumentSession &session, bool *open) {
     session.deform.suspended = false;
     if (session.deform.dirty && ImGui::Button("Discard Temporary Edit")) {
         session.deform.clearOverlay();
-        session.deform.mode = DeformMode::shape;
+        session.deform.mode = session.deform.tab == TransformViewTab::bone
+                                  ? DeformMode::pose
+                                  : session.deform.tab == TransformViewTab::vertex
+                                        ? DeformMode::shape
+                                        : DeformMode::inactive;
         refreshDeformPreview(session);
     }
-    if (ImGui::RadioButton("Vertex", session.deform.mode == DeformMode::shape))
+    if (ImGui::RadioButton("Vertex", session.deform.tab == TransformViewTab::vertex)) {
+        session.deform.tab = TransformViewTab::vertex;
         session.deform.mode = DeformMode::shape;
+    }
     ImGui::SameLine();
-    if (ImGui::RadioButton("Bone", session.deform.mode == DeformMode::pose))
+    if (ImGui::RadioButton("Bone", session.deform.tab == TransformViewTab::bone)) {
+        session.deform.tab = TransformViewTab::bone;
         session.deform.mode = DeformMode::pose;
+    }
     ImGui::SameLine();
-    if (ImGui::RadioButton("Morph", session.deform.mode == DeformMode::mix))
-        session.deform.mode = DeformMode::mix;
+    if (ImGui::RadioButton("Morph", session.deform.tab == TransformViewTab::morph)) {
+        session.deform.tab = TransformViewTab::morph;
+        session.deform.mode = DeformMode::inactive;
+    }
     ImGui::Separator();
-    if (session.deform.mode == DeformMode::pose)
+    if (session.deform.tab == TransformViewTab::bone)
         drawBoneTransform(session);
-    else if (session.deform.mode == DeformMode::mix)
+    else if (session.deform.tab == TransformViewTab::morph)
         drawMorphMixer(session);
     else
         drawVertexTransform(session);

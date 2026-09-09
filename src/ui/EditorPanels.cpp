@@ -85,12 +85,13 @@ PreviewSession &updatePreview(DocumentSession &session) {
         std::erase_if(state.morphValues, [&](const auto &preview) {
             return session.document.resolve(preview.morph) == nullptr;
         });
-        std::erase_if(session.deform.blends, [&](const auto &blend) {
-            return session.document.resolve(blend.morph) == nullptr;
-        });
+        if (session.preview.solo && session.document.resolve(session.preview.soloMorph) == nullptr) {
+            session.preview.solo = false;
+            session.preview.soloMorph = {};
+        }
         for (const auto &preview : state.morphValues) {
             if (session.document.resolve(preview.morph) != nullptr &&
-                (!session.deform.solo || preview.morph == session.deform.soloMorph))
+                (!session.preview.solo || preview.morph == session.preview.soloMorph))
                 state.controller->setMorphPreview(preview.morph, preview.weight);
         }
         setDeformPreviews(session, *state.controller);
@@ -108,7 +109,7 @@ PreviewSession &updatePreview(DocumentSession &session) {
         state.controller->clearMorphPreviews();
         for (const auto &preview : state.morphValues) {
             if (session.document.resolve(preview.morph) != nullptr &&
-                (!session.deform.solo || preview.morph == session.deform.soloMorph))
+                (!session.preview.solo || preview.morph == session.preview.soloMorph))
                 state.controller->setMorphPreview(preview.morph, preview.weight);
         }
         setDeformPreviews(session, *state.controller);

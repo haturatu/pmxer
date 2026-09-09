@@ -176,6 +176,8 @@ struct PreviewSession {
     std::chrono::steady_clock::time_point lastTick{};
     bool clockInitialized{};
     std::vector<MorphBlend> morphValues;
+    bool solo{};
+    mmd::MorphHandle soloMorph{};
     std::optional<mmd::AnimatedModelFrame> baseFrame;
     std::uint64_t morphRevision{};
     std::uint64_t appliedMorphRevision{std::numeric_limits<std::uint64_t>::max()};

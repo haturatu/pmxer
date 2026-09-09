@@ -13,7 +13,8 @@
 
 namespace pmxer {
 
-enum class DeformMode : std::uint8_t { inactive, shape, pose, mix };
+enum class DeformMode : std::uint8_t { inactive, shape, pose };
+enum class TransformViewTab : std::uint8_t { vertex, bone, morph };
 enum class PivotMode : std::uint8_t { median, active, origin };
 
 struct VertexDelta {
@@ -40,10 +41,12 @@ struct DragVertex {
 struct DragBone {
     mmd::BoneHandle bone{};
     mmd::Float3 position{};
+    mmd::Float4 rotation{0.0F, 0.0F, 0.0F, 1.0F};
 };
 
 struct DeformSession {
     DeformMode mode{DeformMode::inactive};
+    TransformViewTab tab{TransformViewTab::vertex};
     // The panel can be closed without discarding an in-progress edit. Keep
     // this separate from mode so a closed panel cannot capture viewport edits.
     bool engaged{};
@@ -53,16 +56,17 @@ struct DeformSession {
     std::vector<BoneDelta> bones;
     std::vector<DragVertex> dragVertices;
     std::vector<DragBone> dragBones;
-    std::vector<MorphBlend> blends;
+    std::array<float, 16> dragStartGizmoMatrix{};
     PivotMode pivotMode{PivotMode::median};
     bool symmetryX{};
     float symmetryCenterX{};
-    float symmetryFeather{0.02F};
-    bool symmetrySwap{};
-    bool duplicateCenterVertices{};
+    float symmetryTolerance{0.02F};
+    bool symmetrySwapSides{};
+    float sideSplitCenterX{};
+    float sideSplitFeather{0.02F};
+    bool sideSplitSwapSides{};
+    bool sideSplitDuplicateCenterVertices{};
     bool dirty{};
-    bool solo{};
-    mmd::MorphHandle soloMorph{};
     mmd::MorphHandle operationMorph{};
     float morphScaleFactor{1.0F};
     std::int32_t materialIndex{-1};
@@ -78,28 +82,38 @@ struct DeformSession {
     }
 
     void clearOverlay() {
+        clearVertexOverlay();
+        clearBoneOverlay();
+    }
+
+    void clearVertexOverlay() {
         vertices.clear();
-        bones.clear();
         dragVertices.clear();
+        dirty = !bones.empty();
+    }
+
+    void clearBoneOverlay() {
+        bones.clear();
         dragBones.clear();
-        dirty = false;
+        dirty = !vertices.empty();
     }
 
     void reset() {
         mode = DeformMode::inactive;
+        tab = TransformViewTab::vertex;
         engaged = false;
         suspended = false;
         sourceRevision = 0;
         clearOverlay();
-        blends.clear();
         pivotMode = PivotMode::median;
         symmetryX = false;
         symmetryCenterX = 0.0F;
-        symmetryFeather = 0.02F;
-        symmetrySwap = false;
-        duplicateCenterVertices = false;
-        solo = false;
-        soloMorph = {};
+        symmetryTolerance = 0.02F;
+        symmetrySwapSides = false;
+        sideSplitCenterX = 0.0F;
+        sideSplitFeather = 0.02F;
+        sideSplitSwapSides = false;
+        sideSplitDuplicateCenterVertices = false;
         operationMorph = {};
         morphScaleFactor = 1.0F;
         materialIndex = -1;
@@ -109,6 +123,7 @@ struct DeformSession {
         symmetryCacheCenterX = 0.0F;
         symmetryCacheTolerance = 0.0F;
         symmetryMirrorIndices.clear();
+        dragStartGizmoMatrix = {};
     }
 };
 

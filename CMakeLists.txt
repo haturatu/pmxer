@@ -77,6 +77,7 @@ add_library(pmxer_editor
   src/editor/ViewportCapabilities.cpp
   src/editor/morph/MorphCapture.cpp
   src/editor/morph/MorphMask.cpp
+  src/editor/morph/MorphMixer.cpp
   src/editor/morph/MorphOps.cpp
   src/ui/WorkspaceLayout.cpp
   src/editor/tools/SdefTool.cpp
@@ -325,7 +326,6 @@ if(PMXER_BUILD_GUI)
   endif()
 
   add_library(pmxer_ui
-    src/editor/morph/MorphMixer.cpp
     src/ui/DeformLabPanel.cpp
     src/ui/MainWindow.cpp
     src/ui/EditorPanels.cpp
