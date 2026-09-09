@@ -9,6 +9,7 @@
 #include "../../src/editor/UiStatus.hpp"
 #include "../../src/render/Camera.hpp"
 #include "../../src/render/Picking.hpp"
+#include "../../src/render/PreviewTextureFallbacks.hpp"
 #include "../../src/preview/PreviewController.hpp"
 #include "../../src/ui/WorkspaceLayout.hpp"
 
@@ -82,6 +83,18 @@ int main() {
     assert(orthographicCenter.inFront);
     assert(std::abs(orthographicCenter.x - 400.0F) < 0.001F);
     assert(std::abs(orthographicCenter.y - 300.0F) < 0.001F);
+
+    const auto sharedToon = pmxer::makeSharedToonFallback(0);
+    assert(sharedToon[0] == 255U);
+    assert(sharedToon[63U * 4U] == 52U);
+    for (std::size_t row = 1; row < 64U; ++row)
+        assert(sharedToon[(row - 1U) * 4U] >= sharedToon[row * 4U]);
+
+    const auto neutralToon = pmxer::makeNeutralToonFallback();
+    assert(neutralToon[0] == 255U);
+    assert(neutralToon[63U * 4U] == 96U);
+    for (std::size_t row = 1; row < 64U; ++row)
+        assert(neutralToon[(row - 1U) * 4U] >= neutralToon[row * 4U]);
 
     pmxer::DocumentSession recovered(sampleModel());
     recovered.commands.markDirty();
