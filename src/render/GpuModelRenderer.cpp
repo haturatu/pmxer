@@ -32,11 +32,17 @@ struct alignas(16) FrameUniforms {
     std::array<float, 4> edgeParameters{};
 };
 
+struct alignas(16) FragmentFrameUniforms {
+    std::array<float, 4> cameraPosition{};
+    std::array<float, 4> lightDirection{};
+    std::array<float, 4> viewportLighting{};
+    std::array<float, 4> previewStrength{};
+};
+
 struct alignas(16) MaterialUniforms {
     std::array<float, 4> diffuse{};
     std::array<float, 4> ambientShininess{};
     std::array<float, 4> specular{};
-    std::array<float, 4> cameraPosition{};
     std::array<float, 4> textureMultiply{1.0F, 1.0F, 1.0F, 1.0F};
     std::array<float, 4> textureAdd{};
     std::array<float, 4> sphereMultiply{1.0F, 1.0F, 1.0F, 1.0F};
@@ -52,6 +58,33 @@ FrameUniforms makeUniforms(const CameraState &camera, float aspect) {
     const auto matrices = makeCameraMatrices(camera, aspect);
     FrameUniforms result{};
     result.viewProjection = matrices.viewProjection;
+    return result;
+}
+
+FragmentFrameUniforms makeFragmentUniforms(const CameraState &camera,
+                                           const ViewportLightingSettings &settings) {
+    const auto eye = cameraEye(camera);
+    const auto cosPitch = std::cos(settings.lightPitch);
+    const auto lightDirection = mmd::Float3{
+        cosPitch * std::sin(settings.lightYaw),
+        std::sin(settings.lightPitch),
+        cosPitch * std::cos(settings.lightYaw),
+    };
+    FragmentFrameUniforms result{};
+    result.cameraPosition = {eye[0], eye[1], eye[2], 1.0F};
+    result.lightDirection = {lightDirection[0], lightDirection[1], lightDirection[2], 0.0F};
+    result.viewportLighting = {
+        settings.lightIntensity,
+        settings.ambientIntensity,
+        settings.exposure,
+        static_cast<float>(settings.mode),
+    };
+    result.previewStrength = {
+        settings.toonStrength,
+        settings.sphereStrength,
+        settings.specularStrength,
+        0.0F,
+    };
     return result;
 }
 
@@ -411,7 +444,7 @@ GpuModelRenderer::GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path 
     fragmentInfo.format = shaders.format;
     fragmentInfo.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
     fragmentInfo.num_samplers = 3;
-    fragmentInfo.num_uniform_buffers = 1;
+    fragmentInfo.num_uniform_buffers = 2;
     impl_->vertexShader = SDL_CreateGPUShader(device, &vertexInfo);
     impl_->fragmentShader = SDL_CreateGPUShader(device, &fragmentInfo);
     SDL_free(vertexCode);
@@ -602,7 +635,7 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
     const CameraState camera{ui.cameraTarget, ui.cameraYaw, ui.cameraPitch,
                              ui.cameraDistance, ui.orthographic};
     const auto frameUniforms = makeUniforms(camera, aspect);
-    const auto eye = cameraEye(camera);
+    const auto fragmentFrameUniforms = makeFragmentUniforms(camera, ui.viewportLighting);
     SDL_GPUViewport viewport{x, y, width, height, 0.0F, 1.0F};
     SDL_SetGPUViewport(pass, &viewport);
     SDL_Rect scissor{static_cast<int>(x), static_cast<int>(y), static_cast<int>(width), static_cast<int>(height)};
@@ -611,6 +644,8 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
     const SDL_GPUBufferBinding indexBinding{impl_->indexBuffer, 0};
     SDL_BindGPUVertexBuffers(pass, 0, &vertexBinding, 1);
     SDL_BindGPUIndexBuffer(pass, &indexBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+    SDL_PushGPUFragmentUniformData(commands, 0, &fragmentFrameUniforms,
+                                    sizeof(fragmentFrameUniforms));
     std::size_t indexBegin = 0;
     for (std::size_t materialIndex = 0; materialIndex < model.materials.size(); ++materialIndex) {
         const auto &material = model.materials[materialIndex];
@@ -641,7 +676,6 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
         uniforms.ambientShininess = {ambient[0], ambient[1], ambient[2],
                                      std::max(shininess, 1.0F)};
         uniforms.specular = {specular[0], specular[1], specular[2], 0.0F};
-        uniforms.cameraPosition = {eye[0], eye[1], eye[2], 1.0F};
         if (animated != nullptr) {
             uniforms.textureMultiply = {animated->textureMultiply[0], animated->textureMultiply[1],
                                         animated->textureMultiply[2], animated->textureMultiply[3]};
@@ -719,13 +753,13 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
                 edgeMaterial.edgeColor[3] *= 0.28F;
             edgeMaterial.materialModes[2] = 1.0F;
             SDL_PushGPUVertexUniformData(commands, 0, &edgeFrame, sizeof(edgeFrame));
-            SDL_PushGPUFragmentUniformData(commands, 0, &edgeMaterial, sizeof(edgeMaterial));
+            SDL_PushGPUFragmentUniformData(commands, 1, &edgeMaterial, sizeof(edgeMaterial));
             SDL_BindGPUGraphicsPipeline(pass, impl_->edgePipeline);
             SDL_DrawGPUIndexedPrimitives(pass, static_cast<Uint32>(count), 1,
                                          static_cast<Uint32>(indexBegin), 0, 0);
         }
         SDL_PushGPUVertexUniformData(commands, 0, &frameUniforms, sizeof(frameUniforms));
-        SDL_PushGPUFragmentUniformData(commands, 0, &uniforms, sizeof(uniforms));
+        SDL_PushGPUFragmentUniformData(commands, 1, &uniforms, sizeof(uniforms));
         SDL_BindGPUGraphicsPipeline(pass, (material.drawFlags & 0x01U) != 0U
                                               ? impl_->pipeline
                                               : impl_->singleSidedPipeline);
@@ -737,7 +771,7 @@ void GpuModelRenderer::render(SDL_GPUCommandBuffer *commands, SDL_GPURenderPass 
         MaterialUniforms uniforms;
         uniforms.diffuse = {1.0F, 1.0F, 1.0F, ui.xray ? 0.28F : 1.0F};
         SDL_PushGPUVertexUniformData(commands, 0, &frameUniforms, sizeof(frameUniforms));
-        SDL_PushGPUFragmentUniformData(commands, 0, &uniforms, sizeof(uniforms));
+        SDL_PushGPUFragmentUniformData(commands, 1, &uniforms, sizeof(uniforms));
         const std::array<SDL_GPUTextureSamplerBinding, 3> bindings{{
             {impl_->defaultTexture, impl_->baseSampler},
             {impl_->defaultTexture, impl_->sphereSampler},
