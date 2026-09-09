@@ -5,6 +5,7 @@
 #include <mmd/animation.hpp>
 
 #include <array>
+#include <vector>
 
 namespace pmxer {
 
@@ -18,8 +19,11 @@ struct DocumentSession;
 void beginDeformGizmoDrag(DocumentSession &session);
 void updateDeformGizmoDrag(DocumentSession &session,
                            const std::array<float, 16> &deltaMatrix);
+void rebuildSymmetryCache(DocumentSession &session);
+[[nodiscard]] std::vector<mmd::PmxMorphOffset>
+vertexMorphOffsets(const DocumentSession &session);
+[[nodiscard]] std::vector<mmd::PmxMorphOffset>
+boneMorphOffsets(const DocumentSession &session);
 void refreshDeformPreview(DocumentSession &session);
-void applyDeformOverlay(const DocumentSession &session,
-                        mmd::AnimatedModelFrame &frame);
 
 } // namespace pmxer

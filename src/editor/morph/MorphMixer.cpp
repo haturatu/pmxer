@@ -49,6 +49,8 @@ void syncPreview(DocumentSession &session) {
             continue;
         session.preview.controller->setMorphPreview(blend.morph, blend.weight);
     }
+    session.preview.controller->setVertexPreview({});
+    session.preview.controller->setBonePreview({});
     session.preview.baseFrame = session.preview.controller->evaluate();
     refreshDeformPreview(session);
     session.preview.appliedMorphRevision = session.preview.morphRevision;

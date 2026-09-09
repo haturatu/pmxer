@@ -347,6 +347,12 @@ int runApplication(const EditCommand &options) {
                           UiStatusKind::success);
             }
             if (preview.controller) {
+                preview.controller->setVertexPreview(
+                    session.deform.mode == DeformMode::shape ? vertexMorphOffsets(session)
+                                                              : std::vector<mmd::PmxMorphOffset>{});
+                preview.controller->setBonePreview(
+                    session.deform.mode == DeformMode::pose ? boneMorphOffsets(session)
+                                                            : std::vector<mmd::PmxMorphOffset>{});
                 preview.baseFrame = preview.controller->evaluate();
                 refreshDeformPreview(session);
             }

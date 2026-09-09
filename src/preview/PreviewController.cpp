@@ -1,54 +1,9 @@
 #include "PreviewController.hpp"
 
 #include <algorithm>
-#include <cmath>
-#include <cstdint>
-#include <functional>
+#include <utility>
 
 namespace pmxer {
-namespace {
-
-void add3(mmd::Float3 &destination, const mmd::Float3 &source, float weight) {
-    for (std::size_t index = 0; index < destination.size(); ++index)
-        destination[index] += source[index] * weight;
-}
-
-void add4(mmd::Float4 &destination, const mmd::Float4 &source, float weight) {
-    for (std::size_t index = 0; index < destination.size(); ++index)
-        destination[index] += source[index] * weight;
-}
-
-mmd::Float4 multiplyQuaternion(const mmd::Float4 &lhs, const mmd::Float4 &rhs) {
-    return {
-        lhs[3] * rhs[0] + lhs[0] * rhs[3] + lhs[1] * rhs[2] - lhs[2] * rhs[1],
-        lhs[3] * rhs[1] - lhs[0] * rhs[2] + lhs[1] * rhs[3] + lhs[2] * rhs[0],
-        lhs[3] * rhs[2] + lhs[0] * rhs[1] - lhs[1] * rhs[0] + lhs[2] * rhs[3],
-        lhs[3] * rhs[3] - lhs[0] * rhs[0] - lhs[1] * rhs[1] - lhs[2] * rhs[2],
-    };
-}
-
-mmd::Float4 slerpIdentity(mmd::Float4 value, float weight) {
-    float length{};
-    for (const auto component : value)
-        length += component * component;
-    if (length <= 1e-12F)
-        return {0.0F, 0.0F, 0.0F, 1.0F};
-    for (auto &component : value)
-        component /= std::sqrt(length);
-    if (value[3] < 0.0F)
-        for (auto &component : value)
-            component = -component;
-    const auto angle = std::acos(std::clamp(value[3], -1.0F, 1.0F));
-    const auto sine = std::sin(angle);
-    if (std::abs(sine) <= 1e-6F)
-        return {0.0F, 0.0F, 0.0F, 1.0F};
-    const auto first = std::sin((1.0F - weight) * angle) / sine;
-    const auto second = std::sin(weight * angle) / sine;
-    return {value[0] * second, value[1] * second, value[2] * second,
-            first + value[3] * second};
-}
-
-} // namespace
 
 PreviewController::PreviewController(const mmd::PmxModel &model)
     : model_(&model), animator_(std::make_unique<mmd::MmdAnimator>(model)) {
@@ -92,6 +47,7 @@ void PreviewController::setMorphPreview(mmd::MorphHandle morph, float weight) {
         found->index = index;
         found->weight = clamped;
     }
+    rebuildMorphOverrides();
 }
 
 void PreviewController::setMorphPreview(std::string name, float weight) {
@@ -109,20 +65,34 @@ void PreviewController::setMorphPreview(std::string name, float weight) {
         morphPreviews_.push_back({{}, index, clamped});
     else
         preview->weight = clamped;
+    rebuildMorphOverrides();
+}
+
+void PreviewController::setBonePreview(std::vector<mmd::PmxMorphOffset> offsets) {
+    bonePreviewOffsets_ = std::move(offsets);
+    rebuildMorphOverrides();
+}
+
+void PreviewController::setVertexPreview(std::vector<mmd::PmxMorphOffset> offsets) {
+    vertexPreviewOffsets_ = std::move(offsets);
+    rebuildMorphOverrides();
 }
 
 void PreviewController::clearMorphPreview(mmd::MorphHandle morph) {
     std::erase_if(morphPreviews_, [&](const auto &preview) { return preview.morph == morph; });
+    rebuildMorphOverrides();
 }
 
 void PreviewController::clearMorphPreview(const std::string &name) {
     std::erase_if(morphPreviews_, [&](const auto &preview) {
         return preview.index < model_->morphs.size() && model_->morphs[preview.index].name == name;
     });
+    rebuildMorphOverrides();
 }
 
 void PreviewController::clearMorphPreviews() {
     morphPreviews_.clear();
+    rebuildMorphOverrides();
 }
 
 void PreviewController::setPose(const mmd::VpdPose *pose) {
@@ -152,8 +122,7 @@ void PreviewController::reset() {
 }
 
 mmd::AnimatedModelFrame PreviewController::evaluate(float deltaSeconds, bool gpuSkinning) {
-    auto result = animator_->evaluate(frame_, deltaSeconds, gpuSkinning);
-    applyMorphPreviews(result, gpuSkinning);
+    auto result = animator_->evaluate(frame_, deltaSeconds, gpuSkinning, morphOverrides_);
     frame_ += deltaSeconds * 30.0F;
     return result;
 }
@@ -166,57 +135,16 @@ void PreviewController::rebuildMotion() {
     animator_->setMotion(motion_);
 }
 
-void PreviewController::applyMorphPreviews(mmd::AnimatedModelFrame &frame, bool gpuSkinning) const {
-    std::vector<std::uint8_t> stack(model_->morphs.size());
-    std::function<void(std::size_t, float)> apply = [&](std::size_t index, float weight) {
-        if (index >= model_->morphs.size() || stack[index] != 0U || std::abs(weight) <= 1e-7F)
-            return;
-        stack[index] = 1U;
-        const auto &morph = model_->morphs[index];
-        if (morph.type == 1U && gpuSkinning && index < frame.morphWeights.size())
-            frame.morphWeights[index] += weight;
-        for (const auto &offset : morph.offsets) {
-            if ((morph.type == 0U || morph.type == 9U) && offset.index >= 0) {
-                apply(static_cast<std::size_t>(offset.index), weight * offset.scalar);
-            } else if (morph.type == 1U && !gpuSkinning && offset.index >= 0 &&
-                       static_cast<std::size_t>(offset.index) < frame.vertices.size()) {
-                add3(frame.vertices[static_cast<std::size_t>(offset.index)].position,
-                     offset.vector3, weight);
-            } else if (morph.type == 2U && offset.index >= 0 &&
-                       static_cast<std::size_t>(offset.index) < frame.bones.size()) {
-                auto &bone = frame.bones[static_cast<std::size_t>(offset.index)];
-                add3(bone.translation, offset.vector3, weight);
-                bone.rotation = multiplyQuaternion(bone.rotation,
-                                                    slerpIdentity(offset.vector4, weight));
-            } else if (morph.type >= 3U && morph.type <= 7U && offset.index >= 0 &&
-                       static_cast<std::size_t>(offset.index) < frame.vertices.size()) {
-                auto &vertex = frame.vertices[static_cast<std::size_t>(offset.index)];
-                if (morph.type == 3U) {
-                    for (std::size_t component = 0; component < 2U; ++component)
-                        vertex.uv[component] += offset.vector4[component] * weight;
-                } else {
-                    add4(vertex.additionalUv[morph.type - 4U], offset.vector4, weight);
-                }
-            } else if (morph.type == 8U) {
-                const auto first = offset.index < 0 ? std::size_t{0} : static_cast<std::size_t>(offset.index);
-                const auto last = offset.index < 0 ? frame.materials.size()
-                                                   : std::min(first + 1U, frame.materials.size());
-                for (std::size_t material = first; material < last; ++material) {
-                    auto &destination = frame.materials[material];
-                    for (std::size_t component = 0; component < 4U; ++component) {
-                        const auto value = offset.materialVectors[0][component];
-                        if (offset.operation == 0U)
-                            destination.diffuse[component] *= 1.0F + (value - 1.0F) * weight;
-                        else
-                            destination.diffuse[component] += value * weight;
-                    }
-                }
-            }
-        }
-        stack[index] = 0U;
-    };
+void PreviewController::rebuildMorphOverrides() {
+    morphOverrides_.clear();
+    morphOverrides_.reserve(morphPreviews_.size() + (vertexPreviewOffsets_.empty() ? 0U : 1U) +
+                            (bonePreviewOffsets_.empty() ? 0U : 1U));
     for (const auto &preview : morphPreviews_)
-        apply(preview.index, preview.weight);
+        morphOverrides_.push_back({preview.index, preview.weight});
+    if (!vertexPreviewOffsets_.empty())
+        morphOverrides_.push_back({mmd::MorphOverride::temporary, 1.0F, 1U, vertexPreviewOffsets_});
+    if (!bonePreviewOffsets_.empty())
+        morphOverrides_.push_back({mmd::MorphOverride::temporary, 1.0F, 2U, bonePreviewOffsets_});
 }
 
 } // namespace pmxer

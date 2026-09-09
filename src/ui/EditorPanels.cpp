@@ -56,12 +56,23 @@ void replacePreviewFrame(PreviewSession &state, mmd::AnimatedModelFrame frame) {
     ++state.frameRevision;
 }
 
+void setDeformPreviews(DocumentSession &session, PreviewController &controller) {
+    controller.setVertexPreview(
+        session.deform.mode == DeformMode::shape ? vertexMorphOffsets(session)
+                                                 : std::vector<mmd::PmxMorphOffset>{});
+    controller.setBonePreview(
+        session.deform.mode == DeformMode::pose ? boneMorphOffsets(session)
+                                                : std::vector<mmd::PmxMorphOffset>{});
+}
+
 PreviewSession &updatePreview(DocumentSession &session) {
     auto &state = session.preview;
     if (!state.controller || state.revision != session.revision) {
         if (state.revision != session.revision) {
-            session.deform.clearOverlay();
-            session.deform.sourceRevision = session.revision;
+            // Property edits and morph transactions do not invalidate stable
+            // vertex/bone handles. Keep an un-captured edit and only discard
+            // entries whose handles no longer resolve.
+            session.retainDeformOverlay();
         }
         state.controller = std::make_shared<PreviewController>(session.document);
         state.revision = session.revision;
@@ -78,25 +89,32 @@ PreviewSession &updatePreview(DocumentSession &session) {
             return session.document.resolve(blend.morph) == nullptr;
         });
         for (const auto &preview : state.morphValues) {
-            if (session.document.resolve(preview.morph) != nullptr)
+            if (session.document.resolve(preview.morph) != nullptr &&
+                (!session.deform.solo || preview.morph == session.deform.soloMorph))
                 state.controller->setMorphPreview(preview.morph, preview.weight);
         }
+        setDeformPreviews(session, *state.controller);
         state.controller->setPhysicsEnabled(session.previewPhysics);
         state.controller->setIkEnabled(session.previewIk);
         replacePreviewFrame(state, state.controller->evaluate());
         state.appliedMorphRevision = state.morphRevision;
+        state.appliedDeformMode = session.deform.mode;
     } else {
         state.controller->setPhysicsEnabled(session.previewPhysics);
         state.controller->setIkEnabled(session.previewIk);
     }
-    if (state.controller && state.appliedMorphRevision != state.morphRevision) {
+    if (state.controller && (state.appliedMorphRevision != state.morphRevision ||
+                             state.appliedDeformMode != session.deform.mode)) {
         state.controller->clearMorphPreviews();
         for (const auto &preview : state.morphValues) {
-            if (session.document.resolve(preview.morph) != nullptr)
+            if (session.document.resolve(preview.morph) != nullptr &&
+                (!session.deform.solo || preview.morph == session.deform.soloMorph))
                 state.controller->setMorphPreview(preview.morph, preview.weight);
         }
+        setDeformPreviews(session, *state.controller);
         replacePreviewFrame(state, state.controller->evaluate());
         state.appliedMorphRevision = state.morphRevision;
+        state.appliedDeformMode = session.deform.mode;
     }
     const auto now = std::chrono::steady_clock::now();
     if (!state.clockInitialized) {
@@ -109,6 +127,7 @@ PreviewSession &updatePreview(DocumentSession &session) {
         state.accumulator += std::clamp(elapsed, 0.0, 0.1);
         constexpr double fixedStep = 1.0 / 60.0;
         while (state.accumulator >= fixedStep) {
+            setDeformPreviews(session, *state.controller);
             replacePreviewFrame(state, state.controller->evaluate(static_cast<float>(fixedStep)));
             state.accumulator -= fixedStep;
         }
@@ -117,7 +136,6 @@ PreviewSession &updatePreview(DocumentSession &session) {
     }
     if (state.baseFrame) {
         state.frame = *state.baseFrame;
-        applyDeformOverlay(session, *state.frame);
         ++state.frameRevision;
     }
     session.ui.previewFrame = state.frame ? &*state.frame : nullptr;
@@ -530,6 +548,7 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
             preview.controller->setMotion(&*preview.motion);
             preview.accumulator = 0.0;
             preview.clockInitialized = false;
+            setDeformPreviews(session, *preview.controller);
             replacePreviewFrame(preview, preview.controller->evaluate());
             setStatus(session, "モーションを読み込みました", UiStatusKind::success);
         } catch (const std::exception &error) {
@@ -547,6 +566,7 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
             preview.controller->setPose(&*preview.pose);
             preview.accumulator = 0.0;
             preview.clockInitialized = false;
+            setDeformPreviews(session, *preview.controller);
             replacePreviewFrame(preview, preview.controller->evaluate());
             setStatus(session, "ポーズを読み込みました", UiStatusKind::success);
         } catch (const std::exception &error) {
@@ -1502,6 +1522,11 @@ void drawMainMenu(DocumentSession *session, FileDialog &fileDialog,
 void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
                       GpuModelRenderer *renderer,
                       WorkspaceUiState &workspace) {
+    if (!workspace.showTransformView) {
+        session.deform.engaged = false;
+        session.deform.suspended = true;
+        session.ui.gizmoDragging = false;
+    }
     if (session.modified) {
         const auto now = std::chrono::steady_clock::now();
         if (now - session.lastRecovery >= std::chrono::seconds(30) && writeRecovery(session).success)

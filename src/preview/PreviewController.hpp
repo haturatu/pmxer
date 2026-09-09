@@ -24,6 +24,8 @@ class PreviewController {
     void setMotion(const mmd::VmdMotion *motion);
     void setMorphPreview(mmd::MorphHandle morph, float weight);
     void setMorphPreview(std::string name, float weight);
+    void setVertexPreview(std::vector<mmd::PmxMorphOffset> offsets);
+    void setBonePreview(std::vector<mmd::PmxMorphOffset> offsets);
     void clearMorphPreview(mmd::MorphHandle morph);
     void clearMorphPreview(const std::string &name);
     void clearMorphPreviews();
@@ -37,7 +39,7 @@ class PreviewController {
 
   private:
     void rebuildMotion();
-    void applyMorphPreviews(mmd::AnimatedModelFrame &frame, bool gpuSkinning) const;
+    void rebuildMorphOverrides();
 
     struct MorphPreview {
         mmd::MorphHandle morph{};
@@ -51,6 +53,9 @@ class PreviewController {
     std::unique_ptr<mmd::MmdPhysics> physics_;
     const mmd::VmdMotion *motion_{};
     std::vector<MorphPreview> morphPreviews_;
+    std::vector<mmd::PmxMorphOffset> vertexPreviewOffsets_;
+    std::vector<mmd::PmxMorphOffset> bonePreviewOffsets_;
+    std::vector<mmd::MorphOverride> morphOverrides_;
     float frame_{};
     bool physicsEnabled_{true};
     bool ikEnabled_{true};

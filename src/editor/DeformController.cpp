@@ -1,11 +1,15 @@
 #include "DeformController.hpp"
 
 #include "DocumentSession.hpp"
+#include "../preview/PreviewController.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
+#include <optional>
+#include <unordered_map>
 
 namespace pmxer {
 namespace {
@@ -16,10 +20,6 @@ mmd::Float3 add(const mmd::Float3 &lhs, const mmd::Float3 &rhs) {
 
 mmd::Float3 subtract(const mmd::Float3 &lhs, const mmd::Float3 &rhs) {
     return {lhs[0] - rhs[0], lhs[1] - rhs[1], lhs[2] - rhs[2]};
-}
-
-mmd::Float3 scale(const mmd::Float3 &value, float factor) {
-    return {value[0] * factor, value[1] * factor, value[2] * factor};
 }
 
 mmd::Float3 transformPoint(const std::array<float, 16> &matrix, const mmd::Float3 &point) {
@@ -62,17 +62,6 @@ mmd::Float4 quaternionFromMatrix(const std::array<float, 16> &matrix) {
     return result;
 }
 
-mmd::Float3 rotate(const mmd::Float4 &quaternion, const mmd::Float3 &point) {
-    const mmd::Float3 q{quaternion[0], quaternion[1], quaternion[2]};
-    const auto cross = [](const mmd::Float3 &lhs, const mmd::Float3 &rhs) {
-        return mmd::Float3{lhs[1] * rhs[2] - lhs[2] * rhs[1],
-                           lhs[2] * rhs[0] - lhs[0] * rhs[2],
-                           lhs[0] * rhs[1] - lhs[1] * rhs[0]};
-    };
-    return add(point, add(scale(cross(q, point), 2.0F * quaternion[3]),
-                          scale(cross(q, cross(q, point)), 2.0F)));
-}
-
 VertexDelta *findVertexDelta(DeformSession &deform, mmd::VertexHandle handle) {
     const auto found = std::find_if(deform.vertices.begin(), deform.vertices.end(),
                                     [&](const auto &delta) { return delta.vertex == handle; });
@@ -103,6 +92,33 @@ void setBoneDelta(DeformSession &deform, mmd::BoneHandle handle,
     }
 }
 
+using SymmetryCell = std::array<std::int64_t, 3>;
+
+struct SymmetryCellHash {
+    std::size_t operator()(const SymmetryCell &cell) const noexcept {
+        std::size_t result = 0xcbf29ce484222325ULL;
+        for (const auto value : cell) {
+            result ^= static_cast<std::size_t>(value) + 0x9e3779b97f4a7c15ULL +
+                      (result << 6U) + (result >> 2U);
+        }
+        return result;
+    }
+};
+
+SymmetryCell symmetryCell(const mmd::Float3 &position, float size) {
+    return {static_cast<std::int64_t>(std::llround(position[0] / size)),
+            static_cast<std::int64_t>(std::llround(position[1] / size)),
+            static_cast<std::int64_t>(std::llround(position[2] / size))};
+}
+
+std::optional<std::size_t> vertexIndex(const DocumentSession &session,
+                                       mmd::VertexHandle handle) {
+    const auto *vertex = session.document.resolve(handle);
+    if (vertex == nullptr)
+        return std::nullopt;
+    return static_cast<std::size_t>(vertex - session.document.model().vertices.data());
+}
+
 } // namespace
 
 mmd::Float3 deformVertexPosition(const DocumentSession &session, mmd::VertexHandle vertex) {
@@ -127,6 +143,8 @@ void beginDeformGizmoDrag(DocumentSession &session) {
     session.deform.dragVertices.clear();
     session.deform.dragBones.clear();
     if (session.deform.mode == DeformMode::shape) {
+        if (session.deform.symmetryX)
+            rebuildSymmetryCache(session);
         for (const auto &item : session.selection.items()) {
             if (item.kind != SelectionKind::vertex)
                 continue;
@@ -145,10 +163,64 @@ void beginDeformGizmoDrag(DocumentSession &session) {
     }
 }
 
+void rebuildSymmetryCache(DocumentSession &session) {
+    auto &deform = session.deform;
+    const auto tolerance = std::max(std::abs(deform.symmetryFeather), 1e-4F);
+    deform.symmetryCacheRevision = session.revision;
+    deform.symmetryCacheCenterX = deform.symmetryCenterX;
+    deform.symmetryCacheTolerance = tolerance;
+    deform.symmetryMirrorIndices.assign(session.document.model().vertices.size(), -1);
+
+    std::unordered_map<SymmetryCell, std::vector<std::size_t>, SymmetryCellHash> buckets;
+    buckets.reserve(session.document.model().vertices.size());
+    for (std::size_t index = 0; index < session.document.model().vertices.size(); ++index)
+        buckets[symmetryCell(session.document.model().vertices[index].position, tolerance)].push_back(index);
+
+    const auto toleranceSquared = tolerance * tolerance;
+    for (std::size_t source = 0; source < session.document.model().vertices.size(); ++source) {
+        const auto &position = session.document.model().vertices[source].position;
+        const mmd::Float3 reflected{2.0F * deform.symmetryCenterX - position[0], position[1], position[2]};
+        const auto center = symmetryCell(reflected, tolerance);
+        std::size_t nearest{};
+        float nearestDistance = std::numeric_limits<float>::max();
+        bool found = false;
+        for (std::int64_t x = -1; x <= 1; ++x) {
+            for (std::int64_t y = -1; y <= 1; ++y) {
+                for (std::int64_t z = -1; z <= 1; ++z) {
+                    const SymmetryCell cell{center[0] + x, center[1] + y, center[2] + z};
+                    const auto bucket = buckets.find(cell);
+                    if (bucket == buckets.end())
+                        continue;
+                    for (const auto candidate : bucket->second) {
+                        const auto &candidatePosition = session.document.model().vertices[candidate].position;
+                        const auto dx = candidatePosition[0] - reflected[0];
+                        const auto dy = candidatePosition[1] - reflected[1];
+                        const auto dz = candidatePosition[2] - reflected[2];
+                        const auto distance = dx * dx + dy * dy + dz * dz;
+                        if (distance <= toleranceSquared && distance < nearestDistance) {
+                            nearest = candidate;
+                            nearestDistance = distance;
+                            found = true;
+                        }
+                    }
+                }
+            }
+        }
+        if (found)
+            deform.symmetryMirrorIndices[source] = static_cast<std::int32_t>(nearest);
+    }
+}
+
 void updateDeformGizmoDrag(DocumentSession &session,
                            const std::array<float, 16> &deltaMatrix) {
     auto &deform = session.deform;
     if (deform.mode == DeformMode::shape) {
+        if (deform.symmetryX &&
+            (deform.symmetryCacheRevision != session.revision ||
+             deform.symmetryCacheCenterX != deform.symmetryCenterX ||
+             deform.symmetryCacheTolerance <= 0.0F ||
+             deform.symmetryMirrorIndices.size() != session.document.model().vertices.size()))
+            rebuildSymmetryCache(session);
         for (const auto &drag : deform.dragVertices) {
             const auto transformed = transformPoint(deltaMatrix, drag.position);
             const auto *base = session.document.resolve(drag.vertex);
@@ -157,33 +229,24 @@ void updateDeformGizmoDrag(DocumentSession &session,
             setVertexDelta(deform, drag.vertex, subtract(transformed, base->position));
         }
         if (deform.symmetryX) {
-            const auto &model = session.document.model();
             for (const auto &drag : deform.dragVertices) {
                 const auto *base = session.document.resolve(drag.vertex);
-                if (base == nullptr)
-                    continue;
-                const auto reflected = mmd::Float3{2.0F * deform.symmetryCenterX - base->position[0],
-                                                  base->position[1], base->position[2]};
-                std::size_t nearest{};
-                auto distance = std::numeric_limits<float>::max();
-                for (std::size_t index = 0; index < model.vertices.size(); ++index) {
-                    const auto candidate = subtract(model.vertices[index].position, reflected);
-                    const auto candidateDistance = candidate[0] * candidate[0] + candidate[1] * candidate[1] +
-                                                   candidate[2] * candidate[2];
-                    if (candidateDistance < distance) {
-                        distance = candidateDistance;
-                        nearest = index;
-                    }
-                }
-                if (distance > std::max(deform.symmetryFeather * deform.symmetryFeather, 1e-8F))
-                    continue;
-                const auto mirror = session.document.vertexHandle(nearest);
-                const auto *mirrorBase = session.document.resolve(mirror);
-                if (mirrorBase == nullptr)
+                const auto sourceIndex = vertexIndex(session, drag.vertex);
+                if (base == nullptr || !sourceIndex || *sourceIndex >= deform.symmetryMirrorIndices.size())
                     continue;
                 const auto transformed = transformPoint(deltaMatrix, drag.position);
-                const auto offset = subtract(transformed, base->position);
-                setVertexDelta(deform, mirror, {deform.symmetrySwap ? offset[0] : -offset[0], offset[1], offset[2]});
+                auto offset = subtract(transformed, base->position);
+                const auto mirrorIndex = deform.symmetryMirrorIndices[*sourceIndex];
+                if (mirrorIndex == static_cast<std::int32_t>(*sourceIndex)) {
+                    // A center-line vertex cannot move across the symmetry
+                    // plane. Preserve its tangential movement only.
+                    offset[0] = 0.0F;
+                    setVertexDelta(deform, drag.vertex, offset);
+                } else if (mirrorIndex >= 0) {
+                    const auto mirror = session.document.vertexHandle(static_cast<std::size_t>(mirrorIndex));
+                    setVertexDelta(deform, mirror,
+                                   {deform.symmetrySwap ? offset[0] : -offset[0], offset[1], offset[2]});
+                }
             }
         }
     } else if (deform.mode == DeformMode::pose) {
@@ -198,54 +261,51 @@ void updateDeformGizmoDrag(DocumentSession &session,
     deform.dirty = true;
 }
 
-void applyDeformOverlay(const DocumentSession &session, mmd::AnimatedModelFrame &frame) {
-    if (session.deform.mode == DeformMode::pose) {
-        for (const auto &delta : session.deform.bones) {
-            const auto *bone = session.document.resolve(delta.bone);
-            if (bone == nullptr)
-                continue;
-            const auto boneIndex = static_cast<std::size_t>(bone - session.document.model().bones.data());
-            for (std::size_t vertexIndex = 0;
-                 vertexIndex < frame.vertices.size() && vertexIndex < session.document.model().vertices.size();
-                 ++vertexIndex) {
-                const auto &source = session.document.model().vertices[vertexIndex];
-                const auto weight = [&] {
-                    for (std::size_t influence = 0; influence < source.bones.size(); ++influence) {
-                        if (source.bones[influence] == static_cast<std::int32_t>(boneIndex)) {
-                            if (source.weightType == mmd::PmxWeightType::bdef1)
-                                return 1.0F;
-                            return source.weights[influence];
-                        }
-                    }
-                    return 0.0F;
-                }();
-                if (weight <= 0.0F)
-                    continue;
-                const auto rotated = rotate(delta.rotation, subtract(source.position, bone->position));
-                const auto movement = add(subtract(rotated, subtract(source.position, bone->position)),
-                                         delta.translation);
-                frame.vertices[vertexIndex].position = add(frame.vertices[vertexIndex].position,
-                                                           scale(movement, weight));
-            }
-        }
+std::vector<mmd::PmxMorphOffset> vertexMorphOffsets(const DocumentSession &session) {
+    std::vector<mmd::PmxMorphOffset> offsets;
+    offsets.reserve(session.deform.vertices.size());
+    for (const auto &delta : session.deform.vertices) {
+        const auto *vertex = session.document.resolve(delta.vertex);
+        if (vertex == nullptr)
+            continue;
+        mmd::PmxMorphOffset offset;
+        offset.index = static_cast<std::int32_t>(vertex - session.document.model().vertices.data());
+        offset.vector3 = delta.offset;
+        offsets.push_back(offset);
     }
-    if (session.deform.mode == DeformMode::shape) {
-        for (const auto &delta : session.deform.vertices) {
-            const auto *vertex = session.document.resolve(delta.vertex);
-            if (vertex == nullptr)
-                continue;
-            const auto index = static_cast<std::size_t>(vertex - session.document.model().vertices.data());
-            if (index < frame.vertices.size())
-                frame.vertices[index].position = add(frame.vertices[index].position, delta.offset);
-        }
+    return offsets;
+}
+
+std::vector<mmd::PmxMorphOffset> boneMorphOffsets(const DocumentSession &session) {
+    std::vector<mmd::PmxMorphOffset> offsets;
+    offsets.reserve(session.deform.bones.size());
+    for (const auto &delta : session.deform.bones) {
+        const auto *bone = session.document.resolve(delta.bone);
+        if (bone == nullptr)
+            continue;
+        mmd::PmxMorphOffset offset;
+        offset.index = static_cast<std::int32_t>(bone - session.document.model().bones.data());
+        offset.vector3 = delta.translation;
+        offset.vector4 = delta.rotation;
+        offsets.push_back(offset);
     }
+    return offsets;
 }
 
 void refreshDeformPreview(DocumentSession &session) {
+    if (session.deform.active() && session.preview.controller &&
+        (session.deform.mode == DeformMode::shape || session.deform.mode == DeformMode::pose)) {
+        session.preview.controller->setVertexPreview(
+            session.deform.mode == DeformMode::shape ? vertexMorphOffsets(session)
+                                                     : std::vector<mmd::PmxMorphOffset>{});
+        session.preview.controller->setBonePreview(
+            session.deform.mode == DeformMode::pose ? boneMorphOffsets(session)
+                                                    : std::vector<mmd::PmxMorphOffset>{});
+        session.preview.baseFrame = session.preview.controller->evaluate();
+    }
     if (!session.preview.baseFrame)
         return;
     session.preview.frame = *session.preview.baseFrame;
-    applyDeformOverlay(session, *session.preview.frame);
     ++session.preview.frameRevision;
     session.ui.previewFrame = &*session.preview.frame;
 }
