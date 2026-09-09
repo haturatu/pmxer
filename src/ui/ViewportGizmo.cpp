@@ -2,6 +2,7 @@
 
 #include "../editor/DocumentSession.hpp"
 #include "../editor/DeformController.hpp"
+#include "../editor/PreviewPoseQueries.hpp"
 #include "../editor/UiStatus.hpp"
 #include "../editor/EditorOperations.hpp"
 
@@ -48,8 +49,9 @@ std::optional<TransformSource> sourceFor(const DocumentSession &session,
             if (expected == SelectionKind::vertex)
                 return TransformSource{deformVertexPosition(
                     session, selectionHandle<mmd::VertexTag>(session.document, selected)), {}};
-            return TransformSource{deformBonePosition(
-                session, selectionHandle<mmd::BoneTag>(session.document, selected)), {}};
+            return TransformSource{evaluatedBonePosition(
+                session, selectionHandle<mmd::BoneTag>(session.document, selected),
+                session.ui.previewFrame), {}};
         }
         mmd::Float3 center{};
         std::size_t count{};
@@ -58,7 +60,9 @@ std::optional<TransformSource> sourceFor(const DocumentSession &session,
                 continue;
             const auto position = expected == SelectionKind::vertex
                                       ? deformVertexPosition(session, selectionHandle<mmd::VertexTag>(session.document, item))
-                                      : deformBonePosition(session, selectionHandle<mmd::BoneTag>(session.document, item));
+                                      : evaluatedBonePosition(
+                                            session, selectionHandle<mmd::BoneTag>(session.document, item),
+                                            session.ui.previewFrame);
             for (std::size_t component = 0; component < 3U; ++component)
                 center[component] += position[component];
             ++count;
@@ -75,10 +79,9 @@ std::optional<TransformSource> sourceFor(const DocumentSession &session,
         if (value != nullptr)
             return TransformSource{value->position, {}};
     } else if (selected.kind == SelectionKind::bone) {
-        const auto *value = session.document.resolve(
-            selectionHandle<mmd::BoneTag>(session.document, selected));
-        if (value != nullptr)
-            return TransformSource{value->position, {}};
+        const auto handle = selectionHandle<mmd::BoneTag>(session.document, selected);
+        if (session.document.resolve(handle) != nullptr)
+            return TransformSource{evaluatedBonePosition(session, handle, session.ui.previewFrame), {}};
     } else if (selected.kind == SelectionKind::rigidBody) {
         const auto *value = session.document.resolve(
             selectionHandle<mmd::RigidBodyTag>(session.document, selected));
@@ -147,7 +150,9 @@ void commit(DocumentSession &session, const SelectionItem &selected,
             return;
         }
         auto value = *resolved;
-        value.position = position;
+        const auto evaluated = evaluatedBonePosition(session, handle, session.ui.previewFrame);
+        for (std::size_t component = 0; component < value.position.size(); ++component)
+            value.position[component] += position[component] - evaluated[component];
         result = editBone(session, handle, value);
     } else if (selected.kind == SelectionKind::rigidBody) {
         const auto handle =

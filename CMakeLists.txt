@@ -75,6 +75,7 @@ add_library(pmxer_editor
   src/editor/EditorSelectionQueries.cpp
   src/editor/WorkspacePolicy.cpp
   src/editor/ViewportCapabilities.cpp
+  src/editor/PreviewPoseQueries.cpp
   src/editor/morph/MorphCapture.cpp
   src/editor/morph/MorphMask.cpp
   src/editor/morph/MorphMixer.cpp
@@ -326,7 +327,7 @@ if(PMXER_BUILD_GUI)
   endif()
 
   add_library(pmxer_ui
-    src/ui/DeformLabPanel.cpp
+    src/ui/TransformViewPanel.cpp
     src/ui/MainWindow.cpp
     src/ui/EditorPanels.cpp
     src/ui/OutlinerPanel.cpp

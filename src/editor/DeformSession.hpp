@@ -16,6 +16,7 @@ namespace pmxer {
 enum class DeformMode : std::uint8_t { inactive, shape, pose };
 enum class TransformViewTab : std::uint8_t { vertex, bone, morph };
 enum class PivotMode : std::uint8_t { median, active, origin };
+enum class MirrorDriverSide : std::uint8_t { negativeX, positiveX };
 
 struct VertexDelta {
     mmd::VertexHandle vertex{};
@@ -41,7 +42,14 @@ struct DragVertex {
 struct DragBone {
     mmd::BoneHandle bone{};
     mmd::Float3 position{};
+    mmd::Float3 translation{};
     mmd::Float4 rotation{0.0F, 0.0F, 0.0F, 1.0F};
+    mmd::Float4 parentRotation{0.0F, 0.0F, 0.0F, 1.0F};
+};
+
+struct MirrorPositionGroup {
+    std::vector<std::size_t> source;
+    std::vector<std::size_t> target;
 };
 
 struct DeformSession {
@@ -62,6 +70,7 @@ struct DeformSession {
     float symmetryCenterX{};
     float symmetryTolerance{0.02F};
     bool symmetrySwapSides{};
+    MirrorDriverSide mirrorDriverSide{MirrorDriverSide::negativeX};
     float sideSplitCenterX{};
     float sideSplitFeather{0.02F};
     bool sideSplitSwapSides{};
@@ -72,10 +81,16 @@ struct DeformSession {
     std::int32_t materialIndex{-1};
     std::array<char, 128> morphSearch{};
     std::string captureName{"New Morph"};
+    bool confirmBakeReverse{};
+    mmd::MorphHandle bakeReverseMorph{};
+    std::size_t bakeReverseReferenceCount{};
+    bool confirmVertexBake{};
+    std::vector<std::uint8_t> vertexBakeIgnoredTypes;
     std::uint64_t symmetryCacheRevision{std::numeric_limits<std::uint64_t>::max()};
     float symmetryCacheCenterX{};
     float symmetryCacheTolerance{};
-    std::vector<std::int32_t> symmetryMirrorIndices;
+    std::vector<std::int32_t> symmetryMirrorGroupIndices;
+    std::vector<MirrorPositionGroup> symmetryMirrorGroups;
 
     [[nodiscard]] bool active() const noexcept {
         return engaged && !suspended && (mode == DeformMode::shape || mode == DeformMode::pose);
@@ -110,6 +125,7 @@ struct DeformSession {
         symmetryCenterX = 0.0F;
         symmetryTolerance = 0.02F;
         symmetrySwapSides = false;
+        mirrorDriverSide = MirrorDriverSide::negativeX;
         sideSplitCenterX = 0.0F;
         sideSplitFeather = 0.02F;
         sideSplitSwapSides = false;
@@ -119,10 +135,16 @@ struct DeformSession {
         materialIndex = -1;
         morphSearch = {};
         captureName = "New Morph";
+        confirmBakeReverse = false;
+        bakeReverseMorph = {};
+        bakeReverseReferenceCount = 0;
+        confirmVertexBake = false;
+        vertexBakeIgnoredTypes.clear();
         symmetryCacheRevision = std::numeric_limits<std::uint64_t>::max();
         symmetryCacheCenterX = 0.0F;
         symmetryCacheTolerance = 0.0F;
-        symmetryMirrorIndices.clear();
+        symmetryMirrorGroupIndices.clear();
+        symmetryMirrorGroups.clear();
         dragStartGizmoMatrix = {};
     }
 };

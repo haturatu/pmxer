@@ -1,6 +1,7 @@
 #include "DeformController.hpp"
 
 #include "DocumentSession.hpp"
+#include "PreviewPoseQueries.hpp"
 #include "../preview/PreviewController.hpp"
 
 #include <algorithm>
@@ -8,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <optional>
 #include <unordered_map>
 
@@ -86,12 +88,41 @@ std::array<float, 16> inverseAffine(const std::array<float, 16> &matrix) {
 }
 
 mmd::Float4 multiplyQuaternion(const mmd::Float4 &lhs, const mmd::Float4 &rhs) {
-    return {
+    auto result = mmd::Float4{
         lhs[3] * rhs[0] + lhs[0] * rhs[3] + lhs[1] * rhs[2] - lhs[2] * rhs[1],
         lhs[3] * rhs[1] - lhs[0] * rhs[2] + lhs[1] * rhs[3] + lhs[2] * rhs[0],
         lhs[3] * rhs[2] + lhs[0] * rhs[1] - lhs[1] * rhs[0] + lhs[2] * rhs[3],
         lhs[3] * rhs[3] - lhs[0] * rhs[0] - lhs[1] * rhs[1] - lhs[2] * rhs[2],
     };
+    float length{};
+    for (const auto component : result)
+        length += component * component;
+    if (length > 1e-12F)
+        for (auto &component : result)
+            component /= std::sqrt(length);
+    return result;
+}
+
+mmd::Float4 conjugateQuaternion(const mmd::Float4 &value) {
+    return {-value[0], -value[1], -value[2], value[3]};
+}
+
+mmd::Float3 rotate(const mmd::Float4 &quaternion, const mmd::Float3 &value) {
+    const mmd::Float3 q{quaternion[0], quaternion[1], quaternion[2]};
+    const auto uv = mmd::Float3{
+        q[1] * value[2] - q[2] * value[1],
+        q[2] * value[0] - q[0] * value[2],
+        q[0] * value[1] - q[1] * value[0],
+    };
+    const auto uuv = mmd::Float3{
+        q[1] * uv[2] - q[2] * uv[1],
+        q[2] * uv[0] - q[0] * uv[2],
+        q[0] * uv[1] - q[1] * uv[0],
+    };
+    const auto factor = 2.0F * quaternion[3];
+    return {value[0] + uv[0] * factor + uuv[0] * 2.0F,
+            value[1] + uv[1] * factor + uuv[1] * 2.0F,
+            value[2] + uv[2] * factor + uuv[2] * 2.0F};
 }
 
 mmd::Float4 quaternionFromMatrix(const std::array<float, 16> &matrix) {
@@ -126,12 +157,6 @@ mmd::Float4 quaternionFromMatrix(const std::array<float, 16> &matrix) {
     return result;
 }
 
-VertexDelta *findVertexDelta(DeformSession &deform, mmd::VertexHandle handle) {
-    const auto found = std::find_if(deform.vertices.begin(), deform.vertices.end(),
-                                    [&](const auto &delta) { return delta.vertex == handle; });
-    return found == deform.vertices.end() ? nullptr : &*found;
-}
-
 BoneDelta *findBoneDelta(DeformSession &deform, mmd::BoneHandle handle) {
     const auto found = std::find_if(deform.bones.begin(), deform.bones.end(),
                                     [&](const auto &delta) { return delta.bone == handle; });
@@ -140,19 +165,51 @@ BoneDelta *findBoneDelta(DeformSession &deform, mmd::BoneHandle handle) {
 
 void setVertexDelta(DeformSession &deform, mmd::VertexHandle handle,
                     const mmd::Float3 &offset) {
-    if (auto *delta = findVertexDelta(deform, handle))
-        delta->offset = offset;
-    else
+    const auto isZero = std::all_of(offset.begin(), offset.end(),
+                                    [](float value) { return std::abs(value) <= 1e-7F; });
+    if (auto found = std::find_if(deform.vertices.begin(), deform.vertices.end(),
+                                  [&](const auto &delta) { return delta.vertex == handle; });
+        found != deform.vertices.end()) {
+        if (isZero)
+            deform.vertices.erase(found);
+        else
+            found->offset = offset;
+    } else if (!isZero) {
         deform.vertices.push_back({handle, offset});
+    }
 }
 
 void setBoneDelta(DeformSession &deform, mmd::BoneHandle handle,
                   const mmd::Float3 &translation, const mmd::Float4 &rotation) {
-    if (auto *delta = findBoneDelta(deform, handle)) {
-        delta->translation = translation;
-        delta->rotation = rotation;
-    } else {
-        deform.bones.push_back({handle, translation, rotation});
+    float length{};
+    for (const auto component : rotation)
+        length += component * component;
+    const auto normalized = length <= 1e-12F
+                                ? mmd::Float4{0.0F, 0.0F, 0.0F, 1.0F}
+                                : [&] {
+                                      auto value = rotation;
+                                      for (auto &component : value)
+                                          component /= std::sqrt(length);
+                                      return value;
+                                  }();
+    const auto isZeroTranslation = std::all_of(
+        translation.begin(), translation.end(),
+        [](float value) { return std::abs(value) <= 1e-7F; });
+    const auto isIdentityRotation = std::abs(normalized[0]) <= 1e-7F &&
+                                    std::abs(normalized[1]) <= 1e-7F &&
+                                    std::abs(normalized[2]) <= 1e-7F &&
+                                    std::abs(std::abs(normalized[3]) - 1.0F) <= 1e-7F;
+    if (auto found = std::find_if(deform.bones.begin(), deform.bones.end(),
+                                  [&](const auto &delta) { return delta.bone == handle; });
+        found != deform.bones.end()) {
+        if (isZeroTranslation && isIdentityRotation)
+            deform.bones.erase(found);
+        else {
+            found->translation = translation;
+            found->rotation = normalized;
+        }
+    } else if (!isZeroTranslation || !isIdentityRotation) {
+        deform.bones.push_back({handle, translation, normalized});
     }
 }
 
@@ -194,40 +251,67 @@ mmd::Float3 deformVertexPosition(const DocumentSession &session, mmd::VertexHand
     return found == session.deform.vertices.end() ? value->position : add(value->position, found->offset);
 }
 
-mmd::Float3 deformBonePosition(const DocumentSession &session, mmd::BoneHandle bone) {
-    const auto *value = session.document.resolve(bone);
-    if (value == nullptr)
-        return {};
-    const auto found = std::find_if(session.deform.bones.begin(), session.deform.bones.end(),
-                                    [&](const auto &delta) { return delta.bone == bone; });
-    return found == session.deform.bones.end() ? value->position : add(value->position, found->translation);
-}
-
 void beginDeformGizmoDrag(DocumentSession &session,
                           const std::array<float, 16> &startGizmoMatrix) {
     session.deform.dragStartGizmoMatrix = startGizmoMatrix;
     session.deform.dragVertices.clear();
     session.deform.dragBones.clear();
     if (session.deform.mode == DeformMode::shape) {
-        if (session.deform.symmetryX)
+        const auto tolerance = std::max(std::abs(session.deform.symmetryTolerance), 1e-4F);
+        if (session.deform.symmetryX) {
+            bool hasNegative = false;
+            bool hasPositive = false;
+            for (const auto &item : session.selection.items()) {
+                if (item.kind != SelectionKind::vertex)
+                    continue;
+                const auto handle = selectionHandle<mmd::VertexTag>(session.document, item);
+                const auto *vertex = session.document.resolve(handle);
+                if (vertex == nullptr)
+                    continue;
+                hasNegative = hasNegative || vertex->position[0] < session.deform.symmetryCenterX - tolerance;
+                hasPositive = hasPositive || vertex->position[0] > session.deform.symmetryCenterX + tolerance;
+            }
+            session.deform.mirrorDriverSide = hasNegative || !hasPositive
+                                                   ? MirrorDriverSide::negativeX
+                                                   : MirrorDriverSide::positiveX;
             rebuildSymmetryCache(session);
+        }
         for (const auto &item : session.selection.items()) {
             if (item.kind != SelectionKind::vertex)
                 continue;
             const auto handle = selectionHandle<mmd::VertexTag>(session.document, item);
-            if (session.document.resolve(handle) != nullptr)
-                session.deform.dragVertices.push_back({handle, deformVertexPosition(session, handle)});
+            const auto *vertex = session.document.resolve(handle);
+            if (vertex == nullptr)
+                continue;
+            if (session.deform.symmetryX &&
+                std::abs(vertex->position[0] - session.deform.symmetryCenterX) > tolerance) {
+                const auto negative = vertex->position[0] < session.deform.symmetryCenterX;
+                if ((session.deform.mirrorDriverSide == MirrorDriverSide::negativeX && !negative) ||
+                    (session.deform.mirrorDriverSide == MirrorDriverSide::positiveX && negative))
+                    continue;
+            }
+            session.deform.dragVertices.push_back({handle, deformVertexPosition(session, handle)});
         }
     } else if (session.deform.mode == DeformMode::pose) {
         for (const auto &item : session.selection.items()) {
             if (item.kind != SelectionKind::bone)
                 continue;
             const auto handle = selectionHandle<mmd::BoneTag>(session.document, item);
-            if (session.document.resolve(handle) != nullptr)
-                session.deform.dragBones.push_back({handle, deformBonePosition(session, handle),
-                                                    findBoneDelta(session.deform, handle) == nullptr
-                                                        ? mmd::Float4{0.0F, 0.0F, 0.0F, 1.0F}
-                                                        : findBoneDelta(session.deform, handle)->rotation});
+            const auto *bone = session.document.resolve(handle);
+            if (bone == nullptr)
+                continue;
+            const auto index = static_cast<std::size_t>(bone - session.document.model().bones.data());
+            const auto *delta = findBoneDelta(session.deform, handle);
+            DragBone drag;
+            drag.bone = handle;
+            drag.position = evaluatedBonePosition(session, index, session.ui.previewFrame);
+            drag.translation = delta == nullptr ? mmd::Float3{} : delta->translation;
+            drag.rotation = delta == nullptr ? mmd::Float4{0.0F, 0.0F, 0.0F, 1.0F} : delta->rotation;
+            if (bone->parent >= 0 && static_cast<std::size_t>(bone->parent) < session.document.model().bones.size() &&
+                session.ui.previewFrame != nullptr &&
+                static_cast<std::size_t>(bone->parent) < session.ui.previewFrame->bones.size())
+                drag.parentRotation = session.ui.previewFrame->bones[static_cast<std::size_t>(bone->parent)].rotation;
+            session.deform.dragBones.push_back(drag);
         }
     }
 }
@@ -238,7 +322,8 @@ void rebuildSymmetryCache(DocumentSession &session) {
     deform.symmetryCacheRevision = session.revision;
     deform.symmetryCacheCenterX = deform.symmetryCenterX;
     deform.symmetryCacheTolerance = tolerance;
-    deform.symmetryMirrorIndices.assign(session.document.model().vertices.size(), -1);
+    deform.symmetryMirrorGroupIndices.assign(session.document.model().vertices.size(), -1);
+    deform.symmetryMirrorGroups.clear();
 
     std::unordered_map<SymmetryCell, std::vector<std::size_t>, SymmetryCellHash> buckets;
     buckets.reserve(session.document.model().vertices.size());
@@ -246,13 +331,12 @@ void rebuildSymmetryCache(DocumentSession &session) {
         buckets[symmetryCell(session.document.model().vertices[index].position, tolerance)].push_back(index);
 
     const auto toleranceSquared = tolerance * tolerance;
+    std::map<std::vector<std::size_t>, std::size_t> groupByTargets;
     for (std::size_t source = 0; source < session.document.model().vertices.size(); ++source) {
         const auto &position = session.document.model().vertices[source].position;
         const mmd::Float3 reflected{2.0F * deform.symmetryCenterX - position[0], position[1], position[2]};
         const auto center = symmetryCell(reflected, tolerance);
-        std::size_t nearest{};
-        float nearestDistance = std::numeric_limits<float>::max();
-        bool found = false;
+        std::vector<std::size_t> targets;
         for (std::int64_t x = -1; x <= 1; ++x) {
             for (std::int64_t y = -1; y <= 1; ++y) {
                 for (std::int64_t z = -1; z <= 1; ++z) {
@@ -266,17 +350,21 @@ void rebuildSymmetryCache(DocumentSession &session) {
                         const auto dy = candidatePosition[1] - reflected[1];
                         const auto dz = candidatePosition[2] - reflected[2];
                         const auto distance = dx * dx + dy * dy + dz * dz;
-                        if (distance <= toleranceSquared && distance < nearestDistance) {
-                            nearest = candidate;
-                            nearestDistance = distance;
-                            found = true;
-                        }
+                        if (distance <= toleranceSquared)
+                            targets.push_back(candidate);
                     }
                 }
             }
         }
-        if (found)
-            deform.symmetryMirrorIndices[source] = static_cast<std::int32_t>(nearest);
+        if (targets.empty())
+            continue;
+        std::sort(targets.begin(), targets.end());
+        targets.erase(std::unique(targets.begin(), targets.end()), targets.end());
+        const auto [found, inserted] = groupByTargets.emplace(targets, deform.symmetryMirrorGroups.size());
+        if (inserted)
+            deform.symmetryMirrorGroups.push_back({{}, targets});
+        deform.symmetryMirrorGroups[found->second].source.push_back(source);
+        deform.symmetryMirrorGroupIndices[source] = static_cast<std::int32_t>(found->second);
     }
 }
 
@@ -290,7 +378,7 @@ void updateDeformGizmoDrag(DocumentSession &session,
             (deform.symmetryCacheRevision != session.revision ||
              deform.symmetryCacheCenterX != deform.symmetryCenterX ||
              deform.symmetryCacheTolerance != symmetryTolerance ||
-             deform.symmetryMirrorIndices.size() != session.document.model().vertices.size()))
+             deform.symmetryMirrorGroupIndices.size() != session.document.model().vertices.size()))
             rebuildSymmetryCache(session);
         for (const auto &drag : deform.dragVertices) {
             const auto transformed = transformPoint(dragMatrix, drag.position);
@@ -303,20 +391,26 @@ void updateDeformGizmoDrag(DocumentSession &session,
             for (const auto &drag : deform.dragVertices) {
                 const auto *base = session.document.resolve(drag.vertex);
                 const auto sourceIndex = vertexIndex(session, drag.vertex);
-                if (base == nullptr || !sourceIndex || *sourceIndex >= deform.symmetryMirrorIndices.size())
+                if (base == nullptr || !sourceIndex || *sourceIndex >= deform.symmetryMirrorGroupIndices.size())
                     continue;
                 const auto transformed = transformPoint(dragMatrix, drag.position);
                 auto offset = subtract(transformed, base->position);
-                const auto mirrorIndex = deform.symmetryMirrorIndices[*sourceIndex];
-                if (mirrorIndex == static_cast<std::int32_t>(*sourceIndex)) {
+                const auto groupIndex = deform.symmetryMirrorGroupIndices[*sourceIndex];
+                if (groupIndex < 0 || static_cast<std::size_t>(groupIndex) >= deform.symmetryMirrorGroups.size())
+                    continue;
+                const auto &group = deform.symmetryMirrorGroups[static_cast<std::size_t>(groupIndex)];
+                const auto centerVertex = std::abs(base->position[0] - deform.symmetryCenterX) <= symmetryTolerance;
+                if (centerVertex) {
                     // A center-line vertex cannot move across the symmetry
                     // plane. Preserve its tangential movement only.
                     offset[0] = 0.0F;
-                    setVertexDelta(deform, drag.vertex, offset);
-                } else if (mirrorIndex >= 0) {
-                    const auto mirror = session.document.vertexHandle(static_cast<std::size_t>(mirrorIndex));
-                    setVertexDelta(deform, mirror,
-                                   {deform.symmetrySwapSides ? offset[0] : -offset[0], offset[1], offset[2]});
+                    for (const auto target : group.target)
+                        setVertexDelta(deform, session.document.vertexHandle(target), offset);
+                } else {
+                    const auto mirroredOffset = mmd::Float3{
+                        deform.symmetrySwapSides ? offset[0] : -offset[0], offset[1], offset[2]};
+                    for (const auto target : group.target)
+                        setVertexDelta(deform, session.document.vertexHandle(target), mirroredOffset);
                 }
             }
         }
@@ -326,11 +420,15 @@ void updateDeformGizmoDrag(DocumentSession &session,
             const auto transformed = transformPoint(dragMatrix, drag.position);
             const auto *base = session.document.resolve(drag.bone);
             if (base != nullptr)
-                setBoneDelta(deform, drag.bone, subtract(transformed, base->position),
+                setBoneDelta(deform, drag.bone,
+                             add(drag.translation,
+                                 rotate(conjugateQuaternion(drag.parentRotation),
+                                        subtract(transformed, drag.position))),
                              multiplyQuaternion(drag.rotation, rotation));
         }
     }
-    deform.dirty = true;
+    deform.sourceRevision = session.revision;
+    deform.dirty = !deform.vertices.empty() || !deform.bones.empty();
 }
 
 std::vector<mmd::PmxMorphOffset> vertexMorphOffsets(const DocumentSession &session) {
