@@ -36,7 +36,7 @@ struct TransformSource {
 
 std::optional<TransformSource> sourceFor(const DocumentSession &session,
                                          const SelectionItem &selected) {
-    if (session.deform.mode == DeformMode::shape || session.deform.mode == DeformMode::pose) {
+    if (session.deform.active()) {
         const auto expected = session.deform.mode == DeformMode::shape
                                   ? SelectionKind::vertex
                                   : SelectionKind::bone;

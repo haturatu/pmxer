@@ -1,4 +1,5 @@
 #include "../../src/editor/DocumentSession.hpp"
+#include "../../src/editor/DeformController.hpp"
 #include "../../src/editor/morph/MorphCapture.hpp"
 #include "../../src/editor/morph/MorphMask.hpp"
 #include "../../src/editor/morph/MorphOps.hpp"
@@ -18,6 +19,7 @@
 #include "../../src/ui/WorkspaceLayout.hpp"
 
 #include <mmd/pmx.hpp>
+#include <mmd/vmd.hpp>
 
 #include <cassert>
 #include <algorithm>
@@ -95,6 +97,64 @@ int main() {
     duplicatePreview.setMorphPreview(duplicatePreviewDocument.morphHandle(1), 0.5F);
     assert(duplicatePreview.evaluate().vertices[0].position[0] == 2.0F);
 
+    auto overrideModel = sampleModel();
+    mmd::PmxMorph overrideMorph;
+    overrideMorph.name = "override";
+    overrideMorph.type = 1U;
+    overrideMorph.offsets.push_back(previewOffset);
+    overrideModel.morphs.push_back(overrideMorph);
+    mmd::VmdMotion overrideMotion;
+    overrideMotion.morphs.push_back({"override", 0U, 1.0F});
+    pmxer::PreviewController overridePreview(overrideModel);
+    overridePreview.setMotion(&overrideMotion);
+    overridePreview.setMorphPreview("override", 0.25F);
+    assert(std::abs(overridePreview.evaluate().vertices[0].position[0] - 0.5F) < 1e-6F);
+    pmxer::PreviewController temporaryVertexPreview(overrideModel);
+    temporaryVertexPreview.setVertexPreview({previewOffset});
+    assert(std::abs(temporaryVertexPreview.evaluate().vertices[0].position[0] - 2.0F) < 1e-6F);
+
+    auto materialModel = sampleModel();
+    materialModel.materials[0].diffuse = {0.2F, 0.3F, 0.4F, 1.0F};
+    materialModel.materials[0].specular = {0.1F, 0.2F, 0.3F};
+    materialModel.materials[0].shininess = 2.0F;
+    materialModel.materials[0].ambient = {0.3F, 0.4F, 0.5F};
+    materialModel.materials[0].edgeColor = {0.4F, 0.5F, 0.6F, 1.0F};
+    materialModel.materials[0].edgeSize = 1.0F;
+    mmd::PmxMorph materialMorph;
+    materialMorph.name = "material";
+    materialMorph.type = 8U;
+    mmd::PmxMorphOffset materialOffset;
+    materialOffset.index = 0;
+    materialOffset.operation = 1U;
+    materialOffset.materialVectors[0] = {0.1F, 0.2F, 0.3F, 0.4F};
+    materialOffset.materialVectors[1] = {0.2F, 0.3F, 0.4F, 0.5F};
+    materialOffset.materialVectors[2] = {0.3F, 0.4F, 0.5F, 0.6F};
+    materialOffset.materialVectors[3] = {0.4F, 0.5F, 0.6F, 0.7F};
+    materialOffset.materialVectors[4] = {0.5F, 0.6F, 0.7F, 0.8F};
+    materialOffset.materialVectors[5] = {0.6F, 0.7F, 0.8F, 0.9F};
+    materialOffset.materialVectors[6] = {0.7F, 0.8F, 0.9F, 1.0F};
+    materialMorph.offsets.push_back(materialOffset);
+    materialModel.morphs.push_back(materialMorph);
+    mmd::PmxDocument materialDocument(std::move(materialModel));
+    pmxer::PreviewController materialPreview(materialDocument);
+    materialPreview.setMorphPreview(materialDocument.morphHandle(0), 1.0F);
+    const auto materialFrame = materialPreview.evaluate();
+    assert(std::abs(materialFrame.materials[0].specular[2] - 0.7F) < 1e-6F);
+    assert(std::abs(materialFrame.materials[0].shininess - 2.5F) < 1e-6F);
+    assert(std::abs(materialFrame.materials[0].ambient[0] - 0.6F) < 1e-6F);
+    assert(std::abs(materialFrame.materials[0].edgeSize - 1.6F) < 1e-6F);
+    assert(std::abs(materialFrame.materials[0].textureAdd[1] - 0.6F) < 1e-6F);
+    assert(std::abs(materialFrame.materials[0].sphereAdd[2] - 0.8F) < 1e-6F);
+    assert(std::abs(materialFrame.materials[0].toonAdd[3] - 1.0F) < 1e-6F);
+
+    pmxer::DocumentSession bonePreviewSession(sampleModel());
+    bonePreviewSession.deform.bones.push_back(
+        {bonePreviewSession.document.boneHandle(0), {1.0F, 0.0F, 0.0F},
+         {0.0F, 0.0F, 0.0F, 1.0F}});
+    pmxer::PreviewController bonePreview(bonePreviewSession.document);
+    bonePreview.setBonePreview(pmxer::boneMorphOffsets(bonePreviewSession));
+    assert(std::abs(bonePreview.evaluate().vertices[0].position[0] - 1.0F) < 1e-6F);
+
     mmd::PmxModel operationModel = sampleModel();
     operationModel.vertices[0].position[0] = -1.0F;
     operationModel.vertices[1].position[0] = 0.0F;
@@ -109,6 +169,14 @@ int main() {
         operationMorph.offsets.push_back(offset);
     }
     operationModel.morphs.push_back(operationMorph);
+    mmd::PmxMorph sparseMorph;
+    sparseMorph.name = "sparse";
+    sparseMorph.type = 1U;
+    mmd::PmxMorphOffset sparseOffset;
+    sparseOffset.index = 1;
+    sparseOffset.vector3 = {4.0F, 0.0F, 0.0F};
+    sparseMorph.offsets.push_back(sparseOffset);
+    operationModel.morphs.push_back(sparseMorph);
     const auto &operationSource = operationModel.morphs.front();
     const auto scaled = pmxer::morph::scale(pmxer::morph::copy(operationSource), 2.0F);
     assert(scaled.offsets[0].vector3[0] == 2.0F);
@@ -143,9 +211,53 @@ int main() {
     assert(pmxer::morph::bakeAndReverseBase(reverseSession, reverseMorph).success);
     assert(reverseSession.document.model().vertices[0].position[0] == 0.0F);
     assert(reverseSession.document.model().morphs[0].offsets[0].vector3[0] == -1.0F);
+    const auto &rebasedSparse = reverseSession.document.model().morphs[1];
+    assert(rebasedSparse.offsets.size() == 3U);
+    assert(rebasedSparse.offsets[0].index == 1);
+    assert(rebasedSparse.offsets[0].vector3[0] == 3.0F);
+    assert(rebasedSparse.offsets[1].index == 0);
+    assert(rebasedSparse.offsets[1].vector3[0] == -1.0F);
     assert(reverseSession.commands.undoCount() == 1U);
     assert(reverseSession.undo());
     assert(reverseSession.document.model().vertices[0].position[0] == -1.0F);
+
+    auto symmetryModel = sampleModel();
+    symmetryModel.vertices[0].position[0] = -1.0F;
+    symmetryModel.vertices[1].position[0] = 0.0F;
+    symmetryModel.vertices[2].position[0] = 1.0F;
+    pmxer::DocumentSession symmetrySession(std::move(symmetryModel));
+    symmetrySession.deform.mode = pmxer::DeformMode::shape;
+    symmetrySession.deform.engaged = true;
+    symmetrySession.deform.symmetryX = true;
+    symmetrySession.deform.symmetryFeather = 0.01F;
+    symmetrySession.selection.set(pmxer::SelectionItem{
+        pmxer::SelectionKind::vertex,
+        symmetrySession.document.vertexHandle(0).domain,
+        symmetrySession.document.vertexHandle(0).id,
+        symmetrySession.document.vertexHandle(0).generation});
+    pmxer::beginDeformGizmoDrag(symmetrySession);
+    std::array<float, 16> symmetryDelta{};
+    symmetryDelta[0] = symmetryDelta[5] = symmetryDelta[10] = symmetryDelta[15] = 1.0F;
+    symmetryDelta[12] = 0.25F;
+    pmxer::updateDeformGizmoDrag(symmetrySession, symmetryDelta);
+    const auto leftDelta = std::find_if(
+        symmetrySession.deform.vertices.begin(), symmetrySession.deform.vertices.end(),
+        [&](const auto &delta) { return delta.vertex == symmetrySession.document.vertexHandle(0); });
+    const auto rightDelta = std::find_if(
+        symmetrySession.deform.vertices.begin(), symmetrySession.deform.vertices.end(),
+        [&](const auto &delta) { return delta.vertex == symmetrySession.document.vertexHandle(2); });
+    assert(leftDelta != symmetrySession.deform.vertices.end());
+    assert(rightDelta != symmetrySession.deform.vertices.end());
+    assert(leftDelta->offset[0] == 0.25F);
+    assert(rightDelta->offset[0] == -0.25F);
+
+    pmxer::DocumentSession retainedSession(sampleModel());
+    const auto retainedVertex = retainedSession.document.vertexHandle(0);
+    retainedSession.deform.vertices.push_back({retainedVertex, {0.5F, 0.0F, 0.0F}});
+    ++retainedSession.revision;
+    retainedSession.retainDeformOverlay();
+    assert(retainedSession.deform.vertices.size() == 1U);
+    assert(retainedSession.deform.vertices[0].offset[0] == 0.5F);
 
     const pmxer::CameraState perspective{{0.0F, 0.0F, 0.0F}, 0.0F, 0.0F, 10.0F, false};
     const auto perspectiveCenter =

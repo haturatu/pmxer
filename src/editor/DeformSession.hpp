@@ -4,9 +4,10 @@
 
 #include <mmd/pmx.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
-#include <array>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -43,6 +44,10 @@ struct DragBone {
 
 struct DeformSession {
     DeformMode mode{DeformMode::inactive};
+    // The panel can be closed without discarding an in-progress edit. Keep
+    // this separate from mode so a closed panel cannot capture viewport edits.
+    bool engaged{};
+    bool suspended{};
     std::uint64_t sourceRevision{};
     std::vector<VertexDelta> vertices;
     std::vector<BoneDelta> bones;
@@ -63,9 +68,13 @@ struct DeformSession {
     std::int32_t materialIndex{-1};
     std::array<char, 128> morphSearch{};
     std::string captureName{"New Morph"};
+    std::uint64_t symmetryCacheRevision{std::numeric_limits<std::uint64_t>::max()};
+    float symmetryCacheCenterX{};
+    float symmetryCacheTolerance{};
+    std::vector<std::int32_t> symmetryMirrorIndices;
 
     [[nodiscard]] bool active() const noexcept {
-        return mode == DeformMode::shape || mode == DeformMode::pose;
+        return engaged && !suspended && (mode == DeformMode::shape || mode == DeformMode::pose);
     }
 
     void clearOverlay() {
@@ -78,6 +87,8 @@ struct DeformSession {
 
     void reset() {
         mode = DeformMode::inactive;
+        engaged = false;
+        suspended = false;
         sourceRevision = 0;
         clearOverlay();
         blends.clear();
@@ -94,6 +105,10 @@ struct DeformSession {
         materialIndex = -1;
         morphSearch = {};
         captureName = "New Morph";
+        symmetryCacheRevision = std::numeric_limits<std::uint64_t>::max();
+        symmetryCacheCenterX = 0.0F;
+        symmetryCacheTolerance = 0.0F;
+        symmetryMirrorIndices.clear();
     }
 };
 

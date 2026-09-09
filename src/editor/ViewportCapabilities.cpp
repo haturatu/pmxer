@@ -40,13 +40,13 @@ TransformCapabilities transformCapabilities(const DocumentSession &session) noex
         return {};
     if (session.deform.mode == DeformMode::mix)
         return {};
-    if (session.deform.mode == DeformMode::shape) {
+    if (session.deform.active() && session.deform.mode == DeformMode::shape) {
         for (const auto &item : session.selection.items())
             if (item.kind != SelectionKind::vertex)
                 return {};
         return {true, true, true};
     }
-    if (session.deform.mode == DeformMode::pose) {
+    if (session.deform.active() && session.deform.mode == DeformMode::pose) {
         for (const auto &item : session.selection.items())
             if (item.kind != SelectionKind::bone)
                 return {};

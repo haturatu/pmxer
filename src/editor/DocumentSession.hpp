@@ -8,6 +8,7 @@
 #include <mmd/document.hpp>
 #include <mmd/animation.hpp>
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <atomic>
@@ -178,6 +179,7 @@ struct PreviewSession {
     std::optional<mmd::AnimatedModelFrame> baseFrame;
     std::uint64_t morphRevision{};
     std::uint64_t appliedMorphRevision{std::numeric_limits<std::uint64_t>::max()};
+    DeformMode appliedDeformMode{DeformMode::inactive};
 };
 
 struct DerivedEditorState {
@@ -215,6 +217,19 @@ struct DocumentSession {
         : path(std::move(source)), recoveryId(makeRecoveryId()), document(std::move(model)), validation(document.validate()),
           baseline(document.model()) {}
 
+    void retainDeformOverlay() {
+        std::erase_if(deform.vertices, [&](const auto &delta) {
+            return document.resolve(delta.vertex) == nullptr;
+        });
+        std::erase_if(deform.bones, [&](const auto &delta) {
+            return document.resolve(delta.bone) == nullptr;
+        });
+        deform.dragVertices.clear();
+        deform.dragBones.clear();
+        deform.sourceRevision = revision;
+        deform.dirty = !deform.vertices.empty() || !deform.bones.empty();
+    }
+
     [[nodiscard]] bool undo() {
         if (!commands.undo(document))
             return false;
@@ -227,15 +242,15 @@ struct DocumentSession {
         ui.viewportHover.reset();
         ui.viewportHoverFace.reset();
         ui.viewportPickCache.clear();
-        deform.mode = DeformMode::inactive;
-        deform.clearOverlay();
         preview.baseFrame.reset();
         preview.frame.reset();
         preview.appliedMorphRevision = std::numeric_limits<std::uint64_t>::max();
+        preview.appliedDeformMode = DeformMode::inactive;
         changes.topologyChanged = true;
         changes.physicsChanged = true;
         changes.texturesChanged = true;
         ++revision;
+        retainDeformOverlay();
         validation = document.validate();
         return true;
     }
@@ -252,15 +267,15 @@ struct DocumentSession {
         ui.viewportHover.reset();
         ui.viewportHoverFace.reset();
         ui.viewportPickCache.clear();
-        deform.mode = DeformMode::inactive;
-        deform.clearOverlay();
         preview.baseFrame.reset();
         preview.frame.reset();
         preview.appliedMorphRevision = std::numeric_limits<std::uint64_t>::max();
+        preview.appliedDeformMode = DeformMode::inactive;
         changes.topologyChanged = true;
         changes.physicsChanged = true;
         changes.texturesChanged = true;
         ++revision;
+        retainDeformOverlay();
         validation = document.validate();
         return true;
     }

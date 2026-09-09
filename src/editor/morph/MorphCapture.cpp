@@ -142,19 +142,37 @@ OperationResult bakeAndReverseBase(DocumentSession &session, mmd::MorphHandle so
                 if (current.type != 1U)
                     continue;
                 std::vector<bool> rebased(total.size());
+                std::vector<bool> present(total.size());
                 for (std::size_t offsetIndex = 0; offsetIndex < current.offsets.size(); ++offsetIndex) {
                     auto offset = current.offsets[offsetIndex];
                     if (offset.index < 0 || static_cast<std::size_t>(offset.index) >= total.size())
                         continue;
+                    const auto vertexIndex = static_cast<std::size_t>(offset.index);
+                    present[vertexIndex] = true;
                     if (morphIndex == sourceIndex) {
                         for (auto &component : offset.vector3)
                             component = -component;
-                    } else if (!rebased[static_cast<std::size_t>(offset.index)]) {
+                    } else if (!rebased[vertexIndex]) {
                         for (std::size_t component = 0; component < 3U; ++component)
-                            offset.vector3[component] -= total[static_cast<std::size_t>(offset.index)][component];
-                        rebased[static_cast<std::size_t>(offset.index)] = true;
+                            offset.vector3[component] -= total[vertexIndex][component];
+                        rebased[vertexIndex] = true;
                     }
                     if (!transaction.setMorphOffset(handle, offsetIndex, offset))
+                        return false;
+                }
+                if (morphIndex == sourceIndex)
+                    continue;
+                // Vertex morphs are sparse. An omitted offset means the
+                // vertex stays at the base position, so rebasing the base
+                // requires inserting -D for every touched, absent vertex.
+                for (std::size_t vertexIndex = 0; vertexIndex < total.size(); ++vertexIndex) {
+                    if (present[vertexIndex] || !nonZero(total[vertexIndex]))
+                        continue;
+                    mmd::PmxMorphOffset offset;
+                    offset.index = static_cast<std::int32_t>(vertexIndex);
+                    for (std::size_t component = 0; component < 3U; ++component)
+                        offset.vector3[component] = -total[vertexIndex][component];
+                    if (!transaction.addMorphOffset(handle, offset))
                         return false;
                 }
             }

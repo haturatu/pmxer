@@ -220,9 +220,19 @@ void drawMorphOperations(DocumentSession &session) {
         status(session, morph::duplicateMorph(session, sourceHandle, source.name + " Copy"),
                "Morph duplicated");
     ImGui::SameLine();
-    if (ImGui::Button("Reverse Base and Morph"))
-        status(session, morph::bakeAndReverseBase(session, sourceHandle),
-               "Base and morph reversed");
+    if (ImGui::Button("Reverse Base and Morph")) {
+        const auto references = session.document.referencesTo(sourceHandle);
+        const auto referencedByMorph = std::any_of(
+            references.begin(), references.end(), [](const auto &reference) {
+                return reference.ownerKind == mmd::ReferenceObjectKind::morph;
+            });
+        const auto result = morph::bakeAndReverseBase(session, sourceHandle);
+        status(session, result, "Base and morph reversed");
+        if (result.success && referencedByMorph)
+            setStatus(session,
+                      "Warning: Group/Flip morph references the reversed morph; review the result",
+                      UiStatusKind::warning, std::chrono::milliseconds::zero(), true);
+    }
 
     std::size_t otherIndex = morphIndex(session, session.deform.operationMorph).value_or(index);
     if (morphCombo("Second morph", model, otherIndex))
@@ -298,9 +308,30 @@ void drawMorphOperations(DocumentSession &session) {
 } // namespace
 
 void drawTransformView(DocumentSession &session, bool *open) {
+    if (open != nullptr && !*open) {
+        session.deform.engaged = false;
+        session.deform.suspended = true;
+        session.ui.gizmoDragging = false;
+        return;
+    }
     if (!ImGui::Begin("Transform View", open)) {
+        if (open != nullptr && !*open) {
+            session.deform.engaged = false;
+            session.deform.suspended = true;
+            session.ui.gizmoDragging = false;
+        } else {
+            session.deform.engaged = true;
+            session.deform.suspended = false;
+        }
         ImGui::End();
         return;
+    }
+    session.deform.engaged = true;
+    session.deform.suspended = false;
+    if (session.deform.dirty && ImGui::Button("Discard Temporary Edit")) {
+        session.deform.clearOverlay();
+        session.deform.mode = DeformMode::shape;
+        refreshDeformPreview(session);
     }
     if (ImGui::RadioButton("Vertex", session.deform.mode == DeformMode::shape))
         session.deform.mode = DeformMode::shape;
@@ -318,7 +349,13 @@ void drawTransformView(DocumentSession &session, bool *open) {
     else
         drawVertexTransform(session);
     drawMorphOperations(session);
+    const bool closeRequested = open != nullptr && !*open;
     ImGui::End();
+    if (closeRequested) {
+        session.deform.engaged = false;
+        session.deform.suspended = true;
+        session.ui.gizmoDragging = false;
+    }
 }
 
 } // namespace pmxer
