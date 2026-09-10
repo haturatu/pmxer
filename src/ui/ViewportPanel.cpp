@@ -680,6 +680,29 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         }
     }
     ImGui::InvisibleButton("viewport-canvas", available);
+    if (!session.deform.vertices.empty() || !session.deform.bones.empty()) {
+        std::string summary = "● 一時変形 — ";
+        if (!session.deform.vertices.empty())
+            summary += "頂点 " + std::to_string(session.deform.vertices.size());
+        if (!session.deform.vertices.empty() && !session.deform.bones.empty())
+            summary += " / ";
+        if (!session.deform.bones.empty())
+            summary += "ボーン " + std::to_string(session.deform.bones.size());
+        constexpr const char *detail = "まだPMXには反映されていません";
+        const auto summarySize = ImGui::CalcTextSize(summary.c_str());
+        const auto detailSize = ImGui::CalcTextSize(detail);
+        const auto cardWidth = std::max(summarySize.x, detailSize.x) + 24.0F;
+        const ImVec2 cardMin{origin.x + 12.0F, origin.y + 12.0F};
+        const ImVec2 cardMax{cardMin.x + cardWidth,
+                             cardMin.y + ImGui::GetTextLineHeight() * 2.0F + 20.0F};
+        draw->AddRectFilled(cardMin, cardMax, IM_COL32(24, 28, 36, 230), 5.0F);
+        draw->AddRect(cardMin, cardMax, IM_COL32(100, 170, 255, 230), 5.0F);
+        draw->AddText({cardMin.x + 12.0F, cardMin.y + 7.0F},
+                      IM_COL32(150, 205, 255, 255), summary.c_str());
+        draw->AddText({cardMin.x + 12.0F,
+                       cardMin.y + 9.0F + ImGui::GetTextLineHeight()},
+                      IM_COL32(220, 225, 235, 255), detail);
+    }
     const auto hovered = ImGui::IsItemHovered();
     const auto mouse = ImGui::GetIO().MousePos;
     if (session.ui.viewportTool == ViewportTool::select && ImGui::IsItemActivated()) {
