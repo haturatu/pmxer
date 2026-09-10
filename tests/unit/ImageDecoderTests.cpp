@@ -55,6 +55,13 @@ int main() {
     assert(!truncated);
     assert(!truncated.error.empty());
 
+    auto largeTruncated = dds(0x31545844U, 0);
+    put32(largeTruncated, 12, 16384);
+    put32(largeTruncated, 16, 16384);
+    const auto rejectedBeforeDecode = pmxer::decodeImageBytes(largeTruncated);
+    assert(!rejectedBeforeDecode && rejectedBeforeDecode.error == "truncated DDS image");
+    assert(rejectedBeforeDecode.rgba.empty());
+
     auto rgba = dds(0, 4);
     put32(rgba, 80, 0x41U);
     put32(rgba, 88, 32);

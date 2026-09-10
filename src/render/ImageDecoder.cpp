@@ -90,7 +90,6 @@ DecodedImage decodeDds(const std::vector<std::uint8_t> &bytes) {
         image.error = "invalid DDS dimensions";
         return image;
     }
-    image.rgba.resize(static_cast<std::size_t>(image.width) * image.height * 4U);
     const auto format = read32(bytes, 84);
     bool bc1 = format == fourCc('D', 'X', 'T', '1');
     bool bc2 = format == fourCc('D', 'X', 'T', '3');
@@ -141,9 +140,9 @@ DecodedImage decodeDds(const std::vector<std::uint8_t> &bytes) {
         const auto rowPitch = declaredPitch >= minimumPitch ? declaredPitch : minimumPitch;
         if (static_cast<std::uint64_t>(rowPitch) * image.height > bytes.size() - dataOffset) {
             image.error = "truncated DDS image";
-            image.rgba.clear();
             return image;
         }
+        image.rgba.resize(static_cast<std::size_t>(image.width) * image.height * 4U);
         const std::array<std::uint32_t, 4> masks{
             read32(bytes, 92), read32(bytes, 96), read32(bytes, 100), read32(bytes, 104)};
         const auto channel = [](std::uint32_t value, std::uint32_t mask, std::uint8_t fallback) {
@@ -173,9 +172,9 @@ DecodedImage decodeDds(const std::vector<std::uint8_t> &bytes) {
     const auto blockCount = static_cast<std::uint64_t>(blocksWide) * blocksHigh;
     if (blockCount > (bytes.size() - dataOffset) / blockSize) {
         image.error = "truncated DDS image";
-        image.rgba.clear();
         return image;
     }
+    image.rgba.resize(static_cast<std::size_t>(image.width) * image.height * 4U);
     const std::uint8_t *block = bytes.data() + dataOffset;
     for (std::uint32_t by = 0; by < blocksHigh; ++by) {
         for (std::uint32_t bx = 0; bx < blocksWide; ++bx, block += blockSize) {
