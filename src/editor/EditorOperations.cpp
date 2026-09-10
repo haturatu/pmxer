@@ -357,13 +357,18 @@ OperationResult normalizeWeights(DocumentSession &session, float threshold) {
                                           : std::size_t{4});
             float total{};
             for (std::size_t i = 0; i < count; ++i) {
-                if (vertex.weights[i] < threshold)
-                    vertex.weights[i] = 0.0F;
-                total += std::max(0.0F, vertex.weights[i]);
+                auto &weight = vertex.weights[i];
+                if (!std::isfinite(weight) || weight < threshold || weight < 0.0F)
+                    weight = 0.0F;
+                total += weight;
             }
             if (total > 0.0F)
                 for (std::size_t i = 0; i < count; ++i)
-                    vertex.weights[i] = std::max(0.0F, vertex.weights[i]) / total;
+                    vertex.weights[i] /= total;
+            else {
+                vertex.weights = {};
+                vertex.weights[0] = 1.0F;
+            }
     }
     return applyTransaction(session, [&](auto &transaction) {
         for (std::size_t i = 0; i < values.size(); ++i)
