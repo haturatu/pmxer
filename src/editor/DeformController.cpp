@@ -253,8 +253,51 @@ mmd::Float3 deformVertexPosition(const DocumentSession &session, mmd::VertexHand
 }
 
 void discardPendingTransformEdit(DocumentSession &session) {
+    discardAllPendingTransformEdits(session);
+}
+
+void discardPendingVertexEdit(DocumentSession &session) {
+    session.deform.clearVertexOverlay();
+    refreshDeformPreview(session);
+}
+
+void discardPendingBoneEdit(DocumentSession &session) {
+    session.deform.clearBoneOverlay();
+    refreshDeformPreview(session);
+}
+
+void discardAllPendingTransformEdits(DocumentSession &session) {
     session.deform.clearOverlay();
     refreshDeformPreview(session);
+}
+
+void activateTransformTab(DocumentSession &session, EditorWorkspace &workspace,
+                          TransformViewTab tab) {
+    session.deform.tab = tab;
+    session.deform.tabActivated = true;
+    session.deform.activatedTab = tab;
+    switch (tab) {
+    case TransformViewTab::vertex:
+        workspace = EditorWorkspace::rig;
+        applyWorkspacePolicy(session, workspacePolicy(workspace));
+        session.ui.selectionMode = ViewportSelectionMode::vertex;
+        session.ui.viewportTool = ViewportTool::select;
+        session.deform.mode = DeformMode::shape;
+        break;
+    case TransformViewTab::bone:
+        workspace = EditorWorkspace::rig;
+        applyWorkspacePolicy(session, workspacePolicy(workspace));
+        session.ui.selectionMode = ViewportSelectionMode::bone;
+        session.ui.viewportTool = ViewportTool::select;
+        session.ui.showBones = true;
+        session.deform.mode = DeformMode::pose;
+        break;
+    case TransformViewTab::morph:
+        workspace = EditorWorkspace::morph;
+        applyWorkspacePolicy(session, workspacePolicy(workspace));
+        session.deform.mode = DeformMode::inactive;
+        break;
+    }
 }
 
 void beginDeformGizmoDrag(DocumentSession &session,

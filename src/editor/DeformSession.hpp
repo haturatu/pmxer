@@ -57,6 +57,8 @@ struct MirrorPositionGroup {
 struct DeformSession {
     DeformMode mode{DeformMode::inactive};
     TransformViewTab tab{TransformViewTab::vertex};
+    bool tabActivated{};
+    TransformViewTab activatedTab{TransformViewTab::vertex};
     // The panel can be closed without discarding an in-progress edit. Keep
     // this separate from mode so a closed panel cannot capture viewport edits.
     bool engaged{};
@@ -83,7 +85,9 @@ struct DeformSession {
     float morphScaleFactor{1.0F};
     std::int32_t materialIndex{-1};
     std::array<char, 128> morphSearch{};
-    std::string captureName{"New Morph"};
+    std::string vertexCaptureName{"New Vertex Morph"};
+    std::string boneCaptureName{"New Bone Morph"};
+    std::string groupCaptureName{"New Group Morph"};
     bool confirmBakeReverse{};
     mmd::MorphHandle bakeReverseMorph{};
     std::size_t bakeReverseReferenceCount{};
@@ -120,6 +124,8 @@ struct DeformSession {
     void reset() {
         mode = DeformMode::inactive;
         tab = TransformViewTab::vertex;
+        tabActivated = false;
+        activatedTab = TransformViewTab::vertex;
         engaged = false;
         suspended = false;
         sourceRevision = 0;
@@ -139,7 +145,9 @@ struct DeformSession {
         morphScaleFactor = 1.0F;
         materialIndex = -1;
         morphSearch = {};
-        captureName = "New Morph";
+        vertexCaptureName = "New Vertex Morph";
+        boneCaptureName = "New Bone Morph";
+        groupCaptureName = "New Group Morph";
         confirmBakeReverse = false;
         bakeReverseMorph = {};
         bakeReverseReferenceCount = 0;

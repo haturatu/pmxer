@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DeformSession.hpp"
+#include "WorkspacePolicy.hpp"
 
 #include <mmd/animation.hpp>
 
@@ -14,6 +15,11 @@ struct DocumentSession;
 [[nodiscard]] mmd::Float3 deformVertexPosition(const DocumentSession &session,
                                                 mmd::VertexHandle vertex);
 void discardPendingTransformEdit(DocumentSession &session);
+void discardPendingVertexEdit(DocumentSession &session);
+void discardPendingBoneEdit(DocumentSession &session);
+void discardAllPendingTransformEdits(DocumentSession &session);
+void activateTransformTab(DocumentSession &session, EditorWorkspace &workspace,
+                          TransformViewTab tab);
 
 void beginDeformGizmoDrag(DocumentSession &session,
                           const std::array<float, 16> &startGizmoMatrix);

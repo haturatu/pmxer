@@ -41,28 +41,43 @@ TransformCapabilities capabilitiesFor(SelectionKind kind) noexcept {
 
 bool deformBoneTransformAllowed(const DocumentSession &session,
                                 mmd::BoneHandle handle) noexcept {
+    return boneTransformAvailability(session, handle).enabled;
+}
+
+ActionAvailability boneTransformAvailability(const DocumentSession &session,
+                                              mmd::BoneHandle handle) noexcept {
     const auto *bone = session.document.resolve(handle);
     if (bone == nullptr)
-        return false;
+        return {false, SupportLevel::unsupported, "ボーンが見つかりません"};
     const auto &model = session.document.model();
     const auto index = static_cast<std::size_t>(bone - model.bones.data());
-    if ((bone->flags & (appendFlags | ikFlag | afterPhysicsFlag)) != 0U)
-        return false;
+    if ((bone->flags & ikFlag) != 0U)
+        return {false, SupportLevel::unsupported,
+                "このボーンはIKコントローラーのため変形できません"};
+    if ((bone->flags & appendFlags) != 0U)
+        return {false, SupportLevel::unsupported,
+                "このボーンは付与（Append / Inherit）により制御されているため変形できません"};
+    if ((bone->flags & afterPhysicsFlag) != 0U)
+        return {false, SupportLevel::unsupported,
+                "このボーンは物理後変形（After Physics）のため変形できません"};
 
     for (const auto &candidate : model.bones) {
         if ((candidate.flags & ikFlag) == 0U)
             continue;
         if (candidate.ikTarget == static_cast<std::int32_t>(index))
-            return false;
+            return {false, SupportLevel::unsupported,
+                    "このボーンはIKターゲットのため変形できません"};
         for (const auto &link : candidate.ikLinks)
             if (link.bone == static_cast<std::int32_t>(index))
-                return false;
+                return {false, SupportLevel::unsupported,
+                        "このボーンはIKリンクのため変形できません"};
     }
     for (const auto &body : model.rigidBodies) {
         if (body.physicsEnabled && body.mode != 0U && body.bone == static_cast<std::int32_t>(index))
-            return false;
+            return {false, SupportLevel::unsupported,
+                    "このボーンは剛体物理により制御されているため変形できません"};
     }
-    return true;
+    return {true, SupportLevel::supported, {}};
 }
 
 TransformCapabilities transformCapabilities(const DocumentSession &session) noexcept {

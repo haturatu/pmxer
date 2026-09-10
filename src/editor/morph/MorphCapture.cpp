@@ -59,8 +59,15 @@ OperationResult createMorphFromData(DocumentSession &session, MorphData data,
             return true;
         },
         std::move(description));
-    if (result.success)
-        session.selection.clear();
+    if (result.success) {
+        const auto index = session.document.model().morphs.size() - 1U;
+        const auto handle = session.document.morphHandle(index);
+        const SelectionItem item{SelectionKind::morph, handle.domain, handle.id,
+                                 handle.generation};
+        session.selection.set(item);
+        session.ui.morphIndex = index;
+        session.ui.pendingOutlinerReveal = item;
+    }
     return result;
 }
 
