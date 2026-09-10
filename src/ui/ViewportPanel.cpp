@@ -3,8 +3,10 @@
 #include "ViewportPicking.hpp"
 #include "UiSemantics.hpp"
 
+#include "../editor/DeformController.hpp"
 #include "../editor/EditorSelectionController.hpp"
 #include "../editor/EditorSelectionQueries.hpp"
+#include "../editor/PreviewPoseQueries.hpp"
 #include "../editor/UiStatus.hpp"
 #include "../editor/ViewportCapabilities.hpp"
 #include "../render/Camera.hpp"
@@ -158,7 +160,9 @@ std::optional<Bounds> selectionBounds(const DocumentSession &session) {
                 break;
             case 2:
                 if (offset.index >= 0 && static_cast<std::size_t>(offset.index) < model.bones.size())
-                    includePoint(bounds, model.bones[static_cast<std::size_t>(offset.index)].position);
+                    includePoint(bounds, evaluatedBonePosition(
+                                           session, static_cast<std::size_t>(offset.index),
+                                           session.ui.previewFrame));
                 break;
             case 8:
                 if (offset.index < 0) {
@@ -193,9 +197,9 @@ std::optional<Bounds> selectionBounds(const DocumentSession &session) {
             break;
         }
         case SelectionKind::bone: {
-            const auto *value = session.document.resolve(selectionHandle<mmd::BoneTag>(session.document, selected));
-            if (value != nullptr)
-                includePoint(bounds, value->position);
+            const auto handle = selectionHandle<mmd::BoneTag>(session.document, selected);
+            if (session.document.resolve(handle) != nullptr)
+                includePoint(bounds, evaluatedBonePosition(session, handle, session.ui.previewFrame));
             break;
         }
         case SelectionKind::rigidBody: {
@@ -913,8 +917,8 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             const auto &bone = model.bones[i];
             const auto handle = session.document.boneHandle(i);
             const auto selected = isSelected(session, SelectionKind::bone, handle);
-            const auto point = project(bone.position, bounds, origin, available,
-                                       session.ui);
+            const auto point = project(evaluatedBonePosition(session, handle, session.ui.previewFrame),
+                                       bounds, origin, available, session.ui);
             draw->AddCircleFilled(point, selected ? 5.0F : 3.0F,
                                   selected ? IM_COL32(255, 225, 90, 255)
                                            : IM_COL32(245, 190, 80,
@@ -924,7 +928,8 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 continue;
             draw->AddLine(
                 point,
-                project(model.bones[static_cast<std::size_t>(bone.parent)].position,
+                project(evaluatedBonePosition(session, session.document.boneHandle(
+                                               static_cast<std::size_t>(bone.parent)), session.ui.previewFrame),
                         bounds, origin, available, session.ui),
                 selected ? IM_COL32(255, 225, 90, 255)
                          : IM_COL32(245, 190, 80,
@@ -996,7 +1001,9 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         const auto *vertex = session.document.resolve(
             selectionHandle<mmd::VertexTag>(session.document, selected));
         if (vertex != nullptr)
-            draw->AddCircleFilled(project(vertex->position, bounds, origin,
+            draw->AddCircleFilled(project(deformVertexPosition(
+                                              session, selectionHandle<mmd::VertexTag>(session.document, selected)),
+                                          bounds, origin,
                                           available, session.ui),
                                   4.0F, IM_COL32(255, 180, 60, 255));
     }

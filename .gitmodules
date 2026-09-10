@@ -1,4 +1,3 @@
 [submodule "external/libmmd"]
 	path = external/libmmd
 	url = https://github.com/haturatu/libmmd.git
-	branch = feat/pmx-editor-serialization

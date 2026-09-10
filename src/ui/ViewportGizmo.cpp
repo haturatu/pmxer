@@ -1,6 +1,9 @@
 #include "ViewportGizmo.hpp"
 
 #include "../editor/DocumentSession.hpp"
+#include "../editor/DeformController.hpp"
+#include "../editor/PreviewPoseQueries.hpp"
+#include "../editor/TransformMath.hpp"
 #include "../editor/UiStatus.hpp"
 #include "../editor/EditorOperations.hpp"
 
@@ -17,8 +20,8 @@
 namespace pmxer {
 namespace {
 
-constexpr float radiansToDegrees = 57.2957795F;
 constexpr float degreesToRadians = 0.0174532925F;
+constexpr mmd::Float4 identityQuaternion{0.0F, 0.0F, 0.0F, 1.0F};
 
 std::array<float, 16> transpose(const std::array<float, 16> &source) {
     std::array<float, 16> result{};
@@ -30,43 +33,84 @@ std::array<float, 16> transpose(const std::array<float, 16> &source) {
 
 struct TransformSource {
     mmd::Float3 position{};
-    mmd::Float3 rotation{};
+    mmd::Float4 rotation{0.0F, 0.0F, 0.0F, 1.0F};
 };
 
 std::optional<TransformSource> sourceFor(const DocumentSession &session,
                                          const SelectionItem &selected) {
+    if (session.deform.active()) {
+        const auto expected = session.deform.mode == DeformMode::shape
+                                  ? SelectionKind::vertex
+                                  : SelectionKind::bone;
+        if (selected.kind != expected)
+            return std::nullopt;
+        if (session.deform.pivotMode == PivotMode::origin)
+            return TransformSource{};
+        if (session.deform.pivotMode == PivotMode::active || session.selection.items().size() == 1U) {
+            if (expected == SelectionKind::vertex)
+                return TransformSource{deformVertexPosition(
+                    session, selectionHandle<mmd::VertexTag>(session.document, selected)),
+                                        identityQuaternion};
+            const auto handle = selectionHandle<mmd::BoneTag>(session.document, selected);
+            return TransformSource{evaluatedBonePosition(session, handle, session.ui.previewFrame),
+                                   evaluatedBoneRotation(session, handle, session.ui.previewFrame)};
+        }
+        mmd::Float3 center{};
+        std::size_t count{};
+        for (const auto &item : session.selection.items()) {
+            if (item.kind != expected)
+                continue;
+            const auto position = expected == SelectionKind::vertex
+                                      ? deformVertexPosition(
+                                            session, selectionHandle<mmd::VertexTag>(session.document, item))
+                                      : evaluatedBonePosition(
+                                            session, selectionHandle<mmd::BoneTag>(session.document, item),
+                                            session.ui.previewFrame);
+            for (std::size_t component = 0; component < 3U; ++component)
+                center[component] += position[component];
+            ++count;
+        }
+        if (count == 0U)
+            return std::nullopt;
+        for (auto &component : center)
+            component /= static_cast<float>(count);
+        if (expected == SelectionKind::bone) {
+            const auto handle = selectionHandle<mmd::BoneTag>(session.document, selected);
+            return TransformSource{center, evaluatedBoneRotation(
+                                            session, handle, session.ui.previewFrame)};
+        }
+        return TransformSource{center, identityQuaternion};
+    }
     if (selected.kind == SelectionKind::vertex) {
         const auto *value = session.document.resolve(
             selectionHandle<mmd::VertexTag>(session.document, selected));
         if (value != nullptr)
-            return TransformSource{value->position, {}};
+            return TransformSource{value->position, identityQuaternion};
     } else if (selected.kind == SelectionKind::bone) {
-        const auto *value = session.document.resolve(
-            selectionHandle<mmd::BoneTag>(session.document, selected));
-        if (value != nullptr)
-            return TransformSource{value->position, {}};
+        const auto handle = selectionHandle<mmd::BoneTag>(session.document, selected);
+        if (session.document.resolve(handle) != nullptr)
+            return TransformSource{evaluatedBonePosition(session, handle, session.ui.previewFrame),
+                                   evaluatedBoneRotation(session, handle, session.ui.previewFrame)};
     } else if (selected.kind == SelectionKind::rigidBody) {
         const auto *value = session.document.resolve(
             selectionHandle<mmd::RigidBodyTag>(session.document, selected));
         if (value != nullptr)
-            return TransformSource{value->position, value->rotation};
+            return TransformSource{value->position, quaternionFromEuler(value->rotation)};
     } else if (selected.kind == SelectionKind::joint) {
         const auto *value = session.document.resolve(
             selectionHandle<mmd::JointTag>(session.document, selected));
         if (value != nullptr)
-            return TransformSource{value->position, value->rotation};
+            return TransformSource{value->position, quaternionFromEuler(value->rotation)};
     }
     return std::nullopt;
 }
 
 void compose(const TransformSource &source, std::array<float, 16> &matrix) {
-    const float translation[]{source.position[0], source.position[1], source.position[2]};
-    const float rotation[]{source.rotation[0] * radiansToDegrees,
-                           source.rotation[1] * radiansToDegrees,
-                           source.rotation[2] * radiansToDegrees};
-    constexpr float scale[]{1.0F, 1.0F, 1.0F};
-    ImGuizmo::RecomposeMatrixFromComponents(translation, rotation, scale,
-                                            matrix.data());
+    matrix = composeRotationMatrix(source.rotation);
+    matrix[12] = source.position[0];
+    matrix[13] = source.position[1];
+    matrix[14] = source.position[2];
+    matrix[15] = 1.0F;
 }
 
 void decompose(const std::array<float, 16> &matrix, mmd::Float3 &position,
@@ -113,7 +157,9 @@ void commit(DocumentSession &session, const SelectionItem &selected,
             return;
         }
         auto value = *resolved;
-        value.position = position;
+        const auto evaluated = evaluatedBonePosition(session, handle, session.ui.previewFrame);
+        for (std::size_t component = 0; component < value.position.size(); ++component)
+            value.position[component] += position[component] - evaluated[component];
         result = editBone(session, handle, value);
     } else if (selected.kind == SelectionKind::rigidBody) {
         const auto handle =
@@ -179,7 +225,7 @@ operationFor(ViewportTool tool, const TransformCapabilities &capabilities) noexc
 void drawViewportGizmo(DocumentSession &session, const CameraMatrices &camera,
                        ImVec2 origin, ImVec2 size) {
     if (session.ui.viewportTool == ViewportTool::select ||
-        session.selection.items().size() != 1U)
+        (session.selection.items().size() != 1U && !session.deform.active()))
         return;
     const auto selected = session.selection.items().front();
     const auto capabilities = transformCapabilities(session);
@@ -206,13 +252,24 @@ void drawViewportGizmo(DocumentSession &session, const CameraMatrices &camera,
         *operation == ImGuizmo::ROTATE ? 5.0F : 0.1F,
         *operation == ImGuizmo::ROTATE ? 5.0F : 0.1F,
     };
+    const auto startGizmoMatrix = session.ui.gizmoMatrix;
+    std::array<float, 16> deltaMatrix{};
     (void)ImGuizmo::Manipulate(
         view.data(), projection.data(), *operation, mode,
-        session.ui.gizmoMatrix.data(), nullptr,
+        session.ui.gizmoMatrix.data(), deltaMatrix.data(),
         session.ui.snapTransform ? snap : nullptr);
+    static_cast<void>(deltaMatrix);
     const auto usingGizmo = ImGuizmo::IsUsing();
-    if (session.ui.gizmoDragging && !usingGizmo)
+    if (session.deform.active()) {
+        if (usingGizmo && !session.ui.gizmoDragging)
+            beginDeformGizmoDrag(session, startGizmoMatrix);
+        if (usingGizmo)
+            updateDeformGizmoDrag(session, session.ui.gizmoMatrix);
+        if (usingGizmo)
+            refreshDeformPreview(session);
+    } else if (session.ui.gizmoDragging && !usingGizmo) {
         commit(session, selected, capabilities);
+    }
     session.ui.gizmoDragging = usingGizmo;
 }
 

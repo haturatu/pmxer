@@ -1,10 +1,12 @@
 #include "EditorPanels.hpp"
+#include "TransformViewPanel.hpp"
 #include "InspectorPanel.hpp"
 #include "MorphOffsetBrowser.hpp"
 #include "OutlinerPanel.hpp"
 #include "UiSemantics.hpp"
 
 #include "../editor/DocumentSession.hpp"
+#include "../editor/DeformController.hpp"
 #include "../editor/DiffController.hpp"
 #include "../editor/EditorDiagnostics.hpp"
 #include "../editor/EditorOperations.hpp"
@@ -20,6 +22,7 @@
 #include "../editor/tools/SdefTool.hpp"
 #include "../editor/tools/StandardBoneTool.hpp"
 #include "../editor/tools/TextureTool.hpp"
+#include "../editor/morph/MorphMixer.hpp"
 #include "../platform/FileDialog.hpp"
 #include "../preview/PreviewController.hpp"
 #include "../render/GpuModelRenderer.hpp"
@@ -48,14 +51,31 @@ namespace pmxer {
 namespace {
 
 void replacePreviewFrame(PreviewSession &state, mmd::AnimatedModelFrame frame) {
+    state.baseFrame = frame;
     state.frame = std::move(frame);
     ++state.frameRevision;
+}
+
+void setDeformPreviews(DocumentSession &session, PreviewController &controller) {
+    controller.setVertexPreview(
+        session.deform.mode == DeformMode::shape ? vertexMorphOffsets(session)
+                                                 : std::vector<mmd::PmxMorphOffset>{});
+    controller.setBonePreview(
+        session.deform.mode == DeformMode::pose ? boneMorphOffsets(session)
+                                                : std::vector<mmd::PmxMorphOffset>{});
 }
 
 PreviewSession &updatePreview(DocumentSession &session) {
     auto &state = session.preview;
     if (!state.controller || state.revision != session.revision) {
-        state.controller = std::make_shared<PreviewController>(session.document.model());
+        if (state.revision != session.revision &&
+            session.deform.sourceRevision != session.revision) {
+            // Property edits and morph transactions do not invalidate stable
+            // vertex/bone handles. Keep an un-captured edit and only discard
+            // entries whose handles no longer resolve.
+            session.retainDeformOverlay();
+        }
+        state.controller = std::make_shared<PreviewController>(session.document);
         state.revision = session.revision;
         state.accumulator = 0.0;
         state.clockInitialized = false;
@@ -64,20 +84,33 @@ PreviewSession &updatePreview(DocumentSession &session) {
         if (state.pose)
             state.controller->setPose(&*state.pose);
         std::erase_if(state.morphValues, [&](const auto &preview) {
-            return session.document.resolve(
-                       selectionHandle<mmd::MorphTag>(session.document, preview.selection)) == nullptr;
+            return session.document.resolve(preview.morph) == nullptr;
         });
-        for (const auto &preview : state.morphValues) {
-            const auto *morph = session.document.resolve(
-                selectionHandle<mmd::MorphTag>(session.document, preview.selection));
-            state.controller->setMorphPreview(morph->name, preview.weight);
+        if (session.preview.solo && session.document.resolve(session.preview.soloMorph) == nullptr) {
+            session.preview.solo = false;
+            session.preview.soloMorph = {};
         }
+        for (const auto &preview : morph::effectiveMorphMix(session))
+            state.controller->setMorphPreview(preview.morph, preview.weight);
+        setDeformPreviews(session, *state.controller);
         state.controller->setPhysicsEnabled(session.previewPhysics);
         state.controller->setIkEnabled(session.previewIk);
         replacePreviewFrame(state, state.controller->evaluate());
+        state.appliedMorphRevision = state.morphRevision;
+        state.appliedDeformMode = session.deform.mode;
     } else {
         state.controller->setPhysicsEnabled(session.previewPhysics);
         state.controller->setIkEnabled(session.previewIk);
+    }
+    if (state.controller && (state.appliedMorphRevision != state.morphRevision ||
+                             state.appliedDeformMode != session.deform.mode)) {
+        state.controller->clearMorphPreviews();
+        for (const auto &preview : morph::effectiveMorphMix(session))
+            state.controller->setMorphPreview(preview.morph, preview.weight);
+        setDeformPreviews(session, *state.controller);
+        replacePreviewFrame(state, state.controller->evaluate());
+        state.appliedMorphRevision = state.morphRevision;
+        state.appliedDeformMode = session.deform.mode;
     }
     const auto now = std::chrono::steady_clock::now();
     if (!state.clockInitialized) {
@@ -90,6 +123,7 @@ PreviewSession &updatePreview(DocumentSession &session) {
         state.accumulator += std::clamp(elapsed, 0.0, 0.1);
         constexpr double fixedStep = 1.0 / 60.0;
         while (state.accumulator >= fixedStep) {
+            setDeformPreviews(session, *state.controller);
             replacePreviewFrame(state, state.controller->evaluate(static_cast<float>(fixedStep)));
             state.accumulator -= fixedStep;
         }
@@ -319,7 +353,8 @@ std::optional<SelectionKind> toSelectionKind(const mmd::ValidationIssue &issue) 
     return std::nullopt;
 }
 
-void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open) {
+void drawModelPanel(DocumentSession &session, FileDialog &fileDialog,
+                    WorkspaceUiState &workspace, bool *open) {
     const auto &model = session.document.model();
     const auto replaceDocument = [&](const std::filesystem::path &path) {
         try {
@@ -402,7 +437,7 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
     if (ImGui::Button("開く") && !session.ui.openPath.empty()) {
         try {
             const auto path = std::filesystem::path(session.ui.openPath);
-            if (session.modified) {
+            if (session.hasUnsavedWork()) {
                 session.ui.pendingOpenPath = path.string();
                 ImGui::OpenPopup("未保存の変更##replace-document");
             } else if (replaceDocument(path)) {
@@ -451,18 +486,31 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
         }
         ImGui::EndPopup();
     }
+    const auto requestSave = [&](bool saveAs) {
+        if (session.hasPendingTransformEdit()) {
+            workspace.requestPendingTransformSave = true;
+            workspace.pendingTransformSaveAs = saveAs;
+            return;
+        }
+        if (saveAs || session.path.empty()) {
+            if (!fileDialog.busy())
+                (void)fileDialog.save(saveAs ? session.path : std::filesystem::path{},
+                                      session.recoveryId);
+        } else {
+            const auto result = saveDocument(session);
+            setStatus(session, result.success ? "保存しました" : "保存に失敗しました",
+                      result.success ? UiStatusKind::success : UiStatusKind::error,
+                      result.success ? std::chrono::seconds(4)
+                                     : std::chrono::milliseconds::zero(),
+                      !result.success);
+        }
+    };
     ImGui::SameLine();
-    if (ImGui::Button("保存")) {
-        const auto result = saveDocument(session);
-        setStatus(session, result.success ? "保存しました" : "保存に失敗しました",
-                  result.success ? UiStatusKind::success : UiStatusKind::error,
-                  result.success ? std::chrono::seconds(4)
-                                 : std::chrono::milliseconds::zero(),
-                  !result.success);
-    }
+    if (ImGui::Button("保存"))
+        requestSave(false);
     ImGui::SameLine();
     if (ImGui::Button("名前を付けて保存") && !fileDialog.busy())
-        (void)fileDialog.save(session.path, session.recoveryId);
+        requestSave(true);
     ImGui::SameLine();
     if (ImGui::Button("回復保存")) {
         const auto saved = writeRecovery(session).success;
@@ -506,6 +554,7 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
             preview.controller->setMotion(&*preview.motion);
             preview.accumulator = 0.0;
             preview.clockInitialized = false;
+            setDeformPreviews(session, *preview.controller);
             replacePreviewFrame(preview, preview.controller->evaluate());
             setStatus(session, "モーションを読み込みました", UiStatusKind::success);
         } catch (const std::exception &error) {
@@ -523,6 +572,7 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
             preview.controller->setPose(&*preview.pose);
             preview.accumulator = 0.0;
             preview.clockInitialized = false;
+            setDeformPreviews(session, *preview.controller);
             replacePreviewFrame(preview, preview.controller->evaluate());
             setStatus(session, "ポーズを読み込みました", UiStatusKind::success);
         } catch (const std::exception &error) {
@@ -532,7 +582,7 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog, bool *open
     }
     if (!session.ui.status.empty())
         ImGui::TextWrapped("状態: %s", session.ui.status.c_str());
-    ImGui::Text("変更済み: %s / Undo %zu / Redo %zu", session.modified ? "はい" : "いいえ",
+    ImGui::Text("変更済み: %s / Undo %zu / Redo %zu", session.hasUnsavedWork() ? "はい" : "いいえ",
                 session.commands.undoCount(), session.commands.redoCount());
     const auto recipes = inspectStandardBones(model);
     ImGui::Text("準標準骨格: %zu / 不足 %zu", recipes.available, recipes.missing);
@@ -1361,6 +1411,24 @@ void workspaceButton(const char *label, EditorWorkspace value,
 void drawMainMenu(DocumentSession *session, FileDialog &fileDialog,
                   WorkspaceUiState &workspace) {
     const auto hasSession = session != nullptr;
+    const auto requestSave = [&](bool saveAs) {
+        if (!hasSession)
+            return;
+        if (session->hasPendingTransformEdit()) {
+            workspace.requestPendingTransformSave = true;
+            workspace.pendingTransformSaveAs = saveAs;
+            return;
+        }
+        if (saveAs || session->path.empty()) {
+            if (!fileDialog.busy())
+                (void)fileDialog.save(saveAs ? session->path : std::filesystem::path{},
+                                       session->recoveryId);
+        } else {
+            const auto result = saveDocument(*session);
+            setOperationStatus(*session, result.success, "保存しました",
+                               "保存に失敗しました");
+        }
+    };
     if (hasSession) {
         if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Z,
                             ImGuiInputFlags_RouteGlobal))
@@ -1370,17 +1438,11 @@ void drawMainMenu(DocumentSession *session, FileDialog &fileDialog,
             (void)session->redo();
         if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S,
                             ImGuiInputFlags_RouteGlobal)) {
-            if (session->path.empty())
-                (void)fileDialog.save({}, session->recoveryId);
-            else {
-                const auto result = saveDocument(*session);
-                setOperationStatus(*session, result.success, "保存しました",
-                                   "保存に失敗しました");
-            }
+            requestSave(false);
         }
         if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S,
                             ImGuiInputFlags_RouteGlobal))
-            (void)fileDialog.save(session->path, session->recoveryId);
+            requestSave(true);
     }
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_O,
                         ImGuiInputFlags_RouteGlobal) && !fileDialog.busy())
@@ -1394,17 +1456,11 @@ void drawMainMenu(DocumentSession *session, FileDialog &fileDialog,
             (void)fileDialog.open(hasSession ? session->path.parent_path()
                                              : std::filesystem::path{});
         if (ImGui::MenuItem("保存", "Ctrl+S", false, hasSession)) {
-            if (session->path.empty())
-                (void)fileDialog.save({}, session->recoveryId);
-            else {
-                const auto result = saveDocument(*session);
-                setOperationStatus(*session, result.success, "保存しました",
-                                   "保存に失敗しました");
-            }
+            requestSave(false);
         }
         if (ImGui::MenuItem("名前を付けて保存…", "Ctrl+Shift+S", false,
                             hasSession && !fileDialog.busy()))
-            (void)fileDialog.save(session->path, session->recoveryId);
+            requestSave(true);
         if (ImGui::MenuItem("閉じる", "Ctrl+W", false, hasSession))
             workspace.requestCloseDocument = true;
         ImGui::EndMenu();
@@ -1432,6 +1488,7 @@ void drawMainMenu(DocumentSession *session, FileDialog &fileDialog,
             ImGui::MenuItem("ビューポート", nullptr, &workspace.showViewport);
             ImGui::MenuItem("アウトライナー", nullptr, &workspace.showOutliner);
             ImGui::MenuItem("インスペクター", nullptr, &workspace.showInspector);
+            ImGui::MenuItem("Transform View", nullptr, &workspace.showTransformView);
             ImGui::SeparatorText("高度なパネル");
             ImGui::MenuItem("モデル", nullptr, &workspace.showModel);
             ImGui::MenuItem("頂点", nullptr, &workspace.showVertex);
@@ -1477,10 +1534,17 @@ void drawMainMenu(DocumentSession *session, FileDialog &fileDialog,
 void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
                       GpuModelRenderer *renderer,
                       WorkspaceUiState &workspace) {
-    if (session.modified) {
+    if (!workspace.showTransformView) {
+        session.deform.engaged = false;
+        session.deform.suspended = true;
+        session.ui.gizmoDragging = false;
+    }
+    if (session.hasUnsavedWork()) {
         const auto now = std::chrono::steady_clock::now();
-        if (now - session.lastRecovery >= std::chrono::seconds(30) && writeRecovery(session).success)
+        if (now - session.lastRecovery >= std::chrono::seconds(30)) {
+            (void)writeRecovery(session);
             session.lastRecovery = now;
+        }
     }
     auto &preview = updatePreview(session);
     if (workspace.showViewport)
@@ -1491,12 +1555,14 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
                           workspace.viewportLighting);
     else
         session.ui.viewportVisible = false;
+    if (workspace.showTransformView)
+        drawTransformView(session, &workspace.showTransformView);
     if (workspace.showOutliner)
         drawOutlinerPanel(session, workspace, &workspace.showOutliner);
     if (workspace.showInspector)
         drawInspectorPanel(session, renderer, workspace, &workspace.showInspector);
     if (workspace.showModel)
-        drawModelPanel(session, fileDialog, &workspace.showModel);
+        drawModelPanel(session, fileDialog, workspace, &workspace.showModel);
     if (workspace.showVertex)
         drawVertexPanel(session, &workspace.showVertex);
     if (workspace.showMaterial)

@@ -1,12 +1,14 @@
 #pragma once
 
 #include "CommandStack.hpp"
+#include "DeformSession.hpp"
 #include "Selection.hpp"
 #include "ViewportPickCache.hpp"
 
 #include <mmd/document.hpp>
 #include <mmd/animation.hpp>
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <atomic>
@@ -164,11 +166,6 @@ struct EditorUiState {
 };
 
 struct PreviewSession {
-    struct MorphValue {
-        SelectionItem selection;
-        float weight{};
-    };
-
     std::shared_ptr<PreviewController> controller;
     std::optional<mmd::VmdMotion> motion;
     std::optional<mmd::VpdPose> pose;
@@ -178,7 +175,13 @@ struct PreviewSession {
     double accumulator{};
     std::chrono::steady_clock::time_point lastTick{};
     bool clockInitialized{};
-    std::vector<MorphValue> morphValues;
+    std::vector<MorphBlend> morphValues;
+    bool solo{};
+    mmd::MorphHandle soloMorph{};
+    std::optional<mmd::AnimatedModelFrame> baseFrame;
+    std::uint64_t morphRevision{};
+    std::uint64_t appliedMorphRevision{std::numeric_limits<std::uint64_t>::max()};
+    DeformMode appliedDeformMode{DeformMode::inactive};
 };
 
 struct DerivedEditorState {
@@ -207,6 +210,7 @@ struct DocumentSession {
     std::uint64_t resourceRevision{};
     std::chrono::steady_clock::time_point lastRecovery{};
     PreviewSession preview;
+    DeformSession deform;
     DerivedEditorState derived;
     EditorUiState ui;
 
@@ -214,6 +218,27 @@ struct DocumentSession {
     explicit DocumentSession(mmd::PmxModel model, std::filesystem::path source = {})
         : path(std::move(source)), recoveryId(makeRecoveryId()), document(std::move(model)), validation(document.validate()),
           baseline(document.model()) {}
+
+    [[nodiscard]] bool hasPendingTransformEdit() const noexcept {
+        return deform.dirty;
+    }
+
+    [[nodiscard]] bool hasUnsavedWork() const noexcept {
+        return modified || hasPendingTransformEdit();
+    }
+
+    void retainDeformOverlay() {
+        std::erase_if(deform.vertices, [&](const auto &delta) {
+            return document.resolve(delta.vertex) == nullptr;
+        });
+        std::erase_if(deform.bones, [&](const auto &delta) {
+            return document.resolve(delta.bone) == nullptr;
+        });
+        deform.dragVertices.clear();
+        deform.dragBones.clear();
+        deform.sourceRevision = revision;
+        deform.dirty = !deform.vertices.empty() || !deform.bones.empty();
+    }
 
     [[nodiscard]] bool undo() {
         if (!commands.undo(document))
@@ -227,10 +252,15 @@ struct DocumentSession {
         ui.viewportHover.reset();
         ui.viewportHoverFace.reset();
         ui.viewportPickCache.clear();
+        preview.baseFrame.reset();
+        preview.frame.reset();
+        preview.appliedMorphRevision = std::numeric_limits<std::uint64_t>::max();
+        preview.appliedDeformMode = DeformMode::inactive;
         changes.topologyChanged = true;
         changes.physicsChanged = true;
         changes.texturesChanged = true;
         ++revision;
+        retainDeformOverlay();
         validation = document.validate();
         return true;
     }
@@ -247,10 +277,15 @@ struct DocumentSession {
         ui.viewportHover.reset();
         ui.viewportHoverFace.reset();
         ui.viewportPickCache.clear();
+        preview.baseFrame.reset();
+        preview.frame.reset();
+        preview.appliedMorphRevision = std::numeric_limits<std::uint64_t>::max();
+        preview.appliedDeformMode = DeformMode::inactive;
         changes.topologyChanged = true;
         changes.physicsChanged = true;
         changes.texturesChanged = true;
         ++revision;
+        retainDeformOverlay();
         validation = document.validate();
         return true;
     }

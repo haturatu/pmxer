@@ -60,6 +60,7 @@ target_include_directories(pmxer_platform PUBLIC src)
 target_link_libraries(pmxer_platform PRIVATE mmd::core)
 
 add_library(pmxer_editor
+  src/editor/DeformController.cpp
   src/editor/CommandStack.cpp
   src/editor/Selection.cpp
   src/editor/SaveController.cpp
@@ -74,6 +75,12 @@ add_library(pmxer_editor
   src/editor/EditorSelectionQueries.cpp
   src/editor/WorkspacePolicy.cpp
   src/editor/ViewportCapabilities.cpp
+  src/editor/PreviewPoseQueries.cpp
+  src/editor/TransformMath.cpp
+  src/editor/morph/MorphCapture.cpp
+  src/editor/morph/MorphMask.cpp
+  src/editor/morph/MorphMixer.cpp
+  src/editor/morph/MorphOps.cpp
   src/ui/WorkspaceLayout.cpp
   src/editor/tools/SdefTool.cpp
   src/editor/tools/StandardBoneTool.cpp
@@ -321,6 +328,7 @@ if(PMXER_BUILD_GUI)
   endif()
 
   add_library(pmxer_ui
+    src/ui/TransformViewPanel.cpp
     src/ui/MainWindow.cpp
     src/ui/EditorPanels.cpp
     src/ui/OutlinerPanel.cpp

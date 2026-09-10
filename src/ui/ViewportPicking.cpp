@@ -1,6 +1,7 @@
 #include "ViewportPicking.hpp"
 
 #include "../editor/DocumentSession.hpp"
+#include "../editor/PreviewPoseQueries.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -280,7 +281,7 @@ pickViewport(const DocumentSession &session,
     } else if (session.ui.selectionMode == ViewportSelectionMode::bone) {
         kind = SelectionKind::bone;
         for (std::size_t index = 0; index < model.bones.size(); ++index)
-            consider(model.bones[index].position, index);
+            consider(evaluatedBonePosition(session, index, session.ui.previewFrame), index);
     } else if (session.ui.selectionMode == ViewportSelectionMode::rigidBody) {
         kind = SelectionKind::rigidBody;
         for (std::size_t index = 0; index < model.rigidBodies.size(); ++index)
@@ -320,9 +321,9 @@ pickViewportRectangle(const DocumentSession &session,
                                   vertices[index].position});
     } else if (session.ui.selectionMode == ViewportSelectionMode::bone) {
         for (std::size_t index = 0; index < model.bones.size(); ++index)
-            if (contains(model.bones[index].position))
+            if (contains(evaluatedBonePosition(session, index, session.ui.previewFrame)))
                 result.push_back({itemFor(session, SelectionKind::bone, index), index, std::nullopt,
-                                  model.bones[index].position});
+                                  evaluatedBonePosition(session, index, session.ui.previewFrame)});
     } else if (session.ui.selectionMode == ViewportSelectionMode::rigidBody) {
         for (std::size_t index = 0; index < model.rigidBodies.size(); ++index)
             if (contains(model.rigidBodies[index].position))

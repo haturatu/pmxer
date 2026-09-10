@@ -11,10 +11,13 @@
 
 namespace pmxer {
 
-SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &destinationArgument) {
+SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &destinationArgument,
+                        SaveOptions saveOptions) {
     const auto destination = destinationArgument.empty() ? session.path : destinationArgument;
     if (destination.empty())
         return {false, "保存先が指定されていません", {}, {}};
+    if (session.hasPendingTransformEdit() && !saveOptions.allowPendingTransformEdit)
+        return {false, "Temporary Transform View edits are not part of the PMX yet. Capture or discard them first.", {}, {}};
 
     session.validation = session.document.validate();
     if (!session.validation.valid())
@@ -25,10 +28,10 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
         session.path.empty() ? recoveryPath({}, session.recoveryId) : recoveryPath(session.path));
     SaveResult result;
     try {
-        mmd::PmxSaveOptions options;
-        options.mode = mmd::PmxSaveMode::preserve;
-        options.indexWidths = mmd::PmxIndexWidthPolicy::preserveAndWiden;
-        result.report = mmd::pmx::save(temporary, session.document.model(), options);
+        mmd::PmxSaveOptions pmxOptions;
+        pmxOptions.mode = mmd::PmxSaveMode::preserve;
+        pmxOptions.indexWidths = mmd::PmxIndexWidthPolicy::preserveAndWiden;
+        result.report = mmd::pmx::save(temporary, session.document.model(), pmxOptions);
         auto written = mmd::pmx::load(temporary);
         result.verification = mmd::pmx::semanticCompare(
             session.document.model(), written, mmd::PmxComparisonProfile::preservation);
