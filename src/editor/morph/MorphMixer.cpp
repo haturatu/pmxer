@@ -6,34 +6,14 @@
 #include "MorphCapture.hpp"
 #include "MorphOps.hpp"
 
+#include <mmd/animation.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <vector>
 
 namespace {
-
-void collectVertexMorph(const mmd::PmxModel &model, std::size_t index, float weight,
-                        std::vector<std::uint8_t> &stack,
-                        std::vector<pmxer::morph::MorphData> &parts,
-                        std::set<std::uint8_t> &ignoredTypes) {
-    if (index >= model.morphs.size() || std::abs(weight) <= 1e-7F || stack[index] != 0U)
-        return;
-    stack[index] = 1U;
-    const auto &morph = model.morphs[index];
-    if (morph.type == 1U) {
-        parts.push_back(pmxer::morph::scale(pmxer::morph::copy(morph), weight));
-    } else if (morph.type == 0U || morph.type == 9U) {
-        for (const auto &offset : morph.offsets) {
-            if (offset.index >= 0)
-                collectVertexMorph(model, static_cast<std::size_t>(offset.index),
-                                   weight * offset.scalar, stack, parts, ignoredTypes);
-        }
-    } else {
-        ignoredTypes.insert(morph.type);
-    }
-    stack[index] = 0U;
-}
 
 } // namespace
 
@@ -53,14 +33,24 @@ std::vector<MorphBlend> effectiveMorphMix(const DocumentSession &session) {
 
 VertexBakeAnalysis analyzeVertexMix(const DocumentSession &session) {
     VertexBakeAnalysis result;
-    std::vector<std::uint8_t> stack(session.document.model().morphs.size());
+    const auto &model = session.document.model();
+    std::vector<float> roots(model.morphs.size());
     for (const auto &blend : effectiveMorphMix(session)) {
         const auto *morph = session.document.resolve(blend.morph);
         if (morph == nullptr)
             continue;
-        const auto index = static_cast<std::size_t>(morph - session.document.model().morphs.data());
-        collectVertexMorph(session.document.model(), index, blend.weight, stack,
-                           result.vertexParts, result.ignoredTypes);
+        const auto index = static_cast<std::size_t>(morph - model.morphs.data());
+        roots[index] += blend.weight;
+    }
+    const auto expanded = mmd::expandMorphWeights(model, roots);
+    for (std::size_t index = 0; index < model.morphs.size(); ++index) {
+        const auto weight = expanded.effectiveWeights[index];
+        if (std::abs(weight) <= 1e-7F)
+            continue;
+        if (model.morphs[index].type == 1U)
+            result.vertexParts.push_back(scale(copy(model.morphs[index]), weight));
+        else
+            result.ignoredTypes.insert(model.morphs[index].type);
     }
     return result;
 }
