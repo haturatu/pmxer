@@ -692,6 +692,13 @@ void drawVertexPanel(DocumentSession &session, bool *open) {
         session.ui.vertexDraft.reset();
     }
     ImGui::SameLine();
+    if (ImGui::Button("不正SDEFを修復")) {
+        const auto report = repairSuspiciousSdef(session, targets);
+        setOperationStatus(session, report.converted != 0, "不正なSDEFをBDEF2へ修復しました",
+                           "修復対象の不正なSDEFがありません");
+        session.ui.vertexDraft.reset();
+    }
+    ImGui::SameLine();
     if (ImGui::Button("SDEFミラー")) {
         const auto result = mirrorSdef(session, targets);
         setOperationStatus(session, result, "SDEFをミラーしました",

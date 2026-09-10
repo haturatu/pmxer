@@ -128,6 +128,19 @@ SdefReport convertSdefToBdef2(DocumentSession &session, const std::vector<mmd::V
     return report;
 }
 
+SdefReport repairSuspiciousSdef(DocumentSession &session, const std::vector<mmd::VertexHandle> &handles) {
+    std::vector<mmd::VertexHandle> suspicious;
+    suspicious.reserve(handles.size());
+    for (const auto handle : handles) {
+        const auto *vertex = session.document.resolve(handle);
+        if (vertex != nullptr && hasSuspiciousSdef(*vertex))
+            suspicious.push_back(handle);
+    }
+    auto report = convertSdefToBdef2(session, suspicious);
+    report.rejected += handles.size() - suspicious.size();
+    return report;
+}
+
 bool mirrorSdef(DocumentSession &session, const std::vector<mmd::VertexHandle> &handles) {
     struct Edit {
         mmd::VertexHandle handle;
