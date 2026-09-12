@@ -105,6 +105,18 @@ int main() {
   assert(pmxer::normalizeWeights(infiniteWeightSession).success);
   assert(infiniteWeightSession.document.model().vertices[0].weights[0] == 1.0F);
 
+  auto hugeWeightModel = sampleModel();
+  hugeWeightModel.vertices[0].weightType = mmd::PmxWeightType::bdef2;
+  hugeWeightModel.vertices[0].bones = {0, 0, -1, -1};
+  hugeWeightModel.vertices[0].weights = {
+      std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
+      0.0F, 0.0F};
+  pmxer::DocumentSession hugeWeightSession(std::move(hugeWeightModel));
+  assert(pmxer::normalizeWeights(hugeWeightSession).success);
+  const auto &hugeWeights = hugeWeightSession.document.model().vertices[0].weights;
+  assert(std::abs(hugeWeights[0] - 0.5F) < 1e-6F);
+  assert(std::abs(hugeWeights[1] - 0.5F) < 1e-6F);
+
   auto zeroWeightModel = sampleModel();
   zeroWeightModel.vertices[0].weights = {};
   pmxer::DocumentSession zeroWeightSession(std::move(zeroWeightModel));

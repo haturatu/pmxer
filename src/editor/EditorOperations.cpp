@@ -434,16 +434,17 @@ OperationResult normalizeWeights(DocumentSession &session, float threshold) {
                        vertex.weightType == mmd::PmxWeightType::sdef
                    ? std::size_t{2}
                    : std::size_t{4});
-    float total{};
+    double total{};
     for (std::size_t i = 0; i < count; ++i) {
       auto &weight = vertex.weights[i];
       if (!std::isfinite(weight) || weight < threshold || weight < 0.0F)
         weight = 0.0F;
-      total += weight;
+      total += static_cast<double>(weight);
     }
-    if (total > 0.0F)
+    if (total > 0.0)
       for (std::size_t i = 0; i < count; ++i)
-        vertex.weights[i] /= total;
+        vertex.weights[i] =
+            static_cast<float>(static_cast<double>(vertex.weights[i]) / total);
     else {
       const auto firstValidBone = std::find_if(
           vertex.bones.begin(), vertex.bones.begin() + count,
