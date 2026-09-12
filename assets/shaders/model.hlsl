@@ -2,15 +2,21 @@ struct VertexInput {
     float3 position : TEXCOORD0;
     float3 normal : TEXCOORD1;
     float2 uv : TEXCOORD2;
-    float2 additionalUv1 : TEXCOORD3;
+    float4 additionalUv1 : TEXCOORD3;
+    float4 additionalUv2 : TEXCOORD4;
+    float4 additionalUv3 : TEXCOORD5;
+    float4 additionalUv4 : TEXCOORD6;
 };
 
 struct VertexOutput {
     float4 position : SV_Position;
     float2 uv : TEXCOORD0;
     float3 normal : TEXCOORD1;
-    float2 additionalUv1 : TEXCOORD2;
-    float3 worldPosition : TEXCOORD3;
+    float4 additionalUv1 : TEXCOORD2;
+    float4 additionalUv2 : TEXCOORD3;
+    float4 additionalUv3 : TEXCOORD4;
+    float4 additionalUv4 : TEXCOORD5;
+    float3 worldPosition : TEXCOORD6;
 };
 
 cbuffer FrameData : register(b0, space1) {
@@ -54,6 +60,9 @@ VertexOutput mainVS(VertexInput input) {
     output.uv = input.uv;
     output.normal = input.normal;
     output.additionalUv1 = input.additionalUv1;
+    output.additionalUv2 = input.additionalUv2;
+    output.additionalUv3 = input.additionalUv3;
+    output.additionalUv4 = input.additionalUv4;
     output.worldPosition = input.position;
     return output;
 }
@@ -100,7 +109,7 @@ float4 mainPS(VertexOutput input) : SV_Target0 {
     if (shadingMode <= 1.5 && materialModes.x > 0.5) {
         const float2 sphereUv = materialModes.x < 2.5
                                     ? normal.xy * 0.5 + 0.5
-                                    : input.additionalUv1;
+                                    : input.additionalUv1.xy;
         const float4 sphereColor = sphereTexture.Sample(sphereSampler, sphereUv);
         const float3 sphere = sphereColor.rgb * sphereMultiply.rgb + sphereAdd.rgb;
         const float sphereStrength = shadingMode < 0.5 ? 1.0 : saturate(previewStrength.y);

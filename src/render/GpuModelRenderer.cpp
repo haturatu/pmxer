@@ -24,7 +24,7 @@ struct GpuVertex {
     float position[3];
     float normal[3];
     float uv[2];
-    float additionalUv1[2];
+    float additionalUv[4][4];
 };
 
 struct alignas(16) FrameUniforms {
@@ -95,7 +95,10 @@ std::vector<GpuVertex> makeVertices(const std::vector<mmd::PmxVertex> &vertices)
         result.push_back({{vertex.position[0], vertex.position[1], vertex.position[2]},
                           {vertex.normal[0], vertex.normal[1], vertex.normal[2]},
                           {vertex.uv[0], vertex.uv[1]},
-                          {vertex.additionalUv[0][0], vertex.additionalUv[0][1]}});
+                          {{vertex.additionalUv[0][0], vertex.additionalUv[0][1], vertex.additionalUv[0][2], vertex.additionalUv[0][3]},
+                           {vertex.additionalUv[1][0], vertex.additionalUv[1][1], vertex.additionalUv[1][2], vertex.additionalUv[1][3]},
+                           {vertex.additionalUv[2][0], vertex.additionalUv[2][1], vertex.additionalUv[2][2], vertex.additionalUv[2][3]},
+                           {vertex.additionalUv[3][0], vertex.additionalUv[3][1], vertex.additionalUv[3][2], vertex.additionalUv[3][3]}}});
     return result;
 }
 
@@ -502,11 +505,14 @@ GpuModelRenderer::GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path 
 
     const std::array<SDL_GPUVertexBufferDescription, 1> buffers{{{0, sizeof(GpuVertex),
                                                                    SDL_GPU_VERTEXINPUTRATE_VERTEX, 0}}};
-    const std::array<SDL_GPUVertexAttribute, 4> attributes{{
+    const std::array<SDL_GPUVertexAttribute, 7> attributes{{
         {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuVertex, position)},
         {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuVertex, normal)},
         {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(GpuVertex, uv)},
-        {3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(GpuVertex, additionalUv1)},
+        {3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuVertex, additionalUv[0])},
+        {4, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuVertex, additionalUv[1])},
+        {5, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuVertex, additionalUv[2])},
+        {6, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuVertex, additionalUv[3])},
     }};
     SDL_GPUColorTargetDescription target{};
     target.format = static_cast<SDL_GPUTextureFormat>(colorFormat);
@@ -520,7 +526,7 @@ GpuModelRenderer::GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path 
     SDL_GPUGraphicsPipelineCreateInfo pipelineInfo{};
     pipelineInfo.vertex_shader = impl_->vertexShader;
     pipelineInfo.fragment_shader = impl_->fragmentShader;
-    pipelineInfo.vertex_input_state = {buffers.data(), 1, attributes.data(), 4};
+    pipelineInfo.vertex_input_state = {buffers.data(), 1, attributes.data(), 7};
     pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
     pipelineInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
     pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
