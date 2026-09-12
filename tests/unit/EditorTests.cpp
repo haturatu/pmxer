@@ -98,6 +98,19 @@ int main() {
   assert(normalizedVertex.weights[0] == 1.0F);
   assert(std::isfinite(normalizedVertex.weights[0]));
 
+  auto infiniteWeightModel = sampleModel();
+  infiniteWeightModel.vertices[0].weights = {
+      std::numeric_limits<float>::infinity(), 0.0F, 0.0F, 0.0F};
+  pmxer::DocumentSession infiniteWeightSession(std::move(infiniteWeightModel));
+  assert(pmxer::normalizeWeights(infiniteWeightSession).success);
+  assert(infiniteWeightSession.document.model().vertices[0].weights[0] == 1.0F);
+
+  auto zeroWeightModel = sampleModel();
+  zeroWeightModel.vertices[0].weights = {};
+  pmxer::DocumentSession zeroWeightSession(std::move(zeroWeightModel));
+  assert(pmxer::normalizeWeights(zeroWeightSession).success);
+  assert(zeroWeightSession.document.model().vertices[0].weights[0] == 1.0F);
+
   auto fallbackWeightModel = sampleModel();
   fallbackWeightModel.vertices[0].weightType = mmd::PmxWeightType::bdef2;
   fallbackWeightModel.vertices[0].bones = {-1, 0, -1, -1};
