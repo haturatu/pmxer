@@ -1018,6 +1018,17 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                                   selected ? 5.0F : 3.0F, color);
         }
     }
+    for (const auto &delta : session.deform.vertices) {
+        const auto *vertex = session.document.resolve(delta.vertex);
+        if (vertex == nullptr)
+            continue;
+        const auto bindPoint = project(vertex->position, bounds, origin, available,
+                                       session.ui);
+        const auto editedPoint = project(deformVertexPosition(session, delta.vertex),
+                                         bounds, origin, available, session.ui);
+        draw->AddLine(bindPoint, editedPoint, IM_COL32(145, 190, 235, 95), 1.0F);
+        draw->AddCircle(bindPoint, 2.5F, IM_COL32(185, 215, 245, 150), 0, 1.0F);
+    }
     for (const auto &selected : session.selection.items()) {
         if (selected.kind != SelectionKind::vertex)
             continue;
