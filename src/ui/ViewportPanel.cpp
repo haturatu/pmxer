@@ -680,6 +680,29 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         }
     }
     ImGui::InvisibleButton("viewport-canvas", available);
+    if (!session.deform.vertices.empty() || !session.deform.bones.empty()) {
+        std::string summary = "● 一時変形 — ";
+        if (!session.deform.vertices.empty())
+            summary += "頂点 " + std::to_string(session.deform.vertices.size());
+        if (!session.deform.vertices.empty() && !session.deform.bones.empty())
+            summary += " / ";
+        if (!session.deform.bones.empty())
+            summary += "ボーン " + std::to_string(session.deform.bones.size());
+        constexpr const char *detail = "まだPMXには反映されていません";
+        const auto summarySize = ImGui::CalcTextSize(summary.c_str());
+        const auto detailSize = ImGui::CalcTextSize(detail);
+        const auto cardWidth = std::max(summarySize.x, detailSize.x) + 24.0F;
+        const ImVec2 cardMin{origin.x + 12.0F, origin.y + 12.0F};
+        const ImVec2 cardMax{cardMin.x + cardWidth,
+                             cardMin.y + ImGui::GetTextLineHeight() * 2.0F + 20.0F};
+        draw->AddRectFilled(cardMin, cardMax, IM_COL32(24, 28, 36, 230), 5.0F);
+        draw->AddRect(cardMin, cardMax, IM_COL32(100, 170, 255, 230), 5.0F);
+        draw->AddText({cardMin.x + 12.0F, cardMin.y + 7.0F},
+                      IM_COL32(150, 205, 255, 255), summary.c_str());
+        draw->AddText({cardMin.x + 12.0F,
+                       cardMin.y + 9.0F + ImGui::GetTextLineHeight()},
+                      IM_COL32(220, 225, 235, 255), detail);
+    }
     const auto hovered = ImGui::IsItemHovered();
     const auto mouse = ImGui::GetIO().MousePos;
     if (session.ui.viewportTool == ViewportTool::select && ImGui::IsItemActivated()) {
@@ -994,6 +1017,17 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                                           session.ui),
                                   selected ? 5.0F : 3.0F, color);
         }
+    }
+    for (const auto &delta : session.deform.vertices) {
+        const auto *vertex = session.document.resolve(delta.vertex);
+        if (vertex == nullptr)
+            continue;
+        const auto bindPoint = project(vertex->position, bounds, origin, available,
+                                       session.ui);
+        const auto editedPoint = project(deformVertexPosition(session, delta.vertex),
+                                         bounds, origin, available, session.ui);
+        draw->AddLine(bindPoint, editedPoint, IM_COL32(145, 190, 235, 95), 1.0F);
+        draw->AddCircle(bindPoint, 2.5F, IM_COL32(185, 215, 245, 150), 0, 1.0F);
     }
     for (const auto &selected : session.selection.items()) {
         if (selected.kind != SelectionKind::vertex)

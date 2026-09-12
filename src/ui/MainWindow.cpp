@@ -325,11 +325,13 @@ int runApplication(const EditCommand &options) {
         workspace.showTransformView = true;
         auto &session = *sessions[index];
         if (!session.deform.bones.empty()) {
-            session.deform.tab = TransformViewTab::bone;
-            session.deform.mode = DeformMode::pose;
+            activateTransformTab(session, workspace.active, TransformViewTab::bone);
+            auto &profile = workspace.viewportProfiles[workspaceIndex(workspace.active)];
+            profile.showBones = true;
+            applyViewportProfile(session, profile);
         } else if (!session.deform.vertices.empty()) {
-            session.deform.tab = TransformViewTab::vertex;
-            session.deform.mode = DeformMode::shape;
+            activateTransformTab(session, workspace.active, TransformViewTab::vertex);
+            applyViewportProfile(session, workspace.viewportProfiles[workspaceIndex(workspace.active)]);
         }
     };
     const auto loadDroppedPreview = [&](const std::filesystem::path &path) {
@@ -598,7 +600,7 @@ int runApplication(const EditCommand &options) {
             ImGui::Text("%s に未保存の変更があります。", title.c_str());
             const auto pendingTransform = session.hasPendingTransformEdit();
             if (pendingTransform)
-                ImGui::TextWrapped("Temporary Transform View edits are not part of the PMX yet.");
+                ImGui::TextWrapped("Transform Viewの一時変形はまだPMXには含まれていません。");
             if (ImGui::Button(pendingTransform ? "一時編集を破棄して保存して終了" : "保存して終了")) {
                 if (session.path.empty()) {
                     setStatus(session, "保存先を指定してください。終了はキャンセルされました",
@@ -627,7 +629,7 @@ int runApplication(const EditCommand &options) {
             }
             ImGui::SameLine();
             if (pendingTransform) {
-                if (ImGui::Button("Transform ViewでCapture")) {
+                if (ImGui::Button("Transform Viewを開いてモーフ化")) {
                     revealPendingTransformEdit(quitSessionIndex);
                     quitRequested = false;
                     quitPromptOpened = false;
@@ -713,7 +715,7 @@ int runApplication(const EditCommand &options) {
                 ImGui::Text("%s に未保存の変更があります。", title.c_str());
                 const auto pendingTransform = session.hasPendingTransformEdit();
                 if (pendingTransform)
-                    ImGui::TextWrapped("Temporary Transform View edits are not part of the PMX yet.");
+                    ImGui::TextWrapped("Transform Viewの一時変形はまだPMXには含まれていません。");
                 if (ImGui::Button(pendingTransform ? "一時編集を破棄して保存して閉じる" : "保存して閉じる")) {
                     if (session.path.empty()) {
                         if (!fileDialog.busy() &&
@@ -736,7 +738,7 @@ int runApplication(const EditCommand &options) {
                     }
                 }
                 if (pendingTransform) {
-                    if (ImGui::Button("Transform ViewでCapture")) {
+                    if (ImGui::Button("Transform Viewを開いてモーフ化")) {
                         revealPendingTransformEdit(*target);
                         closePromptOpened = false;
                         pendingCloseSession.reset();
@@ -788,9 +790,11 @@ int runApplication(const EditCommand &options) {
                 ImGui::CloseCurrentPopup();
             } else {
                 auto &session = *sessions[*target];
-                ImGui::TextWrapped("Temporary Transform View edits are not part of the PMX yet.");
-                ImGui::TextWrapped("Capture the edit as a morph, or discard it before saving.");
-                if (ImGui::Button("Transform ViewでCapture")) {
+                ImGui::TextUnformatted("一時変形が残っています");
+                ImGui::Text("頂点: %zu 頂点", session.deform.vertices.size());
+                ImGui::Text("ボーン: %zu ボーン", session.deform.bones.size());
+                ImGui::TextWrapped("一時変形はまだPMXには含まれていません。");
+                if (ImGui::Button("Transform Viewを開いてモーフ化")) {
                     revealPendingTransformEdit(*target);
                     pendingTransformSaveSession.reset();
                     pendingTransformSaveAs = false;
@@ -798,7 +802,7 @@ int runApplication(const EditCommand &options) {
                     ImGui::CloseCurrentPopup();
                 }
                 ImGui::SameLine();
-                if (ImGui::Button("一時編集を破棄して保存")) {
+                if (ImGui::Button("一時変形をすべて破棄して保存")) {
                     const bool saveAs = pendingTransformSaveAs;
                     const bool pendingTransform = session.hasPendingTransformEdit();
                     pendingTransformSaveSession.reset();

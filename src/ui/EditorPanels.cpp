@@ -1556,7 +1556,7 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
     else
         session.ui.viewportVisible = false;
     if (workspace.showTransformView)
-        drawTransformView(session, &workspace.showTransformView);
+        drawTransformView(session, workspace, &workspace.showTransformView);
     if (workspace.showOutliner)
         drawOutlinerPanel(session, workspace, &workspace.showOutliner);
     if (workspace.showInspector)

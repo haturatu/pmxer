@@ -32,6 +32,8 @@ enum class EditorAction { viewportMove, viewportRotate, viewportScale };
 [[nodiscard]] TransformCapabilities transformCapabilities(const DocumentSession &session) noexcept;
 [[nodiscard]] bool deformBoneTransformAllowed(const DocumentSession &session,
                                                mmd::BoneHandle bone) noexcept;
+[[nodiscard]] ActionAvailability boneTransformAvailability(
+    const DocumentSession &session, mmd::BoneHandle bone) noexcept;
 [[nodiscard]] ActionAvailability actionAvailability(EditorAction action,
                                                     const DocumentSession &session) noexcept;
 

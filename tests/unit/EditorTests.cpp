@@ -297,6 +297,9 @@ int main() {
     captureSession.deform.mode = pmxer::DeformMode::shape;
     captureSession.deform.vertices.push_back({captureVertex, {0.25F, 0.0F, 0.0F}});
     assert(pmxer::morph::captureVertexMorph(captureSession, "captured").success);
+    assert(captureSession.selection.items().size() == 1U);
+    assert(captureSession.selection.items().front().kind == pmxer::SelectionKind::morph);
+    assert(captureSession.ui.pendingOutlinerReveal.has_value());
     assert(captureSession.document.model().morphs.size() == 1U);
     assert(captureSession.document.model().morphs[0].panel == 4U);
     assert(captureSession.document.model().morphs[0].offsets[0].vector3[0] == 0.25F);
@@ -333,7 +336,7 @@ int main() {
     const auto changedBoneCapture =
         pmxer::morph::captureBoneMorph(changedBoneSession, "changed bone");
     assert(!changedBoneCapture.success);
-    assert(changedBoneCapture.message.find("evaluation settings changed") != std::string::npos);
+    assert(changedBoneCapture.message.find("評価設定が変更") != std::string::npos);
     assert(changedBoneSession.deform.bones.size() == 1U);
 
     auto changedIkTargetModel = sampleModel();
@@ -494,6 +497,47 @@ int main() {
     assert(!pendingSaveSession.hasPendingTransformEdit());
     std::error_code pendingSaveError;
     std::filesystem::remove(pendingSaveSession.path, pendingSaveError);
+
+    pmxer::DocumentSession transformTabSession(sampleModel());
+    auto transformWorkspace = pmxer::EditorWorkspace::model;
+    pmxer::activateTransformTab(transformTabSession, transformWorkspace,
+                                pmxer::TransformViewTab::vertex);
+    assert(transformWorkspace == pmxer::EditorWorkspace::rig);
+    assert(transformTabSession.ui.selectionMode == pmxer::ViewportSelectionMode::vertex);
+    assert(transformTabSession.ui.viewportTool == pmxer::ViewportTool::select);
+    assert(transformTabSession.deform.mode == pmxer::DeformMode::shape);
+    pmxer::activateTransformTab(transformTabSession, transformWorkspace,
+                                pmxer::TransformViewTab::bone);
+    assert(transformWorkspace == pmxer::EditorWorkspace::rig);
+    assert(transformTabSession.ui.selectionMode == pmxer::ViewportSelectionMode::bone);
+    assert(transformTabSession.ui.showBones);
+    assert(transformTabSession.deform.mode == pmxer::DeformMode::pose);
+    transformTabSession.deform.tabActivated = false;
+    transformWorkspace = pmxer::EditorWorkspace::model;
+    pmxer::activateTransformTab(transformTabSession, transformWorkspace,
+                                pmxer::TransformViewTab::vertex);
+    assert(transformWorkspace == pmxer::EditorWorkspace::rig);
+    assert(transformTabSession.ui.selectionMode == pmxer::ViewportSelectionMode::vertex);
+    assert(transformTabSession.deform.tabActivated);
+    pmxer::activateTransformTab(transformTabSession, transformWorkspace,
+                                pmxer::TransformViewTab::morph);
+    assert(transformWorkspace == pmxer::EditorWorkspace::morph);
+    assert(transformTabSession.deform.mode == pmxer::DeformMode::inactive);
+
+    pmxer::DocumentSession scopedDiscardSession(sampleModel());
+    scopedDiscardSession.deform.vertices.push_back(
+        {scopedDiscardSession.document.vertexHandle(0), {0.1F, 0.0F, 0.0F}});
+    scopedDiscardSession.deform.bones.push_back(
+        {scopedDiscardSession.document.boneHandle(0), {0.1F, 0.0F, 0.0F},
+         {0.0F, 0.0F, 0.0F, 1.0F}});
+    scopedDiscardSession.deform.dirty = true;
+    pmxer::discardPendingVertexEdit(scopedDiscardSession);
+    assert(scopedDiscardSession.deform.vertices.empty());
+    assert(scopedDiscardSession.deform.bones.size() == 1U);
+    assert(scopedDiscardSession.deform.dirty);
+    pmxer::discardPendingBoneEdit(scopedDiscardSession);
+    assert(scopedDiscardSession.deform.bones.empty());
+    assert(!scopedDiscardSession.deform.dirty);
 
     auto symmetryModel = sampleModel();
     symmetryModel.vertices[0].position[0] = -1.0F;
