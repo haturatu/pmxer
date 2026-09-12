@@ -505,7 +505,7 @@ GpuModelRenderer::GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path 
 
     const std::array<SDL_GPUVertexBufferDescription, 1> buffers{{{0, sizeof(GpuVertex),
                                                                    SDL_GPU_VERTEXINPUTRATE_VERTEX, 0}}};
-    const std::array<SDL_GPUVertexAttribute, 4> attributes{{
+    const std::array<SDL_GPUVertexAttribute, 7> attributes{{
         {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuVertex, position)},
         {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuVertex, normal)},
         {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(GpuVertex, uv)},
@@ -526,7 +526,7 @@ GpuModelRenderer::GpuModelRenderer(SDL_GPUDevice *device, std::filesystem::path 
     SDL_GPUGraphicsPipelineCreateInfo pipelineInfo{};
     pipelineInfo.vertex_shader = impl_->vertexShader;
     pipelineInfo.fragment_shader = impl_->fragmentShader;
-    pipelineInfo.vertex_input_state = {buffers.data(), 1, attributes.data(), 4};
+    pipelineInfo.vertex_input_state = {buffers.data(), 1, attributes.data(), 7};
     pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
     pipelineInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
     pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
