@@ -234,6 +234,8 @@ OperationResult applyTransaction(
   if (!committed.committed)
     return {false, committed.errors.empty() ? "編集結果が検証に失敗しました"
                                             : committed.errors.front()};
+  if (committed.patch.empty())
+    return {true, {}};
   session.commands.recordApplied(
       std::make_unique<PatchCommand>(committed.patch, std::move(description)));
   session.modified = session.commands.isModified();
@@ -443,7 +445,16 @@ OperationResult normalizeWeights(DocumentSession &session, float threshold) {
       for (std::size_t i = 0; i < count; ++i)
         vertex.weights[i] /= total;
     else {
+      const auto firstValidBone = std::find_if(
+          vertex.bones.begin(), vertex.bones.begin() + count,
+          [&](const std::int32_t bone) {
+            return bone >= 0 && static_cast<std::size_t>(bone) <
+                                    session.document.model().bones.size();
+          });
+      if (firstValidBone == vertex.bones.begin() + count)
+        return {false, "ウェイトを修復できる有効なボーンがありません"};
       vertex.weights = {};
+      vertex.bones[0] = *firstValidBone;
       vertex.weights[0] = 1.0F;
     }
   }

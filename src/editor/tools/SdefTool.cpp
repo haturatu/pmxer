@@ -165,6 +165,10 @@ SdefReport repairSuspiciousSdef(DocumentSession &session,
     edits.push_back({handle, value});
   }
   SdefReport report;
+  if (edits.empty()) {
+    report.rejected = handles.size();
+    return report;
+  }
   const auto result = applyTransaction(
       session,
       [&](auto &transaction) {

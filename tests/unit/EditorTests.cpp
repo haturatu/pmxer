@@ -98,6 +98,26 @@ int main() {
   assert(normalizedVertex.weights[0] == 1.0F);
   assert(std::isfinite(normalizedVertex.weights[0]));
 
+  auto fallbackWeightModel = sampleModel();
+  fallbackWeightModel.vertices[0].weightType = mmd::PmxWeightType::bdef2;
+  fallbackWeightModel.vertices[0].bones = {-1, 0, -1, -1};
+  fallbackWeightModel.vertices[0].weights = {
+      std::numeric_limits<float>::quiet_NaN(), 0.0F, 0.0F, 0.0F};
+  pmxer::DocumentSession fallbackWeightSession(std::move(fallbackWeightModel));
+  assert(pmxer::normalizeWeights(fallbackWeightSession).success);
+  const auto &fallbackVertex =
+      fallbackWeightSession.document.model().vertices[0];
+  assert(fallbackVertex.bones[0] == 0);
+  assert(fallbackVertex.weights[0] == 1.0F);
+
+  auto noBoneWeightModel = sampleModel();
+  noBoneWeightModel.vertices[0].weightType = mmd::PmxWeightType::bdef2;
+  noBoneWeightModel.vertices[0].bones = {-1, -1, -1, -1};
+  noBoneWeightModel.vertices[0].weights = {
+      std::numeric_limits<float>::infinity(), 0.0F, 0.0F, 0.0F};
+  pmxer::DocumentSession noBoneWeightSession(std::move(noBoneWeightModel));
+  assert(!pmxer::normalizeWeights(noBoneWeightSession).success);
+
   auto malformedSdef = sampleModel();
   malformedSdef.vertices[0].weightType = mmd::PmxWeightType::sdef;
   malformedSdef.vertices[0].sdefC[0] = std::numeric_limits<float>::infinity();
@@ -110,6 +130,19 @@ int main() {
   assert(repairReport.converted == 1);
   assert(malformedSdefSession.document.model().vertices[0].weightType ==
          mmd::PmxWeightType::bdef2);
+
+  auto validSdef = sampleModel();
+  validSdef.vertices[0].weightType = mmd::PmxWeightType::sdef;
+  pmxer::DocumentSession validSdefSession(std::move(validSdef));
+  const auto validSdefHandle = validSdefSession.document.vertexHandle(0);
+  const auto revisionBeforeRepair = validSdefSession.revision;
+  const auto noRepairReport =
+      pmxer::repairSuspiciousSdef(validSdefSession, {validSdefHandle});
+  assert(noRepairReport.converted == 0);
+  assert(noRepairReport.rejected == 1);
+  assert(validSdefSession.commands.undoCount() == 0);
+  assert(!validSdefSession.modified);
+  assert(validSdefSession.revision == revisionBeforeRepair);
 
   auto duplicatePreviewModel = sampleModel();
   mmd::PmxMorph firstDuplicate;
@@ -466,6 +499,29 @@ int main() {
                                             {.allowIgnoredTypes = true})
              .success);
   assert(mixedBakeSession.document.model().morphs.back().type == 1U);
+
+  auto cyclicBakeModel = sampleModel();
+  cyclicBakeModel.morphs = {
+      {.name = "group A",
+       .type = 0U,
+       .offsets = {{.index = 1, .scalar = 1.0F}}},
+      {.name = "flip B",
+       .type = 9U,
+       .offsets = {{.index = 0, .scalar = 1.0F}, {.index = 2, .scalar = 1.0F}}},
+      {.name = "vertex",
+       .type = 1U,
+       .offsets = {{.index = 0, .vector3 = {1.0F, 0.0F, 0.0F}}}},
+  };
+  pmxer::DocumentSession cyclicBakeSession(std::move(cyclicBakeModel));
+  pmxer::morph::setBlend(cyclicBakeSession,
+                         cyclicBakeSession.document.morphHandle(0), 1.0F);
+  const auto cyclicAnalysis = pmxer::morph::analyzeVertexMix(cyclicBakeSession);
+  assert(cyclicAnalysis.invalidExpansion);
+  const auto cyclicMorphCount =
+      cyclicBakeSession.document.model().morphs.size();
+  assert(!pmxer::morph::bakeMixAsVertexMorph(cyclicBakeSession, "cyclic bake")
+              .success);
+  assert(cyclicBakeSession.document.model().morphs.size() == cyclicMorphCount);
 
   pmxer::DocumentSession reverseSession(std::move(operationModel));
   const auto reverseMorph = reverseSession.document.morphHandle(0);
