@@ -1650,52 +1650,47 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
       (void)writeRecovery(session);
       session.lastRecovery = now;
     }
-    if (session.hasUnsavedWork()) {
-        const auto now = std::chrono::steady_clock::now();
-        if (now - session.lastRecovery >= std::chrono::seconds(30)) {
-            (void)writeRecovery(session);
-            session.lastRecovery = now;
-        }
-    }
-    auto &preview = updatePreview(session);
-    if (workspace.showViewport)
-        drawViewportPanel(session, preview.frame ? &*preview.frame : nullptr, renderer,
-                          &workspace.showDiagnostics, &workspace.showViewport,
-                          workspace.active,
-                          &workspace.viewportProfiles[workspaceIndex(workspace.active)],
-                          workspace.viewportLighting);
-    else
-        session.ui.viewportVisible = false;
-    if (workspace.showTransformView)
-        drawTransformView(session, workspace, &workspace.showTransformView);
-    if (workspace.showOutliner)
-        drawOutlinerPanel(session, workspace, &workspace.showOutliner);
-    if (workspace.showInspector)
-        drawInspectorPanel(session, renderer, workspace, &workspace.showInspector);
-    if (workspace.showModel)
-        drawModelPanel(session, fileDialog, workspace, &workspace.showModel);
-    if (workspace.showVertex)
-        drawVertexPanel(session, &workspace.showVertex);
-    if (workspace.showMaterial)
-        drawMaterialPanel(session, &workspace.showMaterial);
-    if (workspace.showTexture)
-        drawTexturePanel(session, workspace.active, &workspace.showTexture);
-    if (workspace.showBone)
-        drawBonePanel(session, &workspace.showBone);
-    if (workspace.showMorph)
-        drawMorphPanel(session, &workspace.showMorph);
-    if (workspace.showDisplayFrame)
-        drawDisplayFramePanel(session, &workspace.showDisplayFrame);
-    if (workspace.showPhysics)
-        drawPhysicsPanel(session, &workspace.showPhysics);
-    if (workspace.showDiagnostics)
-        drawDiagnosticsPanel(session, fileDialog, renderer, workspace.active,
-                             &workspace.showDiagnostics);
-    if (workspace.showReferences)
-        drawReferencePanel(session, &workspace.showReferences);
-    if (workspace.showDiff)
-        drawDiffPanel(session, &workspace.showDiff);
-    drawStatusBar(session, workspace.showDiagnostics, workspace.showReferences, workspace.showDiff);
+  }
+  auto &preview = updatePreview(session);
+  if (workspace.showViewport)
+    drawViewportPanel(
+        session, preview.frame ? &*preview.frame : nullptr, renderer,
+        &workspace.showDiagnostics, &workspace.showViewport, workspace.active,
+        &workspace.viewportProfiles[workspaceIndex(workspace.active)],
+        workspace.viewportLighting);
+  else
+    session.ui.viewportVisible = false;
+  if (workspace.showTransformView)
+    drawTransformView(session, workspace, &workspace.showTransformView);
+  if (workspace.showOutliner)
+    drawOutlinerPanel(session, workspace, &workspace.showOutliner);
+  if (workspace.showInspector)
+    drawInspectorPanel(session, renderer, workspace, &workspace.showInspector);
+  if (workspace.showModel)
+    drawModelPanel(session, fileDialog, workspace, &workspace.showModel);
+  if (workspace.showVertex)
+    drawVertexPanel(session, &workspace.showVertex);
+  if (workspace.showMaterial)
+    drawMaterialPanel(session, &workspace.showMaterial);
+  if (workspace.showTexture)
+    drawTexturePanel(session, workspace.active, &workspace.showTexture);
+  if (workspace.showBone)
+    drawBonePanel(session, &workspace.showBone);
+  if (workspace.showMorph)
+    drawMorphPanel(session, &workspace.showMorph);
+  if (workspace.showDisplayFrame)
+    drawDisplayFramePanel(session, &workspace.showDisplayFrame);
+  if (workspace.showPhysics)
+    drawPhysicsPanel(session, &workspace.showPhysics);
+  if (workspace.showDiagnostics)
+    drawDiagnosticsPanel(session, fileDialog, renderer, workspace.active,
+                         &workspace.showDiagnostics);
+  if (workspace.showReferences)
+    drawReferencePanel(session, &workspace.showReferences);
+  if (workspace.showDiff)
+    drawDiffPanel(session, &workspace.showDiff);
+  drawStatusBar(session, workspace.showDiagnostics, workspace.showReferences,
+                workspace.showDiff);
 }
 
 } // namespace pmxer
