@@ -417,7 +417,7 @@ int main() {
   const auto changedBoneCapture =
       pmxer::morph::captureBoneMorph(changedBoneSession, "changed bone");
   assert(!changedBoneCapture.success);
-  assert(changedBoneCapture.message.find("evaluation settings changed") !=
+  assert(changedBoneCapture.message.find("評価設定が変更") !=
          std::string::npos);
   assert(changedBoneSession.deform.bones.size() == 1U);
 
