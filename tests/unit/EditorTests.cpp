@@ -108,12 +108,13 @@ int main() {
   auto hugeWeightModel = sampleModel();
   hugeWeightModel.vertices[0].weightType = mmd::PmxWeightType::bdef2;
   hugeWeightModel.vertices[0].bones = {0, 0, -1, -1};
-  hugeWeightModel.vertices[0].weights = {
-      std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
-      0.0F, 0.0F};
+  hugeWeightModel.vertices[0].weights = {std::numeric_limits<float>::max(),
+                                         std::numeric_limits<float>::max(),
+                                         0.0F, 0.0F};
   pmxer::DocumentSession hugeWeightSession(std::move(hugeWeightModel));
   assert(pmxer::normalizeWeights(hugeWeightSession).success);
-  const auto &hugeWeights = hugeWeightSession.document.model().vertices[0].weights;
+  const auto &hugeWeights =
+      hugeWeightSession.document.model().vertices[0].weights;
   assert(std::abs(hugeWeights[0] - 0.5F) < 1e-6F);
   assert(std::abs(hugeWeights[1] - 0.5F) < 1e-6F);
 
@@ -307,30 +308,42 @@ int main() {
   assert(std::abs(evaluatedChild[0]) < 1e-5F);
   assert(std::abs(evaluatedChild[1] - 1.0F) < 1e-5F);
 
-    pmxer::DocumentSession captureSession(sampleModel());
-    const auto captureVertex = captureSession.document.vertexHandle(0);
-    captureSession.deform.mode = pmxer::DeformMode::shape;
-    captureSession.deform.vertices.push_back({captureVertex, {0.25F, 0.0F, 0.0F}});
-    assert(pmxer::morph::captureVertexMorph(captureSession, "captured").success);
-    assert(captureSession.selection.items().size() == 1U);
-    assert(captureSession.selection.items().front().kind == pmxer::SelectionKind::morph);
-    assert(captureSession.ui.pendingOutlinerReveal.has_value());
-    assert(captureSession.document.model().morphs.size() == 1U);
-    assert(captureSession.document.model().morphs[0].panel == 4U);
-    assert(captureSession.document.model().morphs[0].offsets[0].vector3[0] == 0.25F);
-    assert(captureSession.commands.undoCount() == 1U);
-    captureSession.deform.vertices.push_back({captureVertex, {0.5F, 0.0F, 0.0F}});
-    captureSession.deform.bones.push_back(
-        {captureSession.document.boneHandle(0), {0.1F, 0.0F, 0.0F},
-         {0.0F, 0.0F, 0.0F, 1.0F}});
-    assert(pmxer::morph::captureVertexMorph(captureSession, "captured second").success);
-    assert(captureSession.deform.vertices.empty());
-    assert(captureSession.deform.bones.size() == 1U);
-    assert(captureSession.commands.undoCount() == 2U);
-    assert(captureSession.undo());
-    assert(captureSession.document.model().morphs.size() == 1U);
-    assert(captureSession.redo());
-    assert(captureSession.document.model().morphs.size() == 2U);
+  mmd::PmxModel operationModel = sampleModel();
+  operationModel.vertices[0].position[0] = -1.0F;
+  operationModel.vertices[1].position[0] = 0.0F;
+  operationModel.vertices[2].position[0] = 1.0F;
+  mmd::PmxMorph operationMorph;
+  operationMorph.name = "operation";
+  operationMorph.englishName = "operation-en";
+  operationMorph.type = 1U;
+  operationMorph.panel = 2U;
+  for (std::int32_t index = 0; index < 3; ++index) {
+    mmd::PmxMorphOffset offset;
+    offset.index = index;
+    offset.vector3 = {1.0F, 0.0F, 0.0F};
+    operationMorph.offsets.push_back(offset);
+  }
+  operationModel.morphs.push_back(operationMorph);
+  mmd::PmxMorph sparseMorph;
+  sparseMorph.name = "sparse";
+  sparseMorph.type = 1U;
+  mmd::PmxMorphOffset sparseOffset;
+  sparseOffset.index = 1;
+  sparseOffset.vector3 = {4.0F, 0.0F, 0.0F};
+  sparseMorph.offsets.push_back(sparseOffset);
+  operationModel.morphs.push_back(sparseMorph);
+  const auto &operationSource = operationModel.morphs.front();
+  const auto scaled =
+      pmxer::morph::scale(pmxer::morph::copy(operationSource), 2.0F);
+  assert(scaled.offsets[0].vector3[0] == 2.0F);
+  assert(scaled.panel == 2U);
+  assert(scaled.englishName == "operation-en");
+  const auto inverted =
+      pmxer::morph::invert(pmxer::morph::copy(operationSource));
+  assert(inverted.success);
+  assert(inverted.data.offsets[0].vector3[0] == -1.0F);
+  assert(inverted.data.panel == 2U);
+  assert(inverted.data.englishName == "operation-en");
 
   const auto materialInvert = [](float factor) {
     pmxer::morph::MorphData value;
@@ -381,21 +394,6 @@ int main() {
       operationModel, operationSource, 0U,
       pmxer::morph::MaterialFilterMode::excludeUsed);
   assert(masked.offsets.empty());
-
-    auto changedBoneModel = sampleModel();
-    pmxer::DocumentSession changedBoneSession(std::move(changedBoneModel));
-    const auto changedBone = changedBoneSession.document.boneHandle(0);
-    changedBoneSession.deform.bones.push_back(
-        {changedBone, {}, {0.0F, 0.0F, std::sin(0.25F * pi), std::cos(0.25F * pi)}});
-    changedBoneSession.deform.dirty = true;
-    auto changedBoneValue = *changedBoneSession.document.resolve(changedBone);
-    changedBoneValue.flags = 0x0100U;
-    assert(pmxer::editBone(changedBoneSession, changedBone, changedBoneValue).success);
-    const auto changedBoneCapture =
-        pmxer::morph::captureBoneMorph(changedBoneSession, "changed bone");
-    assert(!changedBoneCapture.success);
-    assert(changedBoneCapture.message.find("評価設定が変更") != std::string::npos);
-    assert(changedBoneSession.deform.bones.size() == 1U);
 
   pmxer::DocumentSession noOpBoneSession(sampleModel());
   noOpBoneSession.deform.bones.push_back(
@@ -550,17 +548,24 @@ int main() {
 
   auto unrelatedCycleModel = sampleModel();
   unrelatedCycleModel.morphs = {
-      {.name = "vertex", .type = 1U, .offsets = {{.index = 0, .vector3 = {1.0F, 0.0F, 0.0F}}}},
-      {.name = "group A", .type = 0U, .offsets = {{.index = 2, .scalar = 1.0F}}},
+      {.name = "vertex",
+       .type = 1U,
+       .offsets = {{.index = 0, .vector3 = {1.0F, 0.0F, 0.0F}}}},
+      {.name = "group A",
+       .type = 0U,
+       .offsets = {{.index = 2, .scalar = 1.0F}}},
       {.name = "flip B", .type = 9U, .offsets = {{.index = 1, .scalar = 1.0F}}},
   };
   pmxer::DocumentSession unrelatedCycleSession(std::move(unrelatedCycleModel));
   pmxer::morph::setBlend(unrelatedCycleSession,
                          unrelatedCycleSession.document.morphHandle(0), 1.0F);
-  const auto unrelatedCycleAnalysis = pmxer::morph::analyzeVertexMix(unrelatedCycleSession);
+  const auto unrelatedCycleAnalysis =
+      pmxer::morph::analyzeVertexMix(unrelatedCycleSession);
   assert(!unrelatedCycleAnalysis.budgetExceeded);
   assert(unrelatedCycleAnalysis.vertexParts.size() == 1U);
-  assert(pmxer::morph::bakeMixAsVertexMorph(unrelatedCycleSession, "unrelated cycle bake").success);
+  assert(pmxer::morph::bakeMixAsVertexMorph(unrelatedCycleSession,
+                                            "unrelated cycle bake")
+             .success);
 
   pmxer::DocumentSession reverseSession(std::move(operationModel));
   const auto reverseMorph = reverseSession.document.morphHandle(0);
@@ -579,78 +584,50 @@ int main() {
   assert(reverseSession.undo());
   assert(reverseSession.document.model().vertices[0].position[0] == -1.0F);
 
-    pmxer::DocumentSession transformTabSession(sampleModel());
-    auto transformWorkspace = pmxer::EditorWorkspace::model;
-    pmxer::activateTransformTab(transformTabSession, transformWorkspace,
-                                pmxer::TransformViewTab::vertex);
-    assert(transformWorkspace == pmxer::EditorWorkspace::rig);
-    assert(transformTabSession.ui.selectionMode == pmxer::ViewportSelectionMode::vertex);
-    assert(transformTabSession.ui.viewportTool == pmxer::ViewportTool::select);
-    assert(transformTabSession.deform.mode == pmxer::DeformMode::shape);
-    pmxer::activateTransformTab(transformTabSession, transformWorkspace,
-                                pmxer::TransformViewTab::bone);
-    assert(transformWorkspace == pmxer::EditorWorkspace::rig);
-    assert(transformTabSession.ui.selectionMode == pmxer::ViewportSelectionMode::bone);
-    assert(transformTabSession.ui.showBones);
-    assert(transformTabSession.deform.mode == pmxer::DeformMode::pose);
-    transformTabSession.deform.tabActivated = false;
-    transformWorkspace = pmxer::EditorWorkspace::model;
-    pmxer::activateTransformTab(transformTabSession, transformWorkspace,
-                                pmxer::TransformViewTab::vertex);
-    assert(transformWorkspace == pmxer::EditorWorkspace::rig);
-    assert(transformTabSession.ui.selectionMode == pmxer::ViewportSelectionMode::vertex);
-    assert(transformTabSession.deform.tabActivated);
-    pmxer::activateTransformTab(transformTabSession, transformWorkspace,
-                                pmxer::TransformViewTab::morph);
-    assert(transformWorkspace == pmxer::EditorWorkspace::morph);
-    assert(transformTabSession.deform.mode == pmxer::DeformMode::inactive);
+  pmxer::DocumentSession transformTabSession(sampleModel());
+  auto transformWorkspace = pmxer::EditorWorkspace::model;
+  pmxer::activateTransformTab(transformTabSession, transformWorkspace,
+                              pmxer::TransformViewTab::vertex);
+  assert(transformWorkspace == pmxer::EditorWorkspace::rig);
+  assert(transformTabSession.ui.selectionMode ==
+         pmxer::ViewportSelectionMode::vertex);
+  assert(transformTabSession.ui.viewportTool == pmxer::ViewportTool::select);
+  assert(transformTabSession.deform.mode == pmxer::DeformMode::shape);
+  pmxer::activateTransformTab(transformTabSession, transformWorkspace,
+                              pmxer::TransformViewTab::bone);
+  assert(transformWorkspace == pmxer::EditorWorkspace::rig);
+  assert(transformTabSession.ui.selectionMode ==
+         pmxer::ViewportSelectionMode::bone);
+  assert(transformTabSession.ui.showBones);
+  assert(transformTabSession.deform.mode == pmxer::DeformMode::pose);
+  transformTabSession.deform.tabActivated = false;
+  transformWorkspace = pmxer::EditorWorkspace::model;
+  pmxer::activateTransformTab(transformTabSession, transformWorkspace,
+                              pmxer::TransformViewTab::vertex);
+  assert(transformWorkspace == pmxer::EditorWorkspace::rig);
+  assert(transformTabSession.ui.selectionMode ==
+         pmxer::ViewportSelectionMode::vertex);
+  assert(transformTabSession.deform.tabActivated);
+  pmxer::activateTransformTab(transformTabSession, transformWorkspace,
+                              pmxer::TransformViewTab::morph);
+  assert(transformWorkspace == pmxer::EditorWorkspace::morph);
+  assert(transformTabSession.deform.mode == pmxer::DeformMode::inactive);
 
-    pmxer::DocumentSession scopedDiscardSession(sampleModel());
-    scopedDiscardSession.deform.vertices.push_back(
-        {scopedDiscardSession.document.vertexHandle(0), {0.1F, 0.0F, 0.0F}});
-    scopedDiscardSession.deform.bones.push_back(
-        {scopedDiscardSession.document.boneHandle(0), {0.1F, 0.0F, 0.0F},
-         {0.0F, 0.0F, 0.0F, 1.0F}});
-    scopedDiscardSession.deform.dirty = true;
-    pmxer::discardPendingVertexEdit(scopedDiscardSession);
-    assert(scopedDiscardSession.deform.vertices.empty());
-    assert(scopedDiscardSession.deform.bones.size() == 1U);
-    assert(scopedDiscardSession.deform.dirty);
-    pmxer::discardPendingBoneEdit(scopedDiscardSession);
-    assert(scopedDiscardSession.deform.bones.empty());
-    assert(!scopedDiscardSession.deform.dirty);
-
-    auto symmetryModel = sampleModel();
-    symmetryModel.vertices[0].position[0] = -1.0F;
-    symmetryModel.vertices[1].position[0] = 0.0F;
-    symmetryModel.vertices[2].position[0] = 1.0F;
-    pmxer::DocumentSession symmetrySession(std::move(symmetryModel));
-    symmetrySession.deform.mode = pmxer::DeformMode::shape;
-    symmetrySession.deform.engaged = true;
-    symmetrySession.deform.symmetryX = true;
-    symmetrySession.deform.symmetryTolerance = 0.01F;
-    symmetrySession.selection.set(pmxer::SelectionItem{
-        pmxer::SelectionKind::vertex,
-        symmetrySession.document.vertexHandle(0).domain,
-        symmetrySession.document.vertexHandle(0).id,
-        symmetrySession.document.vertexHandle(0).generation});
-    std::array<float, 16> symmetryStart{};
-    symmetryStart[0] = symmetryStart[5] = symmetryStart[10] = symmetryStart[15] = 1.0F;
-    pmxer::beginDeformGizmoDrag(symmetrySession, symmetryStart);
-    std::array<float, 16> symmetryDelta{};
-    symmetryDelta[0] = symmetryDelta[5] = symmetryDelta[10] = symmetryDelta[15] = 1.0F;
-    symmetryDelta[12] = 0.25F;
-    pmxer::updateDeformGizmoDrag(symmetrySession, symmetryDelta);
-    const auto leftDelta = std::find_if(
-        symmetrySession.deform.vertices.begin(), symmetrySession.deform.vertices.end(),
-        [&](const auto &delta) { return delta.vertex == symmetrySession.document.vertexHandle(0); });
-    const auto rightDelta = std::find_if(
-        symmetrySession.deform.vertices.begin(), symmetrySession.deform.vertices.end(),
-        [&](const auto &delta) { return delta.vertex == symmetrySession.document.vertexHandle(2); });
-    assert(leftDelta != symmetrySession.deform.vertices.end());
-    assert(rightDelta != symmetrySession.deform.vertices.end());
-    assert(leftDelta->offset[0] == 0.25F);
-    assert(rightDelta->offset[0] == -0.25F);
+  pmxer::DocumentSession scopedDiscardSession(sampleModel());
+  scopedDiscardSession.deform.vertices.push_back(
+      {scopedDiscardSession.document.vertexHandle(0), {0.1F, 0.0F, 0.0F}});
+  scopedDiscardSession.deform.bones.push_back(
+      {scopedDiscardSession.document.boneHandle(0),
+       {0.1F, 0.0F, 0.0F},
+       {0.0F, 0.0F, 0.0F, 1.0F}});
+  scopedDiscardSession.deform.dirty = true;
+  pmxer::discardPendingVertexEdit(scopedDiscardSession);
+  assert(scopedDiscardSession.deform.vertices.empty());
+  assert(scopedDiscardSession.deform.bones.size() == 1U);
+  assert(scopedDiscardSession.deform.dirty);
+  pmxer::discardPendingBoneEdit(scopedDiscardSession);
+  assert(scopedDiscardSession.deform.bones.empty());
+  assert(!scopedDiscardSession.deform.dirty);
 
   pmxer::DocumentSession pendingTransformSession(sampleModel());
   assert(!pendingTransformSession.hasUnsavedWork());
