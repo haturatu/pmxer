@@ -41,8 +41,8 @@ VertexBakeAnalysis analyzeVertexMix(const DocumentSession &session) {
     roots[index] += blend.weight;
   }
   const auto expanded = mmd::expandMorphWeights(model, roots);
-  if (expanded.cycleDetected || expanded.budgetExceeded) {
-    result.invalidExpansion = true;
+  if (expanded.budgetExceeded) {
+    result.budgetExceeded = true;
     return result;
   }
   for (std::size_t index = 0; index < model.morphs.size(); ++index) {
@@ -126,8 +126,8 @@ void clearSoloMorph(DocumentSession &session) {
 OperationResult bakeMixAsVertexMorph(DocumentSession &session, std::string name,
                                      VertexBakeOptions options) {
   const auto analysis = analyzeVertexMix(session);
-  if (analysis.invalidExpansion)
-    return {false, "Mixerのgroup/flipモーフ展開に循環があります"};
+  if (analysis.budgetExceeded)
+    return {false, "Mixerのモーフ展開が安全上限を超えました"};
   if (!analysis.ignoredTypes.empty() && !options.allowIgnoredTypes)
     return {false, "Mixerに頂点以外のモーフ成分があります"};
   if (analysis.vertexParts.empty())

@@ -19,7 +19,7 @@ namespace morph {
 struct VertexBakeAnalysis {
   std::vector<MorphData> vertexParts;
   std::set<std::uint8_t> ignoredTypes;
-  bool invalidExpansion{};
+  bool budgetExceeded{};
 };
 
 struct VertexBakeOptions {

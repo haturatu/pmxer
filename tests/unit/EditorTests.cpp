@@ -529,12 +529,26 @@ int main() {
   pmxer::morph::setBlend(cyclicBakeSession,
                          cyclicBakeSession.document.morphHandle(0), 1.0F);
   const auto cyclicAnalysis = pmxer::morph::analyzeVertexMix(cyclicBakeSession);
-  assert(cyclicAnalysis.invalidExpansion);
+  assert(!cyclicAnalysis.budgetExceeded);
   const auto cyclicMorphCount =
       cyclicBakeSession.document.model().morphs.size();
   assert(!pmxer::morph::bakeMixAsVertexMorph(cyclicBakeSession, "cyclic bake")
               .success);
   assert(cyclicBakeSession.document.model().morphs.size() == cyclicMorphCount);
+
+  auto unrelatedCycleModel = sampleModel();
+  unrelatedCycleModel.morphs = {
+      {.name = "vertex", .type = 1U, .offsets = {{.index = 0, .vector3 = {1.0F, 0.0F, 0.0F}}}},
+      {.name = "group A", .type = 0U, .offsets = {{.index = 2, .scalar = 1.0F}}},
+      {.name = "flip B", .type = 9U, .offsets = {{.index = 1, .scalar = 1.0F}}},
+  };
+  pmxer::DocumentSession unrelatedCycleSession(std::move(unrelatedCycleModel));
+  pmxer::morph::setBlend(unrelatedCycleSession,
+                         unrelatedCycleSession.document.morphHandle(0), 1.0F);
+  const auto unrelatedCycleAnalysis = pmxer::morph::analyzeVertexMix(unrelatedCycleSession);
+  assert(!unrelatedCycleAnalysis.budgetExceeded);
+  assert(unrelatedCycleAnalysis.vertexParts.size() == 1U);
+  assert(pmxer::morph::bakeMixAsVertexMorph(unrelatedCycleSession, "unrelated cycle bake").success);
 
   pmxer::DocumentSession reverseSession(std::move(operationModel));
   const auto reverseMorph = reverseSession.document.morphHandle(0);
