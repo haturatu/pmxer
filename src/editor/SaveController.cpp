@@ -17,7 +17,7 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
     if (destination.empty())
         return {false, "保存先が指定されていません", {}, {}};
     if (session.hasPendingTransformEdit() && !saveOptions.allowPendingTransformEdit)
-        return {false, "Temporary Transform View edits are not part of the PMX yet. Capture or discard them first.", {}, {}};
+        return {false, "Transform Viewの一時変形はまだPMXに含まれていません。モーフを作成するか、一時変形を破棄してください。", {}, {}};
 
     session.validation = session.document.validate();
     if (!session.validation.valid())

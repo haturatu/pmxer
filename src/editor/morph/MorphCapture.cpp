@@ -95,8 +95,8 @@ OperationResult captureBoneMorph(DocumentSession &session, std::string name) {
             continue;
         if (!deformBoneTransformAllowed(session, delta.bone))
             return {false,
-                    "Bone evaluation settings changed after the temporary edit. "
-                    "Discard the edit and transform the bone again."};
+                    "一時変形後にボーンの評価設定が変更されました。"
+                    "このボーン編集を破棄して、もう一度変形してください。"};
     }
     MorphData data{2U, {}, 4U, {}};
     for (const auto &delta : session.deform.bones) {
