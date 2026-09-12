@@ -350,8 +350,9 @@ void drawMorphMixer(DocumentSession &session) {
         morph::resetMix(session);
     ImGui::SeparatorText("現在のミックスから作成");
     drawCaptureName(session.deform.groupCaptureName);
+    const auto effectiveMix = morph::effectiveMorphMix(session);
     const auto hasMix = std::any_of(
-        session.preview.morphValues.begin(), session.preview.morphValues.end(),
+        effectiveMix.begin(), effectiveMix.end(),
         [](const auto &blend) { return std::abs(blend.weight) > 1e-7F; });
     ImGui::BeginDisabled(!hasMix);
     if (ImGui::Button("グループモーフを作成"))
@@ -558,6 +559,7 @@ void drawTransformView(DocumentSession &session, WorkspaceUiState &workspace,
     if (open != nullptr && !*open) {
         session.deform.engaged = false;
         session.deform.suspended = true;
+        session.deform.tabActivated = false;
         session.ui.gizmoDragging = false;
         return;
     }
@@ -565,6 +567,7 @@ void drawTransformView(DocumentSession &session, WorkspaceUiState &workspace,
         if (open != nullptr && !*open) {
             session.deform.engaged = false;
             session.deform.suspended = true;
+            session.deform.tabActivated = false;
             session.ui.gizmoDragging = false;
         } else {
             session.deform.engaged = true;
@@ -632,6 +635,7 @@ void drawTransformView(DocumentSession &session, WorkspaceUiState &workspace,
     if (closeRequested) {
         session.deform.engaged = false;
         session.deform.suspended = true;
+        session.deform.tabActivated = false;
         session.ui.gizmoDragging = false;
     }
 }

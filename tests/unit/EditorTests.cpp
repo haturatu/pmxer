@@ -512,6 +512,13 @@ int main() {
     assert(transformTabSession.ui.selectionMode == pmxer::ViewportSelectionMode::bone);
     assert(transformTabSession.ui.showBones);
     assert(transformTabSession.deform.mode == pmxer::DeformMode::pose);
+    transformTabSession.deform.tabActivated = false;
+    transformWorkspace = pmxer::EditorWorkspace::model;
+    pmxer::activateTransformTab(transformTabSession, transformWorkspace,
+                                pmxer::TransformViewTab::vertex);
+    assert(transformWorkspace == pmxer::EditorWorkspace::rig);
+    assert(transformTabSession.ui.selectionMode == pmxer::ViewportSelectionMode::vertex);
+    assert(transformTabSession.deform.tabActivated);
     pmxer::activateTransformTab(transformTabSession, transformWorkspace,
                                 pmxer::TransformViewTab::morph);
     assert(transformWorkspace == pmxer::EditorWorkspace::morph);
