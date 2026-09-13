@@ -109,6 +109,8 @@ int main() {
                      invalidCpuFrame.vertices[0].position.end(),
                      [](const float value) { return std::isfinite(value); }));
   invalidMorphPreview.reset();
+  // This exercises libmmd's GPU-skinning contract for future GPU preview
+  // paths; the current editor renderer uploads CPU-evaluated vertices.
   const auto invalidGpuFrame = invalidMorphPreview.evaluate(0.0F, true);
   assert(invalidGpuFrame.morphWeights[0] == 0.0F);
 
