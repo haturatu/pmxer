@@ -31,6 +31,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -87,6 +88,29 @@ int main() {
   assert(previewController.evaluate().vertices[0].position[0] == 1.0F);
   previewController.clearMorphPreview("preview");
   assert(previewController.evaluate().vertices[0].position[0] == 0.0F);
+
+  auto invalidMorphModel = sampleModel();
+  mmd::PmxMorph invalidMorph;
+  invalidMorph.name = "invalid vertex morph";
+  invalidMorph.type = 1U;
+  mmd::PmxMorphOffset invalidMorphOffset;
+  invalidMorphOffset.index = 0;
+  invalidMorphOffset.vector3 = {std::numeric_limits<float>::quiet_NaN(), 0.0F,
+                                0.0F};
+  invalidMorph.offsets.push_back(invalidMorphOffset);
+  invalidMorphModel.morphs.push_back(invalidMorph);
+  mmd::PmxDocument invalidMorphDocument(std::move(invalidMorphModel));
+  assert(!invalidMorphDocument.validate().valid());
+  pmxer::PreviewController invalidMorphPreview(invalidMorphDocument);
+  invalidMorphPreview.setMorphPreview(invalidMorphDocument.morphHandle(0),
+                                      1.0F);
+  const auto invalidCpuFrame = invalidMorphPreview.evaluate();
+  assert(std::all_of(invalidCpuFrame.vertices[0].position.begin(),
+                     invalidCpuFrame.vertices[0].position.end(),
+                     [](const float value) { return std::isfinite(value); }));
+  invalidMorphPreview.reset();
+  const auto invalidGpuFrame = invalidMorphPreview.evaluate(0.0F, true);
+  assert(invalidGpuFrame.morphWeights[0] == 0.0F);
 
   auto malformedWeights = sampleModel();
   malformedWeights.vertices[0].weights = {
