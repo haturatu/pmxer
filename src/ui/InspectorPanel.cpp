@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "InspectorPanel.hpp"
 #include "MorphOffsetBrowser.hpp"
 
@@ -72,12 +74,12 @@ bool flagCheckbox(const char *label, std::uint16_t &flags, std::uint16_t bit) {
 template <typename Values>
 bool referenceCombo(const char *label, std::int32_t &value,
                     const Values &values, bool optional) {
-  const char *preview = "なし";
+  const char *preview = i18n::tr("なし");
   if (value >= 0 && static_cast<std::size_t>(value) < values.size())
     preview = values[static_cast<std::size_t>(value)].name.c_str();
   bool changed{};
   if (ImGui::BeginCombo(label, preview)) {
-    if (optional && ImGui::Selectable("なし", value < 0)) {
+    if (optional && ImGui::Selectable(i18n::tr("なし"), value < 0)) {
       value = -1;
       changed = true;
     }
@@ -86,7 +88,7 @@ bool referenceCombo(const char *label, std::int32_t &value,
                             static_cast<std::size_t>(value) == index;
       const auto &name = values[index].name;
       const auto itemLabel =
-          (name.empty() ? std::string{"(名称なし)"} : name) +
+          (name.empty() ? std::string{i18n::tr("(名称なし)")} : name) +
           "##reference" + std::to_string(index);
       if (ImGui::Selectable(itemLabel.c_str(), selected)) {
         value = static_cast<std::int32_t>(index);
@@ -116,32 +118,32 @@ bool enumCombo(const char *label, std::uint8_t &value,
 const char *kindName(SelectionKind kind) {
   switch (kind) {
   case SelectionKind::vertex:
-    return "頂点";
+    return i18n::tr("頂点");
   case SelectionKind::texture:
-    return "テクスチャ";
+    return i18n::tr("テクスチャ");
   case SelectionKind::material:
-    return "材質";
+    return i18n::tr("材質");
   case SelectionKind::bone:
-    return "ボーン";
+    return i18n::tr("ボーン");
   case SelectionKind::morph:
-    return "モーフ";
+    return i18n::tr("モーフ");
   case SelectionKind::displayFrame:
-    return "表示枠";
+    return i18n::tr("表示枠");
   case SelectionKind::rigidBody:
-    return "剛体";
+    return i18n::tr("剛体");
   case SelectionKind::joint:
-    return "ジョイント";
+    return i18n::tr("ジョイント");
   case SelectionKind::softBody:
-    return "ソフトボディ";
+    return i18n::tr("ソフトボディ");
   case SelectionKind::face:
-    return "面";
+    return i18n::tr("面");
   }
-  return "選択";
+  return i18n::tr("選択");
 }
 
 std::string selectionSummary(const DocumentSession &session) {
   if (session.selection.items().empty())
-    return "選択なし";
+    return i18n::tr("選択なし");
   const auto &selected = session.selection.items().front();
   std::string name;
   if (selected.kind == SelectionKind::material) {
@@ -187,7 +189,7 @@ void texturePreviewCard(const DocumentSession &session, const char *label,
   ImGui::TextUnformatted(label);
   if (preview.texture == nullptr || preview.width == 0U ||
       preview.height == 0U) {
-    ImGui::TextDisabled("画像を読み込めません");
+    ImGui::TextDisabled(i18n::tr("画像を読み込めません"));
     return;
   }
   const auto maximum =
@@ -215,28 +217,28 @@ void materialInspector(DocumentSession &session,
   auto &draft = *session.ui.materialDraft;
   bool commit{};
   const auto compact = ImGui::GetContentRegionAvail().x < 380.0F;
-  if (ImGui::CollapsingHeader("基本", ImGuiTreeNodeFlags_DefaultOpen)) {
-    (void)inputText("名前", draft.name);
+  if (ImGui::CollapsingHeader(i18n::tr("基本"), ImGuiTreeNodeFlags_DefaultOpen)) {
+    (void)inputText(i18n::tr("名前"), draft.name);
     commit |= ImGui::IsItemDeactivatedAfterEdit();
-    (void)inputText("英語名", draft.englishName);
+    (void)inputText(i18n::tr("英語名"), draft.englishName);
     commit |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SeparatorText("表面");
-    (void)ImGui::ColorEdit4("拡散色", draft.diffuse.data());
+    ImGui::SeparatorText(i18n::tr("表面"));
+    (void)ImGui::ColorEdit4(i18n::tr("拡散色"), draft.diffuse.data());
     commit |= ImGui::IsItemDeactivatedAfterEdit();
-    (void)ImGui::ColorEdit3("環境色", draft.ambient.data());
+    (void)ImGui::ColorEdit3(i18n::tr("環境色"), draft.ambient.data());
     commit |= ImGui::IsItemDeactivatedAfterEdit();
-    (void)ImGui::ColorEdit3("鏡面色", draft.specular.data());
+    (void)ImGui::ColorEdit3(i18n::tr("鏡面色"), draft.specular.data());
     commit |= ImGui::IsItemDeactivatedAfterEdit();
-    (void)ImGui::DragFloat("光沢", &draft.shininess, 0.1F, 0.0F, 1000.0F);
+    (void)ImGui::DragFloat(i18n::tr("光沢"), &draft.shininess, 0.1F, 0.0F, 1000.0F);
     commit |= ImGui::IsItemDeactivatedAfterEdit();
   }
 
-  if (ImGui::CollapsingHeader("テクスチャ", ImGuiTreeNodeFlags_DefaultOpen)) {
-    texturePreviewCard(session, "基本テクスチャ", draft.textureIndex, renderer);
-  static constexpr const char *sphereModes[]{"なし", "乗算", "加算",
-                                             "サブテクスチャ"};
+  if (ImGui::CollapsingHeader(i18n::tr("テクスチャ"), ImGuiTreeNodeFlags_DefaultOpen)) {
+    texturePreviewCard(session, i18n::tr("基本テクスチャ"), draft.textureIndex, renderer);
+  const char *sphereModes[]{i18n::tr("なし"), i18n::tr("乗算"), i18n::tr("加算"),
+                                             i18n::tr("サブテクスチャ")};
   const auto sphere = std::min<std::size_t>(draft.sphereMode, 3U);
-  if (ImGui::BeginCombo("球面方式", sphereModes[sphere])) {
+  if (ImGui::BeginCombo(i18n::tr("球面方式"), sphereModes[sphere])) {
     for (std::size_t index = 0; index < 4U; ++index)
       if (ImGui::Selectable(sphereModes[index], index == sphere)) {
         draft.sphereMode = static_cast<std::uint8_t>(index);
@@ -245,11 +247,11 @@ void materialInspector(DocumentSession &session,
     ImGui::EndCombo();
   }
   if (draft.sphereMode != 0U)
-    texturePreviewCard(session, "球面テクスチャ", draft.sphereTextureIndex,
+    texturePreviewCard(session, i18n::tr("球面テクスチャ"), draft.sphereTextureIndex,
                        renderer);
-  const char *toonModes[]{"個別テクスチャ", "共有トゥーン"};
+  const char *toonModes[]{i18n::tr("個別テクスチャ"), i18n::tr("共有トゥーン")};
   const auto toon = std::min<std::size_t>(draft.toonMode, 1U);
-  if (ImGui::BeginCombo("トゥーン", toonModes[toon])) {
+  if (ImGui::BeginCombo(i18n::tr("トゥーン"), toonModes[toon])) {
     for (std::size_t index = 0; index < 2U; ++index)
       if (ImGui::Selectable(toonModes[index], index == toon)) {
         draft.toonMode = static_cast<std::uint8_t>(index);
@@ -258,28 +260,28 @@ void materialInspector(DocumentSession &session,
     ImGui::EndCombo();
   }
   if (draft.toonMode == 0U)
-    texturePreviewCard(session, "個別トゥーン", draft.toonTextureIndex,
+    texturePreviewCard(session, i18n::tr("個別トゥーン"), draft.toonTextureIndex,
                        renderer);
   }
 
-  if (ImGui::CollapsingHeader("詳細描画", compact ? 0 : ImGuiTreeNodeFlags_None)) {
-  commit |= flagCheckbox("両面", draft.drawFlags, std::uint8_t{0x01U});
-  commit |= flagCheckbox("地面影", draft.drawFlags, std::uint8_t{0x02U});
-  commit |= flagCheckbox("セルフシャドウマップ", draft.drawFlags,
+  if (ImGui::CollapsingHeader(i18n::tr("詳細描画"), compact ? 0 : ImGuiTreeNodeFlags_None)) {
+  commit |= flagCheckbox(i18n::tr("両面"), draft.drawFlags, std::uint8_t{0x01U});
+  commit |= flagCheckbox(i18n::tr("地面影"), draft.drawFlags, std::uint8_t{0x02U});
+  commit |= flagCheckbox(i18n::tr("セルフシャドウマップ"), draft.drawFlags,
                          std::uint8_t{0x04U});
   commit |=
-      flagCheckbox("セルフシャドウ", draft.drawFlags, std::uint8_t{0x08U});
-  commit |= flagCheckbox("輪郭", draft.drawFlags, std::uint8_t{0x10U});
+      flagCheckbox(i18n::tr("セルフシャドウ"), draft.drawFlags, std::uint8_t{0x08U});
+  commit |= flagCheckbox(i18n::tr("輪郭"), draft.drawFlags, std::uint8_t{0x10U});
   if ((draft.drawFlags & 0x10U) != 0U) {
-    (void)ImGui::ColorEdit4("輪郭色", draft.edgeColor.data());
+    (void)ImGui::ColorEdit4(i18n::tr("輪郭色"), draft.edgeColor.data());
     commit |= ImGui::IsItemDeactivatedAfterEdit();
-    (void)ImGui::DragFloat("輪郭幅", &draft.edgeSize, 0.01F, 0.0F, 100.0F);
+    (void)ImGui::DragFloat(i18n::tr("輪郭幅"), &draft.edgeSize, 0.01F, 0.0F, 100.0F);
     commit |= ImGui::IsItemDeactivatedAfterEdit();
   }
   }
   if (commit) {
     const auto result = editMaterial(session, handle, draft);
-    setOperationStatus(session, result.success, "材質を更新しました",
+    setOperationStatus(session, result.success, i18n::tr("材質を更新しました"),
                        result.message);
     session.ui.materialDraft.reset();
   }
@@ -294,38 +296,38 @@ void boneInspector(DocumentSession &session, const SelectionItem &selected) {
     session.ui.boneDraft = *value;
   auto &draft = *session.ui.boneDraft;
   bool commit{};
-  ImGui::SeparatorText("名前");
-  (void)inputText("名前", draft.name);
+  ImGui::SeparatorText(i18n::tr("名前"));
+  (void)inputText(i18n::tr("名前"), draft.name);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)inputText("英語名", draft.englishName);
+  (void)inputText(i18n::tr("英語名"), draft.englishName);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  ImGui::SeparatorText("変形");
-  (void)ImGui::DragFloat3("位置", draft.position.data(), 0.01F);
+  ImGui::SeparatorText(i18n::tr("変形"));
+  (void)ImGui::DragFloat3(i18n::tr("位置"), draft.position.data(), 0.01F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)ImGui::InputInt("変形層", &draft.deformLayer);
+  (void)ImGui::InputInt(i18n::tr("変形層"), &draft.deformLayer);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  ImGui::SeparatorText("機能");
-  commit |= flagCheckbox("回転可能", draft.flags, std::uint16_t{0x0002U});
-  commit |= flagCheckbox("移動可能", draft.flags, std::uint16_t{0x0004U});
-  commit |= flagCheckbox("表示", draft.flags, std::uint16_t{0x0008U});
-  commit |= flagCheckbox("操作可能", draft.flags, std::uint16_t{0x0010U});
+  ImGui::SeparatorText(i18n::tr("機能"));
+  commit |= flagCheckbox(i18n::tr("回転可能"), draft.flags, std::uint16_t{0x0002U});
+  commit |= flagCheckbox(i18n::tr("移動可能"), draft.flags, std::uint16_t{0x0004U});
+  commit |= flagCheckbox(i18n::tr("表示"), draft.flags, std::uint16_t{0x0008U});
+  commit |= flagCheckbox(i18n::tr("操作可能"), draft.flags, std::uint16_t{0x0010U});
   commit |= flagCheckbox("IK", draft.flags, std::uint16_t{0x0020U});
-  commit |= flagCheckbox("回転付与", draft.flags, std::uint16_t{0x0100U});
-  commit |= flagCheckbox("移動付与", draft.flags, std::uint16_t{0x0200U});
-  commit |= flagCheckbox("軸固定", draft.flags, std::uint16_t{0x0400U});
-  commit |= flagCheckbox("ローカル軸", draft.flags, std::uint16_t{0x0800U});
-  commit |= flagCheckbox("物理後変形", draft.flags, std::uint16_t{0x1000U});
+  commit |= flagCheckbox(i18n::tr("回転付与"), draft.flags, std::uint16_t{0x0100U});
+  commit |= flagCheckbox(i18n::tr("移動付与"), draft.flags, std::uint16_t{0x0200U});
+  commit |= flagCheckbox(i18n::tr("軸固定"), draft.flags, std::uint16_t{0x0400U});
+  commit |= flagCheckbox(i18n::tr("ローカル軸"), draft.flags, std::uint16_t{0x0800U});
+  commit |= flagCheckbox(i18n::tr("物理後変形"), draft.flags, std::uint16_t{0x1000U});
   if ((draft.flags & 0x0020U) != 0U) {
     ImGui::SeparatorText("IK");
-    (void)ImGui::InputInt("反復回数", &draft.ikLoopCount);
+    (void)ImGui::InputInt(i18n::tr("反復回数"), &draft.ikLoopCount);
     commit |= ImGui::IsItemDeactivatedAfterEdit();
-    (void)ImGui::DragFloat("角度制限", &draft.ikLimitAngle, 0.001F, 0.0F);
+    (void)ImGui::DragFloat(i18n::tr("角度制限"), &draft.ikLimitAngle, 0.001F, 0.0F);
     commit |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::Text("リンク: %zu", draft.ikLinks.size());
+    ImGui::Text(i18n::tr("リンク: %zu"), draft.ikLinks.size());
   }
   if (commit) {
     const auto result = editBone(session, handle, draft);
-    setOperationStatus(session, result.success, "ボーンを更新しました",
+    setOperationStatus(session, result.success, i18n::tr("ボーンを更新しました"),
                        result.message);
     session.ui.boneDraft.reset();
   }
@@ -342,18 +344,18 @@ void vertexInspector(DocumentSession &session, EditorWorkspace &workspace,
     session.ui.vertexDraft = *value;
   auto &draft = *session.ui.vertexDraft;
   bool commit{};
-  (void)ImGui::DragFloat3("位置", draft.position.data(), 0.001F);
+  (void)ImGui::DragFloat3(i18n::tr("位置"), draft.position.data(), 0.001F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)ImGui::DragFloat3("法線", draft.normal.data(), 0.001F);
+  (void)ImGui::DragFloat3(i18n::tr("法線"), draft.normal.data(), 0.001F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
   (void)ImGui::DragFloat2("UV", draft.uv.data(), 0.001F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)ImGui::DragFloat("輪郭倍率", &draft.edgeScale, 0.01F, 0.0F);
+  (void)ImGui::DragFloat(i18n::tr("輪郭倍率"), &draft.edgeScale, 0.01F, 0.0F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  ImGui::SeparatorText("ウェイト");
+  ImGui::SeparatorText(i18n::tr("ウェイト"));
   for (std::size_t index = 0; index < draft.weights.size(); ++index) {
     ImGui::PushID(static_cast<int>(index));
-    (void)ImGui::DragFloat("重み", &draft.weights[index], 0.005F, 0.0F, 1.0F);
+    (void)ImGui::DragFloat(i18n::tr("重み"), &draft.weights[index], 0.005F, 0.0F, 1.0F);
     commit |= ImGui::IsItemDeactivatedAfterEdit();
     if (draft.bones[index] >= 0 &&
         static_cast<std::size_t>(draft.bones[index]) <
@@ -376,7 +378,7 @@ void vertexInspector(DocumentSession &session, EditorWorkspace &workspace,
   }
   if (commit) {
     const auto result = editVertex(session, handle, draft);
-    setOperationStatus(session, result.success, "頂点を更新しました",
+    setOperationStatus(session, result.success, i18n::tr("頂点を更新しました"),
                        result.message);
     session.ui.vertexDraft.reset();
   }
@@ -393,39 +395,39 @@ void rigidBodyInspector(DocumentSession &session,
     session.ui.rigidBodyDraft = *value;
   auto &draft = *session.ui.rigidBodyDraft;
   bool commit{};
-  ImGui::SeparatorText("名前");
-  (void)inputText("名前", draft.name);
+  ImGui::SeparatorText(i18n::tr("名前"));
+  (void)inputText(i18n::tr("名前"), draft.name);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)inputText("英語名", draft.englishName);
+  (void)inputText(i18n::tr("英語名"), draft.englishName);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
 
-  ImGui::SeparatorText("関連付け");
-  commit |= referenceCombo("ボーン", draft.bone,
+  ImGui::SeparatorText(i18n::tr("関連付け"));
+  commit |= referenceCombo(i18n::tr("ボーン"), draft.bone,
                            session.document.model().bones, true);
-  static constexpr const char *shapes[]{"球", "箱", "カプセル"};
-  commit |= enumCombo("形状", draft.shape, shapes, std::size(shapes));
-  static constexpr const char *modes[]{"ボーン追従", "物理演算",
-                                        "物理演算 + ボーン"};
-  commit |= enumCombo("動作", draft.mode, modes, std::size(modes));
+  const char *shapes[]{i18n::tr("球"), i18n::tr("箱"), i18n::tr("カプセル")};
+  commit |= enumCombo(i18n::tr("形状"), draft.shape, shapes, std::size(shapes));
+  const char *modes[]{i18n::tr("ボーン追従"), i18n::tr("物理演算"),
+                                        i18n::tr("物理演算 + ボーン")};
+  commit |= enumCombo(i18n::tr("動作"), draft.mode, modes, std::size(modes));
 
-  ImGui::SeparatorText("変形");
-  (void)ImGui::DragFloat3("位置", draft.position.data(), 0.01F);
+  ImGui::SeparatorText(i18n::tr("変形"));
+  (void)ImGui::DragFloat3(i18n::tr("位置"), draft.position.data(), 0.01F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)ImGui::DragFloat3("回転", draft.rotation.data(), 0.005F);
+  (void)ImGui::DragFloat3(i18n::tr("回転"), draft.rotation.data(), 0.005F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)ImGui::DragFloat3("大きさ", draft.size.data(), 0.01F, 0.001F);
+  (void)ImGui::DragFloat3(i18n::tr("大きさ"), draft.size.data(), 0.01F, 0.001F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
 
-  ImGui::SeparatorText("衝突");
+  ImGui::SeparatorText(i18n::tr("衝突"));
   int group = static_cast<int>(draft.group) + 1;
-  if (ImGui::SliderInt("所属グループ", &group, 1, 16)) {
+  if (ImGui::SliderInt(i18n::tr("所属グループ"), &group, 1, 16)) {
     draft.group = static_cast<std::uint8_t>(group - 1);
   }
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  if (ImGui::TreeNode("衝突除外グループ")) {
+  if (ImGui::TreeNode(i18n::tr("衝突除外グループ"))) {
     for (std::size_t index = 0; index < 16U; ++index) {
       ImGui::PushID(static_cast<int>(index));
-      const auto label = "グループ " + std::to_string(index + 1U);
+      const auto label = i18n::tr("グループ ") + std::to_string(index + 1U);
       commit |= flagCheckbox(label.c_str(), draft.collisionMask,
                              static_cast<std::uint16_t>(1U << index));
       ImGui::PopID();
@@ -433,23 +435,23 @@ void rigidBodyInspector(DocumentSession &session,
     ImGui::TreePop();
   }
 
-  ImGui::SeparatorText("物理特性");
-  (void)ImGui::DragFloat("質量", &draft.mass, 0.01F, 0.0F);
+  ImGui::SeparatorText(i18n::tr("物理特性"));
+  (void)ImGui::DragFloat(i18n::tr("質量"), &draft.mass, 0.01F, 0.0F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)ImGui::DragFloat("移動減衰", &draft.linearDamping, 0.005F,
+  (void)ImGui::DragFloat(i18n::tr("移動減衰"), &draft.linearDamping, 0.005F,
                          0.0F, 1.0F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)ImGui::DragFloat("回転減衰", &draft.angularDamping, 0.005F,
+  (void)ImGui::DragFloat(i18n::tr("回転減衰"), &draft.angularDamping, 0.005F,
                          0.0F, 1.0F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)ImGui::DragFloat("反発", &draft.restitution, 0.005F, 0.0F,
+  (void)ImGui::DragFloat(i18n::tr("反発"), &draft.restitution, 0.005F, 0.0F,
                          1.0F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)ImGui::DragFloat("摩擦", &draft.friction, 0.005F, 0.0F, 1.0F);
+  (void)ImGui::DragFloat(i18n::tr("摩擦"), &draft.friction, 0.005F, 0.0F, 1.0F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
   if (commit) {
     const auto result = editRigidBody(session, handle, draft);
-    setOperationStatus(session, result.success, "剛体を更新しました",
+    setOperationStatus(session, result.success, i18n::tr("剛体を更新しました"),
                        result.message);
     session.ui.rigidBodyDraft.reset();
   }
@@ -465,50 +467,50 @@ void jointInspector(DocumentSession &session, const SelectionItem &selected) {
     session.ui.jointDraft = *value;
   auto &draft = *session.ui.jointDraft;
   bool commit{};
-  ImGui::SeparatorText("名前");
-  (void)inputText("名前", draft.name);
+  ImGui::SeparatorText(i18n::tr("名前"));
+  (void)inputText(i18n::tr("名前"), draft.name);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)inputText("英語名", draft.englishName);
+  (void)inputText(i18n::tr("英語名"), draft.englishName);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  static constexpr const char *types[]{"ばね付き6軸", "6軸", "点接続",
-                                       "円錐ねじり", "スライダー", "ヒンジ"};
-  commit |= enumCombo("種類", draft.type, types, std::size(types));
+  const char *types[]{i18n::tr("ばね付き6軸"), i18n::tr("6軸"), i18n::tr("点接続"),
+                                       i18n::tr("円錐ねじり"), i18n::tr("スライダー"), i18n::tr("ヒンジ")};
+  commit |= enumCombo(i18n::tr("種類"), draft.type, types, std::size(types));
   if (draft.type != 0U)
-    ImGui::TextDisabled("この種類は編集・保存できますが、プレビュー未対応です");
+    ImGui::TextDisabled(i18n::tr("この種類は編集・保存できますが、プレビュー未対応です"));
 
-  ImGui::SeparatorText("接続");
-  commit |= referenceCombo("剛体A", draft.bodyA,
+  ImGui::SeparatorText(i18n::tr("接続"));
+  commit |= referenceCombo(i18n::tr("剛体A"), draft.bodyA,
                            session.document.model().rigidBodies, false);
-  commit |= referenceCombo("剛体B", draft.bodyB,
+  commit |= referenceCombo(i18n::tr("剛体B"), draft.bodyB,
                            session.document.model().rigidBodies, false);
-  ImGui::SeparatorText("変形");
-  (void)ImGui::DragFloat3("位置", draft.position.data(), 0.01F);
+  ImGui::SeparatorText(i18n::tr("変形"));
+  (void)ImGui::DragFloat3(i18n::tr("位置"), draft.position.data(), 0.01F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)ImGui::DragFloat3("回転", draft.rotation.data(), 0.005F);
+  (void)ImGui::DragFloat3(i18n::tr("回転"), draft.rotation.data(), 0.005F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  ImGui::SeparatorText("移動制限");
-  (void)ImGui::DragFloat3("最小##translation", draft.translationMinimum.data(),
+  ImGui::SeparatorText(i18n::tr("移動制限"));
+  (void)ImGui::DragFloat3(i18n::tr("最小##translation"), draft.translationMinimum.data(),
                           0.01F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)ImGui::DragFloat3("最大##translation", draft.translationMaximum.data(),
+  (void)ImGui::DragFloat3(i18n::tr("最大##translation"), draft.translationMaximum.data(),
                           0.01F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)ImGui::DragFloat3("ばね##translation", draft.translationSpring.data(),
+  (void)ImGui::DragFloat3(i18n::tr("ばね##translation"), draft.translationSpring.data(),
                           0.01F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  ImGui::SeparatorText("回転制限");
-  (void)ImGui::DragFloat3("最小##rotation", draft.rotationMinimum.data(),
+  ImGui::SeparatorText(i18n::tr("回転制限"));
+  (void)ImGui::DragFloat3(i18n::tr("最小##rotation"), draft.rotationMinimum.data(),
                           0.005F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)ImGui::DragFloat3("最大##rotation", draft.rotationMaximum.data(),
+  (void)ImGui::DragFloat3(i18n::tr("最大##rotation"), draft.rotationMaximum.data(),
                           0.005F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)ImGui::DragFloat3("ばね##rotation", draft.rotationSpring.data(),
+  (void)ImGui::DragFloat3(i18n::tr("ばね##rotation"), draft.rotationSpring.data(),
                           0.01F);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
   if (commit) {
     const auto result = editJoint(session, handle, draft);
-    setOperationStatus(session, result.success, "ジョイントを更新しました",
+    setOperationStatus(session, result.success, i18n::tr("ジョイントを更新しました"),
                        result.message);
     session.ui.jointDraft.reset();
   }
@@ -545,11 +547,11 @@ bool morphIndexCombo(const char *label, DocumentSession &session,
                            ? static_cast<std::size_t>(index)
                            : noSelection;
   const auto preview = current == noSelection
-                           ? "未選択"
+                           ? i18n::tr("未選択")
                            : model.morphs[current].name.c_str();
   bool changed{};
   if (ImGui::BeginCombo(label, preview)) {
-    if (ImGui::Selectable("未選択", current == noSelection)) {
+    if (ImGui::Selectable(i18n::tr("未選択"), current == noSelection)) {
       index = -1;
       changed = true;
     }
@@ -559,7 +561,7 @@ bool morphIndexCombo(const char *label, DocumentSession &session,
         continue;
       const auto selected = current == candidate;
       const auto itemLabel = (model.morphs[candidate].name.empty()
-                                  ? std::string{"(名称なし)"}
+                                  ? std::string{i18n::tr("(名称なし)")}
                                   : model.morphs[candidate].name) +
                              "##morph-target" + std::to_string(candidate);
       if (ImGui::Selectable(itemLabel.c_str(), selected)) {
@@ -584,30 +586,30 @@ bool morphIndexCombo(const char *label, DocumentSession &session,
   if (morph.type == 0U || morph.type == 9U) {
     if (offset.index >= 0 &&
         static_cast<std::size_t>(offset.index) < session.document.model().morphs.size())
-      return "モーフ " + indexedOffsetName(session.document.model().morphs[
+      return i18n::tr("モーフ ") + indexedOffsetName(session.document.model().morphs[
                                                   static_cast<std::size_t>(offset.index)].name,
                                               static_cast<std::size_t>(offset.index));
-    return "モーフ " + std::to_string(offset.index);
+    return i18n::tr("モーフ ") + std::to_string(offset.index);
   }
   if (morph.type == 2U && offset.index >= 0 &&
       static_cast<std::size_t>(offset.index) < session.document.model().bones.size())
-    return "ボーン " + indexedOffsetName(session.document.model().bones[
+    return i18n::tr("ボーン ") + indexedOffsetName(session.document.model().bones[
                                                static_cast<std::size_t>(offset.index)].name,
                                            static_cast<std::size_t>(offset.index));
   if (morph.type == 8U) {
     if (offset.index < 0)
-      return "材質 全材質";
+      return i18n::tr("材質 全材質");
     if (static_cast<std::size_t>(offset.index) < session.document.model().materials.size())
-      return "材質 " + indexedOffsetName(session.document.model().materials[
+      return i18n::tr("材質 ") + indexedOffsetName(session.document.model().materials[
                                                  static_cast<std::size_t>(offset.index)].name,
                                              static_cast<std::size_t>(offset.index));
   }
   if (morph.type == 10U && offset.index >= 0 &&
       static_cast<std::size_t>(offset.index) < session.document.model().rigidBodies.size())
-    return "剛体 " + indexedOffsetName(session.document.model().rigidBodies[
+    return i18n::tr("剛体 ") + indexedOffsetName(session.document.model().rigidBodies[
                                                static_cast<std::size_t>(offset.index)].name,
                                            static_cast<std::size_t>(offset.index));
-  return (morph.type == 2U ? "ボーン " : "頂点 ") +
+  return (morph.type == 2U ? i18n::tr("ボーン ") : i18n::tr("頂点 ")) +
          std::to_string(offset.index);
 }
 
@@ -639,7 +641,7 @@ void beginMorphOffsetTargetPick(DocumentSession &session,
   default:
     break;
   }
-  setStatus(session, "ビューポートからモーフオフセットの対象を選択してください",
+  setStatus(session, i18n::tr("ビューポートからモーフオフセットの対象を選択してください"),
             UiStatusKind::info);
 }
 
@@ -714,17 +716,17 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
   auto &draft = *session.ui.morphDraft;
   bool commit = session.ui.morphOffsetDirty;
 
-  ImGui::SeparatorText("名前");
-  (void)inputText("名前", draft.name);
+  ImGui::SeparatorText(i18n::tr("名前"));
+  (void)inputText(i18n::tr("名前"), draft.name);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  (void)inputText("英語名", draft.englishName);
+  (void)inputText(i18n::tr("英語名"), draft.englishName);
   commit |= ImGui::IsItemDeactivatedAfterEdit();
-  static constexpr const char *panels[]{"予約", "まゆ", "目", "リップ", "その他"};
-  commit |= enumCombo("表示区分", draft.panel, panels, std::size(panels));
-  static constexpr const char *types[]{"グループ", "頂点", "ボーン", "UV", "追加UV1", "追加UV2",
-                                       "追加UV3", "追加UV4", "材質", "フリップ", "インパルス"};
+  const char *panels[]{i18n::tr("予約"), i18n::tr("まゆ"), i18n::tr("目"), i18n::tr("リップ"), i18n::tr("その他")};
+  commit |= enumCombo(i18n::tr("表示区分"), draft.panel, panels, std::size(panels));
+  const char *types[]{i18n::tr("グループ"), i18n::tr("頂点"), i18n::tr("ボーン"), "UV", i18n::tr("追加UV1"), i18n::tr("追加UV2"),
+                                       i18n::tr("追加UV3"), i18n::tr("追加UV4"), i18n::tr("材質"), i18n::tr("フリップ"), i18n::tr("インパルス")};
   if (draft.offsets.empty()) {
-    const auto typeChanged = enumCombo("種類", draft.type, types, std::size(types));
+    const auto typeChanged = enumCombo(i18n::tr("種類"), draft.type, types, std::size(types));
     commit |= typeChanged;
     if (typeChanged) {
       session.ui.morphAddTarget.reset();
@@ -732,49 +734,49 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
     }
   } else {
     const auto type = std::min<std::size_t>(draft.type, std::size(types) - 1U);
-    ImGui::Text("種類: %s", types[type]);
-    ImGui::TextDisabled("オフセットがあるモーフの種類は変更できません");
+    ImGui::Text(i18n::tr("種類: %s"), types[type]);
+    ImGui::TextDisabled(i18n::tr("オフセットがあるモーフの種類は変更できません"));
   }
-  ImGui::Text("オフセット: %zu", draft.offsets.size());
+  ImGui::Text(i18n::tr("オフセット: %zu"), draft.offsets.size());
 
-  ImGui::SeparatorText("オフセット編集");
+  ImGui::SeparatorText(i18n::tr("オフセット編集"));
   if (!draft.offsets.empty()) {
     (void)drawMorphOffsetBrowser(session, draft, session.ui.morphOffsetIndex,
                                  "inspector", handle);
     auto &offset = draft.offsets[session.ui.morphOffsetIndex];
     bool offsetCommit{};
     if (draft.type != 0 && draft.type != 9)
-      offsetCommit = ImGui::InputInt("対象インデックス", &offset.index);
+      offsetCommit = ImGui::InputInt(i18n::tr("対象インデックス"), &offset.index);
     switch (draft.type) {
     case 0:
     case 9:
-      offsetCommit |= ImGui::InputFloat("重み", &offset.scalar);
+      offsetCommit |= ImGui::InputFloat(i18n::tr("重み"), &offset.scalar);
       break;
     case 1:
-      offsetCommit |= ImGui::InputFloat3("移動", offset.vector3.data());
+      offsetCommit |= ImGui::InputFloat3(i18n::tr("移動"), offset.vector3.data());
       break;
     case 2:
-      offsetCommit |= ImGui::InputFloat3("移動", offset.vector3.data());
-      offsetCommit |= ImGui::InputFloat4("回転", offset.vector4.data());
+      offsetCommit |= ImGui::InputFloat3(i18n::tr("移動"), offset.vector3.data());
+      offsetCommit |= ImGui::InputFloat4(i18n::tr("回転"), offset.vector4.data());
       break;
     case 3:
     case 4:
     case 5:
     case 6:
     case 7:
-      offsetCommit |= ImGui::InputFloat4("UV移動", offset.vector4.data());
+      offsetCommit |= ImGui::InputFloat4(i18n::tr("UV移動"), offset.vector4.data());
       break;
     case 8:
       for (std::size_t index = 0; index < 7U; ++index) {
         ImGui::PushID(static_cast<int>(index));
-        offsetCommit |= ImGui::InputFloat4("材質値", offset.materialVectors[index].data());
+        offsetCommit |= ImGui::InputFloat4(i18n::tr("材質値"), offset.materialVectors[index].data());
         ImGui::PopID();
       }
       break;
     case 10:
-      offsetCommit |= ImGui::InputFloat3("速度", offset.vector3.data());
-      offsetCommit |= ImGui::InputFloat3("トルク", offset.tertiaryVector3.data());
-      offsetCommit |= ImGui::Checkbox("ローカル", &offset.local);
+      offsetCommit |= ImGui::InputFloat3(i18n::tr("速度"), offset.vector3.data());
+      offsetCommit |= ImGui::InputFloat3(i18n::tr("トルク"), offset.tertiaryVector3.data());
+      offsetCommit |= ImGui::Checkbox(i18n::tr("ローカル"), &offset.local);
       break;
     default:
       break;
@@ -782,26 +784,26 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
     if (offsetCommit)
       commit = true;
     const auto targetKind = morphOffsetTargetKind(draft.type);
-    ImGui::Text("対象: %s", targetKind == SelectionKind::vertex ? "頂点" :
-                             targetKind == SelectionKind::bone ? "ボーン" :
-                             targetKind == SelectionKind::material ? "材質" :
-                             targetKind == SelectionKind::rigidBody ? "剛体" : "モーフ");
+    ImGui::Text(i18n::tr("対象: %s"), targetKind == SelectionKind::vertex ? i18n::tr("頂点") :
+                             targetKind == SelectionKind::bone ? i18n::tr("ボーン") :
+                             targetKind == SelectionKind::material ? i18n::tr("材質") :
+                             targetKind == SelectionKind::rigidBody ? i18n::tr("剛体") : i18n::tr("モーフ"));
     if (draft.type == 0 || draft.type == 9) {
-      offsetCommit |= morphIndexCombo("対象モーフ", session, offset.index, handle);
+      offsetCommit |= morphIndexCombo(i18n::tr("対象モーフ"), session, offset.index, handle);
       if (offsetCommit)
         commit = true;
-    } else if (ImGui::Button("ビューポートから対象を選択")) {
+    } else if (ImGui::Button(i18n::tr("ビューポートから対象を選択"))) {
       beginMorphOffsetTargetPick(session, handle, session.ui.morphOffsetIndex,
                                  draft.type, false);
     }
     if (offsetCommit)
       ++session.ui.morphOffsetFilterEpoch;
     if (session.ui.morphOffsetTarget.picking)
-      ImGui::TextDisabled("対象を選択中…");
+      ImGui::TextDisabled(i18n::tr("対象を選択中…"));
     if (session.ui.morphOffsetTarget.target)
-      ImGui::TextDisabled("対象ID: %llu", static_cast<unsigned long long>(session.ui.morphOffsetTarget.target->id));
+      ImGui::TextDisabled(i18n::tr("対象ID: %llu"), static_cast<unsigned long long>(session.ui.morphOffsetTarget.target->id));
   }
-  ImGui::SeparatorText("新しいオフセット");
+  ImGui::SeparatorText(i18n::tr("新しいオフセット"));
   if (draft.type == 0 || draft.type == 9) {
     auto addIndex = std::int32_t{-1};
     if (session.ui.morphAddTarget) {
@@ -810,7 +812,7 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
             selectionHandle<mmd::MorphTag>(session.document, *session.ui.morphAddTarget))
           addIndex = static_cast<std::int32_t>(index);
     }
-    if (morphIndexCombo("追加対象モーフ", session, addIndex, handle)) {
+    if (morphIndexCombo(i18n::tr("追加対象モーフ"), session, addIndex, handle)) {
       if (addIndex >= 0)
         session.ui.morphAddTarget = SelectionItem{
             SelectionKind::morph,
@@ -821,16 +823,16 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
         session.ui.morphAddTarget.reset();
     }
   } else if (draft.type != 8) {
-    if (ImGui::Button("ビューポートから対象を選択"))
+    if (ImGui::Button(i18n::tr("ビューポートから対象を選択")))
       beginMorphOffsetTargetPick(session, handle, draft.offsets.size(),
                                  draft.type, true);
   } else {
-    ImGui::TextDisabled("対象材質: 全材質 (-1)");
+    ImGui::TextDisabled(i18n::tr("対象材質: 全材質 (-1)"));
   }
   const auto addLabel = std::string{"+ "} +
                         types[std::min<std::size_t>(draft.type,
                                                     std::size(types) - 1U)] +
-                        "オフセット";
+                        i18n::tr("オフセット");
   const auto addTargetRequired = draft.type != 8;
   const auto hasAddTarget = session.ui.morphAddTarget.has_value();
   const auto addEnabled = !addTargetRequired || hasAddTarget;
@@ -841,40 +843,40 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
       session.ui.morphDraft.reset();
       session.ui.morphOffsetTarget = {};
       session.ui.morphAddTarget.reset();
-      setStatus(session, "モーフオフセットを追加しました",
+      setStatus(session, i18n::tr("モーフオフセットを追加しました"),
                 UiStatusKind::success);
     } else {
-      setStatus(session, "モーフオフセットを追加できません",
+      setStatus(session, i18n::tr("モーフオフセットを追加できません"),
                 UiStatusKind::error, std::chrono::milliseconds::zero(), true);
     }
   }
   if (!addEnabled)
     ImGui::EndDisabled();
   ImGui::SameLine();
-  if (ImGui::Button("詳細編集"))
+  if (ImGui::Button(i18n::tr("詳細編集")))
     workspace.showMorph = true;
 
-  ImGui::SeparatorText("プレビュー");
+  ImGui::SeparatorText(i18n::tr("プレビュー"));
   auto &values = session.preview.morphValues;
   auto preview = std::find_if(values.begin(), values.end(),
                               [&](const auto &item) { return item.morph == handle; });
   float weight = preview == values.end() ? 0.0F : preview->weight;
-  if (ImGui::SliderFloat("プレビュー強度", &weight, 0.0F, 1.0F, "%.2f")) {
+  if (ImGui::SliderFloat(i18n::tr("プレビュー強度"), &weight, 0.0F, 1.0F, "%.2f")) {
     morph::setBlend(session, handle, weight);
   }
-  if (ImGui::Button("このモーフをリセット")) {
+  if (ImGui::Button(i18n::tr("このモーフをリセット"))) {
     morph::clearBlend(session, handle);
   }
   ImGui::SameLine();
-  if (ImGui::Button("すべてリセット")) {
+  if (ImGui::Button(i18n::tr("すべてリセット"))) {
     morph::resetMix(session);
   }
   if (!values.empty())
-    ImGui::TextDisabled("%zu個のモーフを同時プレビュー中", values.size());
+    ImGui::TextDisabled(i18n::tr("%zu個のモーフを同時プレビュー中"), values.size());
 
   if (commit) {
     const auto result = editMorph(session, handle, draft);
-    setOperationStatus(session, result.success, "モーフを更新しました",
+    setOperationStatus(session, result.success, i18n::tr("モーフを更新しました"),
                        result.message);
     if (result.success) {
       session.ui.morphDraft.reset();
@@ -899,7 +901,7 @@ void readOnlyInspector(DocumentSession &session,
         if (session.document.textureHandle(index) ==
             selectionHandle<mmd::TextureTag>(session.document, selected)) {
           textureIndex = index;
-          texturePreviewCard(session, "プレビュー",
+          texturePreviewCard(session, i18n::tr("プレビュー"),
                              static_cast<std::int32_t>(index), renderer);
           break;
         }
@@ -907,11 +909,11 @@ void readOnlyInspector(DocumentSession &session,
       if (!session.ui.textureDraft)
         session.ui.textureDraft = *texture;
       auto &draft = *session.ui.textureDraft;
-      ImGui::SeparatorText("パス");
-      (void)inputText("保存パス", draft.storedPath);
+      ImGui::SeparatorText(i18n::tr("パス"));
+      (void)inputText(i18n::tr("保存パス"), draft.storedPath);
       if (ImGui::IsItemDeactivatedAfterEdit()) {
         const auto result = editTexture(session, handle, draft);
-        setOperationStatus(session, result.success, "テクスチャを更新しました",
+        setOperationStatus(session, result.success, i18n::tr("テクスチャを更新しました"),
                            result.message);
         session.ui.textureDraft.reset();
         return;
@@ -921,8 +923,8 @@ void readOnlyInspector(DocumentSession &session,
                             : std::filesystem::path{};
       ImGui::TextWrapped("%s", path.string().c_str());
       ImGui::TextUnformatted(!path.empty() && std::filesystem::exists(path)
-                                 ? "✓ 読み込み可能"
-                                 : "⚠ ファイルがありません");
+                                 ? i18n::tr("✓ 読み込み可能")
+                                 : i18n::tr("⚠ ファイルがありません"));
     }
   }
 }
@@ -932,31 +934,30 @@ void readOnlyInspector(DocumentSession &session,
 void drawInspectorPanel(DocumentSession &session, GpuModelRenderer *renderer,
                         WorkspaceUiState &workspace, bool *open) {
   auto &activeWorkspace = workspace.active;
-  if (!ImGui::Begin("インスペクター", open)) {
+  if (!ImGui::Begin(i18n::windowTitle("インスペクター"), open)) {
     ImGui::End();
     return;
   }
   if (session.selection.items().empty()) {
     switch (activeWorkspace) {
     case EditorWorkspace::model:
-        ImGui::TextUnformatted("モデル");
-        ImGui::TextUnformatted("材質またはテクスチャを");
-        ImGui::TextUnformatted("アウトライナーから選択してください");
+        ImGui::TextUnformatted(i18n::tr("モデル"));
+        ImGui::TextWrapped("%s", i18n::tr("アウトライナーから材質またはテクスチャを選択してください"));
         break;
     case EditorWorkspace::rig:
-        ImGui::TextUnformatted("リグ");
-        ImGui::TextUnformatted("頂点またはボーンを選択してください");
+        ImGui::TextUnformatted(i18n::tr("リグ"));
+        ImGui::TextWrapped("%s", i18n::tr("頂点またはボーンを選択してください"));
         break;
     case EditorWorkspace::morph:
-        ImGui::TextUnformatted("モーフ");
-        ImGui::TextUnformatted("モーフをアウトライナーから選択してください");
+        ImGui::TextUnformatted(i18n::tr("モーフ"));
+        ImGui::TextWrapped("%s", i18n::tr("モーフをアウトライナーから選択してください"));
         break;
     case EditorWorkspace::physics:
-        ImGui::TextUnformatted("物理");
-        ImGui::TextUnformatted("剛体、ジョイント、ソフトボディを選択してください");
+        ImGui::TextUnformatted(i18n::tr("物理"));
+        ImGui::TextWrapped("%s", i18n::tr("剛体、ジョイント、ソフトボディを選択してください"));
         break;
     case EditorWorkspace::inspect:
-        ImGui::TextUnformatted("Outlinerまたはビューポートで対象を選択してください");
+        ImGui::TextWrapped("%s", i18n::tr("Outlinerまたはビューポートで対象を選択してください"));
         break;
     }
     ImGui::End();
@@ -964,14 +965,14 @@ void drawInspectorPanel(DocumentSession &session, GpuModelRenderer *renderer,
   }
   const auto selected = session.selection.items().front();
   if (!workspacePolicy(activeWorkspace).allows(selected.kind)) {
-    ImGui::TextDisabled("このワークスペースでは選択対象を編集できません");
+    ImGui::TextDisabled(i18n::tr("このワークスペースでは選択対象を編集できません"));
     ImGui::End();
     return;
   }
   ImGui::Text("%s", kindName(selected.kind));
   if (session.selection.items().size() > 1U) {
     ImGui::SameLine();
-    ImGui::TextDisabled("(%zu件選択)", session.selection.items().size());
+    ImGui::TextDisabled(i18n::tr("(%zu件選択)"), session.selection.items().size());
   }
   switch (selected.kind) {
   case SelectionKind::material:
@@ -1013,10 +1014,10 @@ void drawStatusBar(DocumentSession &session, bool &showDiagnostics,
       ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking;
   if (ImGui::Begin("##status-bar", nullptr, flags)) {
-    ImGui::TextUnformatted(session.hasUnsavedWork() ? "● 未保存" : "✓ 保存済み");
+    ImGui::TextUnformatted(session.hasUnsavedWork() ? i18n::tr("● 未保存") : i18n::tr("✓ 保存済み"));
     ImGui::SameLine();
     if (ImGui::SmallButton(
-            ("診断 " + std::to_string(session.validation.issues.size()))
+            (i18n::tr("診断 ") + std::to_string(session.validation.issues.size()))
                 .c_str()))
       showDiagnostics = true;
     ImGui::SameLine();
@@ -1024,7 +1025,7 @@ void drawStatusBar(DocumentSession &session, bool &showDiagnostics,
     if (ImGui::SmallButton(selected.c_str()))
       showReferences = true;
     ImGui::SameLine();
-    if (ImGui::SmallButton("差分"))
+    if (ImGui::SmallButton(i18n::tr("差分")))
       showDiff = true;
     if (!session.ui.status.empty()) {
       ImGui::SameLine();

@@ -7,7 +7,7 @@
 
 namespace pmxer {
 
-inline constexpr std::uint32_t kWorkspaceLayoutVersion = 3;
+inline constexpr std::uint32_t kWorkspaceLayoutVersion = 4;
 
 enum class WorkspaceLayoutLoadResult {
     missing,

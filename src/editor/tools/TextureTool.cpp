@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "TextureTool.hpp"
 
 #include "../EditorOperations.hpp"
@@ -35,7 +37,7 @@ bool convertAbsoluteTextures(DocumentSession &session, const std::filesystem::pa
                 return false;
         }
         return true;
-    }, "テクスチャパスを相対化").success;
+    }, i18n::tr("テクスチャパスを相対化")).success;
 }
 
 } // namespace pmxer

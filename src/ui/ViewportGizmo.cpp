@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "ViewportGizmo.hpp"
 
 #include "../editor/DocumentSession.hpp"
@@ -140,7 +142,7 @@ void commit(DocumentSession &session, const SelectionItem &selected,
             selectionHandle<mmd::VertexTag>(session.document, selected);
         const auto *resolved = session.document.resolve(handle);
         if (resolved == nullptr) {
-            setStatus(session, "選択した頂点は無効です", UiStatusKind::error,
+            setStatus(session, i18n::tr("選択した頂点は無効です"), UiStatusKind::error,
                       std::chrono::milliseconds::zero(), true);
             return;
         }
@@ -152,7 +154,7 @@ void commit(DocumentSession &session, const SelectionItem &selected,
             selectionHandle<mmd::BoneTag>(session.document, selected);
         const auto *resolved = session.document.resolve(handle);
         if (resolved == nullptr) {
-            setStatus(session, "選択したボーンは無効です", UiStatusKind::error,
+            setStatus(session, i18n::tr("選択したボーンは無効です"), UiStatusKind::error,
                       std::chrono::milliseconds::zero(), true);
             return;
         }
@@ -166,7 +168,7 @@ void commit(DocumentSession &session, const SelectionItem &selected,
             selectionHandle<mmd::RigidBodyTag>(session.document, selected);
         const auto *resolved = session.document.resolve(handle);
         if (resolved == nullptr) {
-            setStatus(session, "選択した剛体は無効です", UiStatusKind::error,
+            setStatus(session, i18n::tr("選択した剛体は無効です"), UiStatusKind::error,
                       std::chrono::milliseconds::zero(), true);
             return;
         }
@@ -183,7 +185,7 @@ void commit(DocumentSession &session, const SelectionItem &selected,
             selectionHandle<mmd::JointTag>(session.document, selected);
         const auto *resolved = session.document.resolve(handle);
         if (resolved == nullptr) {
-            setStatus(session, "選択したジョイントは無効です", UiStatusKind::error,
+            setStatus(session, i18n::tr("選択したジョイントは無効です"), UiStatusKind::error,
                       std::chrono::milliseconds::zero(), true);
             return;
         }
@@ -198,7 +200,7 @@ void commit(DocumentSession &session, const SelectionItem &selected,
         selected.kind == SelectionKind::rigidBody ||
         selected.kind == SelectionKind::joint)
         setStatus(session,
-                  result.success ? std::string{"ビューポート操作を適用しました"}
+                  result.success ? std::string{i18n::tr("ビューポート操作を適用しました")}
                                  : result.message,
                   result.success ? UiStatusKind::success : UiStatusKind::error,
                   result.success ? std::chrono::seconds(4)

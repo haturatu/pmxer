@@ -1,4 +1,7 @@
+#include "i18n/Language.hpp"
+
 #include "ViewportPanel.hpp"
+#include "FlowLayout.hpp"
 #include "ViewportGizmo.hpp"
 #include "ViewportPicking.hpp"
 #include "UiSemantics.hpp"
@@ -105,7 +108,7 @@ void selectViewportItem(DocumentSession &session, EditorWorkspace &workspace,
     if (selectMorphOffsetTarget(session, item))
         return;
     if (workspace == EditorWorkspace::morph) {
-        setStatus(session, "モーフ本体を選択したまま、オフセット対象pickを開始してください",
+        setStatus(session, i18n::tr("モーフ本体を選択したまま、オフセット対象pickを開始してください"),
                   UiStatusKind::info);
         return;
     }
@@ -320,12 +323,12 @@ void appendUnique(std::vector<SelectionItem> &items,
 void selectRelatedItems(DocumentSession &session, EditorWorkspace &workspace,
                         std::vector<SelectionItem> items) {
     if (items.empty()) {
-        setStatus(session, "関連する対象がありません", UiStatusKind::info);
+        setStatus(session, i18n::tr("関連する対象がありません"), UiStatusKind::info);
         return;
     }
     selectMany(session, workspace, std::move(items), SelectionOrigin::reference);
     setStatus(session, std::to_string(session.selection.items().size()) +
-                         "件を選択しました",
+                         i18n::tr("件を選択しました"),
               UiStatusKind::success);
 }
 
@@ -334,28 +337,28 @@ void hoverTooltip(const DocumentSession &session, const SelectionItem &item) {
     if (item.kind == SelectionKind::material) {
         const auto *value = session.document.resolve(
             selectionHandle<mmd::MaterialTag>(session.document, item));
-        ImGui::Text("材質: %s", value == nullptr ? "(無効)" : value->name.c_str());
+        ImGui::Text(i18n::tr("材質: %s"), value == nullptr ? i18n::tr("(無効)") : value->name.c_str());
     } else if (item.kind == SelectionKind::bone) {
         const auto *value = session.document.resolve(
             selectionHandle<mmd::BoneTag>(session.document, item));
         if (value == nullptr) {
-            ImGui::TextUnformatted("ボーン: (無効)");
+            ImGui::TextUnformatted(i18n::tr("ボーン: (無効)"));
         } else {
-            ImGui::Text("ボーン: %s", value->name.c_str());
-            ImGui::Text("変形層: %d", value->deformLayer);
+            ImGui::Text(i18n::tr("ボーン: %s"), value->name.c_str());
+            ImGui::Text(i18n::tr("変形層: %d"), value->deformLayer);
         }
     } else if (item.kind == SelectionKind::rigidBody) {
         const auto *value = session.document.resolve(
             selectionHandle<mmd::RigidBodyTag>(session.document, item));
-        ImGui::Text("剛体: %s", value == nullptr ? "(無効)" : value->name.c_str());
+        ImGui::Text(i18n::tr("剛体: %s"), value == nullptr ? i18n::tr("(無効)") : value->name.c_str());
     } else if (item.kind == SelectionKind::joint) {
         const auto *value = session.document.resolve(
             selectionHandle<mmd::JointTag>(session.document, item));
-        ImGui::Text("ジョイント: %s", value == nullptr ? "(無効)" : value->name.c_str());
+        ImGui::Text(i18n::tr("ジョイント: %s"), value == nullptr ? i18n::tr("(無効)") : value->name.c_str());
     } else if (item.kind == SelectionKind::face) {
-        ImGui::TextUnformatted("面");
+        ImGui::TextUnformatted(i18n::tr("面"));
     } else {
-        ImGui::TextUnformatted("頂点");
+        ImGui::TextUnformatted(i18n::tr("頂点"));
     }
     ImGui::EndTooltip();
 }
@@ -366,7 +369,7 @@ bool drawViewAxis(EditorUiState &ui, ImDrawList *draw, ImVec2 origin,
     const std::array<ImVec2, 3> points{{{center.x - 18.0F, center.y + 15.0F},
                                         {center.x + 18.0F, center.y + 15.0F},
                                         {center.x, center.y - 18.0F}}};
-    static constexpr const char *labels[]{"X", "Y", "Z"};
+    const char *labels[]{"X", "Y", "Z"};
     static constexpr ImU32 colors[]{IM_COL32(235, 90, 90, 240),
                                      IM_COL32(100, 215, 120, 240),
                                      IM_COL32(90, 145, 245, 240)};
@@ -406,7 +409,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                         WorkspaceViewportProfile *profile,
                         ViewportLightingSettings &lighting) {
     session.ui.viewportVisible = false;
-    if (!ImGui::Begin("ビューポート", open)) {
+    if (!ImGui::Begin(i18n::windowTitle("ビューポート"), open)) {
         ImGui::End();
         return;
     }
@@ -429,18 +432,17 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         const auto resources = renderer->resourceSummary(session);
         if (resources.missingTextureCount != 0U || resources.failedTextureCount != 0U) {
             ImGui::TextColored(ImVec4{1.0F, 0.72F, 0.25F, 1.0F},
-                               "⚠ 外部リソース %zu件不足",
+                               i18n::tr("⚠ 外部リソース %zu件不足"),
                                resources.missingTextureCount + resources.failedTextureCount);
-            ImGui::SameLine();
-            ImGui::TextDisabled("不足テクスチャを代替表示しています");
-            ImGui::SameLine();
-            if (ImGui::SmallButton("診断##texture-diagnostics") && showDiagnostics != nullptr)
+            ImGui::PushTextWrapPos(0.0F);
+            ImGui::TextDisabled(i18n::tr("不足テクスチャを代替表示しています"));
+            ImGui::PopTextWrapPos();
+            ui::sameLineIfFits(i18n::tr("診断##texture-diagnostics"));
+            if (ImGui::SmallButton(i18n::tr("診断##texture-diagnostics")) && showDiagnostics != nullptr)
                                *showDiagnostics = true;
         }
         if (resources.sharedToonFallbackCount != 0U) {
-            if (resources.missingTextureCount != 0U || resources.failedTextureCount != 0U)
-                ImGui::SameLine();
-            ImGui::TextDisabled("共有Toonを簡易表示中");
+            ImGui::TextDisabled(i18n::tr("共有Toonを簡易表示中"));
         }
     }
     const auto targetPicking = session.ui.morphOffsetTarget.picking;
@@ -458,11 +460,18 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             return ViewportSelectionMode::material;
         }
     }();
+    bool firstSelectionControl = true;
+    const auto placeSelectionControl = [&](const char *label) {
+        if (!firstSelectionControl)
+            ui::sameLineIfFits(label);
+        firstSelectionControl = false;
+    };
     const auto modeButton = [&](const char *label, ViewportSelectionMode mode) {
         const auto supported = policy.allows(mode) ||
                                (targetPicking && mode == targetMode);
         if (!supported)
             return;
+        placeSelectionControl(label);
         if (ImGui::RadioButton(label, session.ui.selectionMode == mode)) {
             session.ui.selectionMode = mode;
             if (mode == ViewportSelectionMode::bone)
@@ -471,42 +480,41 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                 mode == ViewportSelectionMode::joint)
                 setPhysicsOverlay(session, profile, true);
         }
-        ImGui::SameLine();
     };
     const auto normalMorphWorkspace = activeWorkspace == EditorWorkspace::morph &&
                                       !targetPicking;
     if (normalMorphWorkspace) {
-        ImGui::TextDisabled("モーフはアウトライナーから選択");
-        ImGui::SameLine();
+        placeSelectionControl(i18n::tr("モーフはアウトライナーから選択"));
+        ImGui::TextDisabled(i18n::tr("モーフはアウトライナーから選択"));
     } else {
-        modeButton("頂点", ViewportSelectionMode::vertex);
-        modeButton("面", ViewportSelectionMode::face);
-        modeButton("材質", ViewportSelectionMode::material);
-        modeButton("ボーン", ViewportSelectionMode::bone);
-        modeButton("剛体", ViewportSelectionMode::rigidBody);
+        modeButton(i18n::tr("頂点"), ViewportSelectionMode::vertex);
+        modeButton(i18n::tr("面"), ViewportSelectionMode::face);
+        modeButton(i18n::tr("材質"), ViewportSelectionMode::material);
+        modeButton(i18n::tr("ボーン"), ViewportSelectionMode::bone);
+        modeButton(i18n::tr("剛体"), ViewportSelectionMode::rigidBody);
     }
     const auto jointSupported = policy.allows(ViewportSelectionMode::joint);
-    if (jointSupported && ImGui::RadioButton("ジョイント", session.ui.selectionMode == ViewportSelectionMode::joint)) {
+    if (jointSupported)
+        placeSelectionControl(i18n::tr("ジョイント"));
+    if (jointSupported && ImGui::RadioButton(i18n::tr("ジョイント"), session.ui.selectionMode == ViewportSelectionMode::joint)) {
         session.ui.selectionMode = ViewportSelectionMode::joint;
         setPhysicsOverlay(session, profile, true);
     }
-    if (jointSupported)
-        ImGui::SameLine();
     if (targetPicking) {
         const auto targetLabel = session.ui.morphOffsetTarget.expectedKind == SelectionKind::bone
-                                     ? "対象選択: ボーン"
+                                     ? i18n::tr("対象選択: ボーン")
                                  : session.ui.morphOffsetTarget.expectedKind == SelectionKind::rigidBody
-                                     ? "対象選択: 剛体"
-                                     : "対象選択";
+                                     ? i18n::tr("対象選択: 剛体")
+                                     : i18n::tr("対象選択");
+        placeSelectionControl(targetLabel);
         ImGui::TextDisabled("%s", targetLabel);
-        ImGui::SameLine();
     }
-    ImGui::TextDisabled("|");
-    ImGui::SameLine();
-    ui::checkbox(ui::UiSemanticId::viewportXray, "X-Ray", &session.ui.xray);
+    placeSelectionControl(i18n::tr("X-Ray"));
+    ui::checkbox(ui::UiSemanticId::viewportXray, i18n::tr("X-Ray"), &session.ui.xray);
     const auto toolButton = [&](const char *label, ViewportTool tool,
                                 ui::UiSemanticId semanticId, bool supported,
                                 std::string_view tooltip) {
+        ui::sameLineIfFits(label);
         if (ui::radioButton(semanticId, label,
                             session.ui.viewportTool == tool, supported,
                             supported ? ui::UiSemanticSupport::supported
@@ -518,16 +526,15 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             ImGui::TextUnformatted(tooltip.data());
             ImGui::EndTooltip();
         }
-        ImGui::SameLine();
     };
-    if (ImGui::RadioButton("選択", session.ui.viewportTool == ViewportTool::select))
+    if (ImGui::RadioButton(i18n::tr("選択"), session.ui.viewportTool == ViewportTool::select))
         session.ui.viewportTool = ViewportTool::select;
-    ImGui::SameLine();
-    toolButton("移動", ViewportTool::move, ui::UiSemanticId::viewportToolMove,
+    toolButton(i18n::tr("移動"), ViewportTool::move, ui::UiSemanticId::viewportToolMove,
                moveAvailability.enabled, moveAvailability.reason);
-    toolButton("回転", ViewportTool::rotate, ui::UiSemanticId::viewportToolRotate,
+    toolButton(i18n::tr("回転"), ViewportTool::rotate, ui::UiSemanticId::viewportToolRotate,
                rotateAvailability.enabled, rotateAvailability.reason);
-    if (ui::radioButton(ui::UiSemanticId::viewportToolScale, "拡縮",
+    ui::sameLineIfFits(i18n::tr("拡縮"));
+    if (ui::radioButton(ui::UiSemanticId::viewportToolScale, i18n::tr("拡縮"),
                         session.ui.viewportTool == ViewportTool::scale,
                         scaleAvailability.enabled,
                         scaleAvailability.enabled ? ui::UiSemanticSupport::supported
@@ -539,30 +546,28 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         ImGui::TextUnformatted(scaleAvailability.reason.data());
         ImGui::EndTooltip();
     }
-    ImGui::SameLine();
-    ImGui::TextDisabled("|");
-    ImGui::SameLine();
-    ImGui::Checkbox("ローカル", &session.ui.localTransform);
-    ImGui::SameLine();
-    ImGui::Checkbox("スナップ", &session.ui.snapTransform);
-    ImGui::SameLine();
-    if (ImGui::Button(session.ui.orthographic ? "平行" : "透視"))
+    ui::sameLineIfFits(i18n::tr("ローカル"));
+    ImGui::Checkbox(i18n::tr("ローカル"), &session.ui.localTransform);
+    ui::sameLineIfFits(i18n::tr("スナップ"));
+    ImGui::Checkbox(i18n::tr("スナップ"), &session.ui.snapTransform);
+    ui::sameLineIfFits(session.ui.orthographic ? i18n::tr("平行") : i18n::tr("透視"));
+    if (ImGui::Button(session.ui.orthographic ? i18n::tr("平行") : i18n::tr("透視")))
         session.ui.orthographic = !session.ui.orthographic;
-    ImGui::SameLine();
-    if (ui::checkbox(ui::UiSemanticId::viewportShowBones, "ボーン表示",
+    ui::sameLineIfFits(i18n::tr("ボーン表示"));
+    if (ui::checkbox(ui::UiSemanticId::viewportShowBones, i18n::tr("ボーン表示"),
                      &session.ui.showBones))
         setBoneOverlay(session, profile, session.ui.showBones);
-    ImGui::SameLine();
-    if (ui::checkbox(ui::UiSemanticId::viewportShowPhysics, "物理表示",
+    ui::sameLineIfFits(i18n::tr("物理表示"));
+    if (ui::checkbox(ui::UiSemanticId::viewportShowPhysics, i18n::tr("物理表示"),
                      &session.ui.showPhysics))
         setPhysicsOverlay(session, profile, session.ui.showPhysics);
     if (profile != nullptr) {
-        static constexpr const char *physicsModes[]{"文脈", "全て", "選択のみ"};
+        const char *physicsModes[]{i18n::tr("文脈"), i18n::tr("全て"), i18n::tr("選択のみ")};
         const auto modeIndex = static_cast<std::size_t>(profile->physicsMode);
-        ImGui::SameLine();
         const auto &style = ImGui::GetStyle();
+        ui::sameLineIfFits(i18n::tr("選択のみ"));
         ImGui::SetNextItemWidth(
-            ImGui::CalcTextSize("選択のみ").x + ImGui::GetFrameHeight() +
+            ImGui::CalcTextSize(i18n::tr("選択のみ")).x + ImGui::GetFrameHeight() +
             style.FramePadding.x * 2.0F);
         if (ImGui::BeginCombo("##physics-overlay-mode",
                               physicsModes[std::min(modeIndex, std::size(physicsModes) - 1U)])) {
@@ -573,69 +578,69 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             ImGui::EndCombo();
         }
     }
-    ImGui::SameLine();
+    ui::sameLineIfFits(i18n::tr("表示##viewport-display"));
     const auto shadingLabel = [&] {
         switch (lighting.mode) {
         case ViewportShadingMode::mmd:
             return sharedToonFallbackCount != 0U ? "MMD*" : "MMD";
         case ViewportShadingMode::neutral:
-            return "Neutral";
+            return i18n::tr("Neutral");
         case ViewportShadingMode::unlit:
-            return "Unlit";
+            return i18n::tr("Unlit");
         }
-        return "表示";
+        return i18n::tr("表示");
     }();
-    if (ImGui::Button("表示##viewport-display"))
+    if (ImGui::Button(i18n::tr("表示##viewport-display")))
         ImGui::OpenPopup("viewport-display-settings");
     if (ImGui::IsItemHovered()) {
         ImGui::BeginTooltip();
-        ImGui::TextUnformatted("ビューポート表示");
-        ImGui::Text("現在: %s", shadingLabel);
+        ImGui::TextUnformatted(i18n::tr("ビューポート表示"));
+        ImGui::Text(i18n::tr("現在: %s"), shadingLabel);
         ImGui::EndTooltip();
     }
     if (ImGui::BeginPopup("viewport-display-settings")) {
-        ImGui::SeparatorText("シェーディング");
+        ImGui::SeparatorText(i18n::tr("シェーディング"));
         if (ImGui::RadioButton("MMD", lighting.mode == ViewportShadingMode::mmd))
             applyViewportShadingPreset(lighting, ViewportShadingMode::mmd);
         ImGui::SameLine();
-        if (ImGui::RadioButton("Neutral", lighting.mode == ViewportShadingMode::neutral))
+        if (ImGui::RadioButton(i18n::tr("Neutral"), lighting.mode == ViewportShadingMode::neutral))
             applyViewportShadingPreset(lighting, ViewportShadingMode::neutral);
         ImGui::SameLine();
-        if (ImGui::RadioButton("Unlit", lighting.mode == ViewportShadingMode::unlit))
+        if (ImGui::RadioButton(i18n::tr("Unlit"), lighting.mode == ViewportShadingMode::unlit))
             applyViewportShadingPreset(lighting, ViewportShadingMode::unlit);
 
         if (renderer != nullptr) {
             if (sharedToonFallbackCount != 0U)
                 ImGui::TextColored(ImVec4{1.0F, 0.72F, 0.25F, 1.0F},
-                                   "⚠ 共有Toonを簡易表示中 (%zu件)",
+                                   i18n::tr("⚠ 共有Toonを簡易表示中 (%zu件)"),
                                    sharedToonFallbackCount);
         }
 
         const auto unlit = lighting.mode == ViewportShadingMode::unlit;
         const auto mmd = lighting.mode == ViewportShadingMode::mmd;
-        ImGui::SeparatorText("照明");
+        ImGui::SeparatorText(i18n::tr("照明"));
         if (unlit)
             ImGui::BeginDisabled();
-        ImGui::SliderAngle("方位", &lighting.lightYaw, -180.0F, 180.0F);
-        ImGui::SliderAngle("高さ", &lighting.lightPitch, -89.0F, 89.0F);
-        ImGui::SliderFloat("強さ", &lighting.lightIntensity, 0.0F, 2.0F, "%.2f");
-        ImGui::SliderFloat("環境光", &lighting.ambientIntensity, 0.0F, 1.0F, "%.2f");
+        ImGui::SliderAngle(i18n::tr("方位"), &lighting.lightYaw, -180.0F, 180.0F);
+        ImGui::SliderAngle(i18n::tr("高さ"), &lighting.lightPitch, -89.0F, 89.0F);
+        ImGui::SliderFloat(i18n::tr("強さ"), &lighting.lightIntensity, 0.0F, 2.0F, "%.2f");
+        ImGui::SliderFloat(i18n::tr("環境光"), &lighting.ambientIntensity, 0.0F, 1.0F, "%.2f");
         if (unlit)
             ImGui::EndDisabled();
 
-        ImGui::SeparatorText("表示");
-        ImGui::SliderFloat("Exposure", &lighting.exposure, -3.0F, 3.0F, "%+.2f EV");
+        ImGui::SeparatorText(i18n::tr("表示"));
+        ImGui::SliderFloat(i18n::tr("Exposure"), &lighting.exposure, -3.0F, 3.0F, "%+.2f EV");
         if (unlit || mmd)
             ImGui::BeginDisabled();
-        ImGui::SliderFloat("Toon強度", &lighting.toonStrength, 0.0F, 1.0F, "%.2f");
-        ImGui::SliderFloat("Specular", &lighting.specularStrength, 0.0F, 1.0F, "%.2f");
-        ImGui::SliderFloat("Sphere", &lighting.sphereStrength, 0.0F, 1.0F, "%.2f");
+        ImGui::SliderFloat(i18n::tr("Toon強度"), &lighting.toonStrength, 0.0F, 1.0F, "%.2f");
+        ImGui::SliderFloat(i18n::tr("Specular"), &lighting.specularStrength, 0.0F, 1.0F, "%.2f");
+        ImGui::SliderFloat(i18n::tr("Sphere"), &lighting.sphereStrength, 0.0F, 1.0F, "%.2f");
         if (unlit || mmd)
             ImGui::EndDisabled();
 
-        ImGui::SeparatorText("背景");
-        ImGui::ColorEdit3("背景色", lighting.background.data());
-        if (ImGui::Button("初期値に戻す"))
+        ImGui::SeparatorText(i18n::tr("背景"));
+        ImGui::ColorEdit3(i18n::tr("背景色"), lighting.background.data());
+        if (ImGui::Button(i18n::tr("初期値に戻す")))
             lighting = ViewportLightingSettings{};
         ImGui::EndPopup();
     }
@@ -643,11 +648,11 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     ImGui::TextDisabled("?");
     if (ImGui::IsItemHovered()) {
         ImGui::BeginTooltip();
-        ImGui::TextUnformatted("右ドラッグ: 回転");
-        ImGui::TextUnformatted("ホイール: ズーム");
-        ImGui::TextUnformatted("Shift + 中ドラッグ: パン");
-        ImGui::TextUnformatted("Ctrl + 中ドラッグ: ドリー");
-        ImGui::TextUnformatted("F: 選択へフォーカス / Home: 全体表示");
+        ImGui::TextUnformatted(i18n::tr("右ドラッグ: 回転"));
+        ImGui::TextUnformatted(i18n::tr("ホイール: ズーム"));
+        ImGui::TextUnformatted(i18n::tr("Shift + 中ドラッグ: パン"));
+        ImGui::TextUnformatted(i18n::tr("Ctrl + 中ドラッグ: ドリー"));
+        ImGui::TextUnformatted(i18n::tr("F: 選択へフォーカス / Home: 全体表示"));
         ImGui::EndTooltip();
     }
     const auto available = ImGui::GetContentRegionAvail();
@@ -681,14 +686,14 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     }
     ImGui::InvisibleButton("viewport-canvas", available);
     if (!session.deform.vertices.empty() || !session.deform.bones.empty()) {
-        std::string summary = "● 一時変形 — ";
+        std::string summary = i18n::tr("● 一時変形 — ");
         if (!session.deform.vertices.empty())
-            summary += "頂点 " + std::to_string(session.deform.vertices.size());
+            summary += i18n::tr("頂点 ") + std::to_string(session.deform.vertices.size());
         if (!session.deform.vertices.empty() && !session.deform.bones.empty())
             summary += " / ";
         if (!session.deform.bones.empty())
-            summary += "ボーン " + std::to_string(session.deform.bones.size());
-        constexpr const char *detail = "まだPMXには反映されていません";
+            summary += i18n::tr("ボーン ") + std::to_string(session.deform.bones.size());
+        const char *detail = i18n::tr("まだPMXには反映されていません");
         const auto summarySize = ImGui::CalcTextSize(summary.c_str());
         const auto detailSize = ImGui::CalcTextSize(detail);
         const auto cardWidth = std::max(summarySize.x, detailSize.x) + 24.0F;
@@ -719,7 +724,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     const auto &model = session.document.model();
     const auto &vertices = frame != nullptr && !frame->vertices.empty() ? frame->vertices : model.vertices;
     if (vertices.empty()) {
-        draw->AddText({origin.x + 16.0F, origin.y + 16.0F}, IM_COL32_WHITE, "頂点がありません");
+        draw->AddText({origin.x + 16.0F, origin.y + 16.0F}, IM_COL32_WHITE, i18n::tr("頂点がありません"));
         ImGui::End();
         return;
     }
@@ -853,7 +858,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         ImGui::IsKeyPressed(ImGuiKey_Escape)) {
         if (session.ui.morphOffsetTarget.picking) {
             session.ui.morphOffsetTarget = {};
-            setStatus(session, "モーフオフセット対象の選択をキャンセルしました",
+            setStatus(session, i18n::tr("モーフオフセット対象の選択をキャンセルしました"),
                       UiStatusKind::info);
         } else if (hovered) {
             session.ui.viewportTool = ViewportTool::select;
@@ -902,14 +907,14 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         if (ImGui::IsKeyPressed(ImGuiKey_A)) {
             if (activeWorkspace == EditorWorkspace::morph &&
                 session.ui.morphOffsetTarget.picking) {
-            setStatus(session, "モーフオフセット対象を選択中です",
+            setStatus(session, i18n::tr("モーフオフセット対象を選択中です"),
                       UiStatusKind::info);
             } else if (ImGui::GetIO().KeyAlt)
                 session.selection.clear();
             else if (!selectAllForMode(session, activeWorkspace,
                                        session.ui.selectionMode,
                                        SelectionOrigin::viewport))
-            setStatus(session, "このワークスペースでは一括選択できません",
+            setStatus(session, i18n::tr("このワークスペースでは一括選択できません"),
                       UiStatusKind::warning);
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Z) && ImGui::GetIO().KeyAlt)
@@ -1130,7 +1135,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                         session.ui.jointIndex = first.index;
                 }
             } else if (!targetCaptured && activeWorkspace == EditorWorkspace::morph) {
-                setStatus(session, "モーフ本体を選択したまま、オフセット対象pickを開始してください",
+                setStatus(session, i18n::tr("モーフ本体を選択したまま、オフセット対象pickを開始してください"),
                           UiStatusKind::info);
             }
         } else {
@@ -1221,7 +1226,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         }
     }
     if (ImGui::BeginPopup("viewport-context")) {
-        if (ImGui::MenuItem("選択対象へフォーカス")) {
+        if (ImGui::MenuItem(i18n::tr("選択対象へフォーカス"))) {
             if (const auto selected = selectionBounds(session))
                 frameBounds(session.ui, *selected,
                             available.x / std::max(available.y, 1.0F),
@@ -1237,16 +1242,16 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         const auto materials = selectedMaterials(session);
         if (!materials.empty()) {
             ImGui::Separator();
-            if (ImGui::MenuItem("選択材質を隠す")) {
+            if (ImGui::MenuItem(i18n::tr("選択材質を隠す"))) {
                 for (const auto &item : materials)
                     appendUnique(session.ui.hiddenMaterials, item);
-                setStatus(session, "選択材質を非表示にしました",
+                setStatus(session, i18n::tr("選択材質を非表示にしました"),
                           UiStatusKind::success);
             }
-            if (ImGui::MenuItem("選択材質だけ表示")) {
+            if (ImGui::MenuItem(i18n::tr("選択材質だけ表示"))) {
                 session.ui.hiddenMaterials.clear();
                 session.ui.isolatedMaterials = materials;
-            setStatus(session, "選択材質を分離表示しました",
+            setStatus(session, i18n::tr("選択材質を分離表示しました"),
                       UiStatusKind::success);
             }
             const auto *material = session.document.resolve(
@@ -1255,7 +1260,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             if (material != nullptr && material->textureIndex >= 0 &&
                 static_cast<std::size_t>(material->textureIndex) <
                     model.textures.size() &&
-                ImGui::MenuItem("テクスチャへ移動")) {
+                ImGui::MenuItem(i18n::tr("テクスチャへ移動"))) {
                 const auto index =
                     static_cast<std::size_t>(material->textureIndex);
                 const auto texture = session.document.textureHandle(index);
@@ -1270,35 +1275,35 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         if (!session.selection.items().empty()) {
             const auto selected = session.selection.items().front();
             if (selected.kind == SelectionKind::bone) {
-                if (ImGui::MenuItem("子ボーンを選択"))
+                if (ImGui::MenuItem(i18n::tr("子ボーンを選択")))
                     selectRelatedItems(session, activeWorkspace,
                                        childBones(session, selected));
-                if (ImGui::MenuItem("ウェイト頂点を選択"))
+                if (ImGui::MenuItem(i18n::tr("ウェイト頂点を選択")))
                     selectRelatedItems(session, activeWorkspace,
                                        weightedVertices(session, selected));
             } else if (selected.kind == SelectionKind::material) {
-                if (ImGui::MenuItem("面を選択"))
+                if (ImGui::MenuItem(i18n::tr("面を選択")))
                     selectRelatedItems(session, activeWorkspace,
                                        facesForMaterial(session, selected));
-                if (ImGui::MenuItem("頂点を選択"))
+                if (ImGui::MenuItem(i18n::tr("頂点を選択")))
                     selectRelatedItems(session, activeWorkspace,
                                        verticesForMaterial(session, selected));
             } else if (selected.kind == SelectionKind::rigidBody) {
-                if (ImGui::MenuItem("接続ジョイントを選択"))
+                if (ImGui::MenuItem(i18n::tr("接続ジョイントを選択")))
                     selectRelatedItems(session, activeWorkspace,
                                        jointsForRigidBody(session, selected));
             } else if (selected.kind == SelectionKind::joint) {
-                if (ImGui::MenuItem("接続剛体を選択"))
+                if (ImGui::MenuItem(i18n::tr("接続剛体を選択")))
                     selectRelatedItems(session, activeWorkspace,
                                        rigidBodiesForJoint(session, selected));
             }
         }
         if ((!session.ui.hiddenMaterials.empty() ||
              !session.ui.isolatedMaterials.empty()) &&
-            ImGui::MenuItem("すべて表示")) {
+            ImGui::MenuItem(i18n::tr("すべて表示"))) {
             session.ui.hiddenMaterials.clear();
             session.ui.isolatedMaterials.clear();
-            setStatus(session, "すべての材質を表示しました",
+            setStatus(session, i18n::tr("すべての材質を表示しました"),
                       UiStatusKind::success);
         }
         ImGui::EndPopup();

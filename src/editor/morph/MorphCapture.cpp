@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "MorphCapture.hpp"
 
 #include "MorphMixer.hpp"
@@ -40,7 +42,7 @@ OperationResult createMorphFromData(DocumentSession &session, MorphData data,
                                     std::uint8_t panel) {
     data = pruneZeroOffsets(std::move(data));
     if (data.offsets.empty())
-        return {false, "モーフオフセットがありません"};
+        return {false, i18n::tr("モーフオフセットがありません")};
     mmd::MorphHandle created;
     const auto result = applyTransaction(
         session,
@@ -83,7 +85,7 @@ OperationResult captureVertexMorph(DocumentSession &session, std::string name) {
         data.offsets.push_back(offset);
     }
     const auto result = createMorphFromData(session, std::move(data), std::move(name),
-                                             "編集状態から頂点モーフを作成");
+                                             i18n::tr("編集状態から頂点モーフを作成"));
     if (result.success)
         session.deform.clearVertexOverlay();
     return result;
@@ -95,8 +97,7 @@ OperationResult captureBoneMorph(DocumentSession &session, std::string name) {
             continue;
         if (!deformBoneTransformAllowed(session, delta.bone))
             return {false,
-                    "一時変形後にボーンの評価設定が変更されました。"
-                    "このボーン編集を破棄して、もう一度変形してください。"};
+                    i18n::tr("一時変形後にボーンの評価設定が変更されました。このボーン編集を破棄して、もう一度変形してください。")};
     }
     MorphData data{2U, {}, 4U, {}};
     for (const auto &delta : session.deform.bones) {
@@ -112,7 +113,7 @@ OperationResult captureBoneMorph(DocumentSession &session, std::string name) {
         data.offsets.push_back(offset);
     }
     const auto result = createMorphFromData(session, std::move(data), std::move(name),
-                                             "現在ポーズからボーンモーフを作成");
+                                             i18n::tr("現在ポーズからボーンモーフを作成"));
     if (result.success)
         session.deform.clearBoneOverlay();
     return result;
@@ -131,29 +132,29 @@ OperationResult captureGroupMorph(DocumentSession &session, std::string name) {
         data.offsets.push_back(offset);
     }
     return createMorphFromData(session, std::move(data), std::move(name),
-                               "Mixerの状態からグループモーフを作成");
+                               i18n::tr("Mixerの状態からグループモーフを作成"));
 }
 
 OperationResult duplicateMorph(DocumentSession &session, mmd::MorphHandle source,
                                std::string name) {
     const auto *morph = session.document.resolve(source);
     if (morph == nullptr)
-        return {false, "対象モーフが見つかりません"};
-    return createMorphFromData(session, copy(*morph), std::move(name), "モーフを複製");
+        return {false, i18n::tr("対象モーフが見つかりません")};
+    return createMorphFromData(session, copy(*morph), std::move(name), i18n::tr("モーフを複製"));
 }
 
 OperationResult bakeAndReverseBase(DocumentSession &session, mmd::MorphHandle source,
                                    BakeReverseOptions options) {
     const auto *morph = session.document.resolve(source);
     if (morph == nullptr || morph->type != 1U)
-        return {false, "Bake & Reverse Base は頂点モーフにのみ使用できます"};
+        return {false, i18n::tr("Bake & Reverse Base は頂点モーフにのみ使用できます")};
     const auto references = session.document.referencesTo(source);
     const auto referencedMorphs = static_cast<std::size_t>(std::count_if(
         references.begin(), references.end(), [](const auto &reference) {
             return reference.ownerKind == mmd::ReferenceObjectKind::morph;
         }));
     if (referencedMorphs != 0U && !options.allowReferencedMorph)
-        return {false, "対象モーフは他のGroup/Flipモーフから参照されています"};
+        return {false, i18n::tr("対象モーフは他のGroup/Flipモーフから参照されています")};
     const auto sourceIndex = static_cast<std::size_t>(morph - session.document.model().morphs.data());
     std::vector<mmd::Float3> total(session.document.model().vertices.size());
     for (const auto &offset : morph->offsets) {
@@ -166,7 +167,7 @@ OperationResult bakeAndReverseBase(DocumentSession &session, mmd::MorphHandle so
     for (const auto &delta : total)
         changed = changed || nonZero(delta);
     if (!changed)
-        return {false, "対象モーフに変形量がありません"};
+        return {false, i18n::tr("対象モーフに変形量がありません")};
 
     const auto result = applyTransaction(
         session,
@@ -223,14 +224,14 @@ OperationResult bakeAndReverseBase(DocumentSession &session, mmd::MorphHandle so
             }
             return true;
         },
-        "モーフをBake & Reverse Base");
+        i18n::tr("モーフをBake & Reverse Base"));
     return result;
 }
 
 OperationResult createSideSplitMorphs(DocumentSession &session, MorphData left,
                                       MorphData right, std::string name) {
     if (left.offsets.empty() && right.offsets.empty())
-        return {false, "左右どちらにもモーフオフセットがありません"};
+        return {false, i18n::tr("左右どちらにもモーフオフセットがありません")};
     const auto baseName = name.empty() ? std::string{"Morph"} : std::move(name);
     return applyTransaction(
         session,
@@ -263,7 +264,7 @@ OperationResult createSideSplitMorphs(DocumentSession &session, MorphData left,
             }
             return true;
         },
-        "モーフを左右に分割");
+        i18n::tr("モーフを左右に分割"));
 }
 
 } // namespace pmxer::morph

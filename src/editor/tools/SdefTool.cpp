@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "SdefTool.hpp"
 
 #include "../EditorOperations.hpp"
@@ -92,7 +94,7 @@ SdefReport convertBdef2ToSdef(DocumentSession &session,
             return false;
         return true;
       },
-      "BDEF2からSDEFへ変換");
+      i18n::tr("BDEF2からSDEFへ変換"));
   if (result.success)
     report.converted = edits.size();
   else
@@ -137,7 +139,7 @@ SdefReport convertSdefToBdef2(DocumentSession &session,
             return false;
         return true;
       },
-      "SDEFからBDEF2へ変換");
+      i18n::tr("SDEFからBDEF2へ変換"));
   if (result.success)
     report.converted = edits.size();
   else
@@ -177,7 +179,7 @@ SdefReport repairSuspiciousSdef(DocumentSession &session,
             return false;
         return true;
       },
-      "不正なSDEFをBDEF2へ修復");
+      i18n::tr("不正なSDEFをBDEF2へ修復"));
   if (result.success)
     report.converted = edits.size();
   else
@@ -219,7 +221,7 @@ bool mirrorSdef(DocumentSession &session,
                    return false;
                return true;
              },
-             "SDEFをミラー")
+             i18n::tr("SDEFをミラー"))
       .success;
 }
 

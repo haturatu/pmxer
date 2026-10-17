@@ -1,4 +1,5 @@
 #include "CommandLine.hpp"
+#include "i18n/Language.hpp"
 
 #include <argparse/argparse.hpp>
 
@@ -58,7 +59,7 @@ void configureEditParser(Parser &parser) {
         .default_value(18.0F)
         .scan<'g', float>();
     parser.add_argument("--lang")
-        .help("interface locale")
+        .help("interface language: auto, ja, en, zh-CN, ru (also accepts locale tags)")
         .default_value(std::string{"auto"});
     parser.add_argument("--resource-dir")
         .help("directory containing application resources")
@@ -180,6 +181,8 @@ ParseResult parseEdit(int argc, char *const argv[], int first) {
         command.physics = !parser.get<bool>("--no-physics") && !command.safeMode;
         command.renderer = parser.get<std::string>("--renderer");
         command.locale = parser.get<std::string>("--lang");
+        if (command.locale != "auto" && !i18n::parseLocale(command.locale))
+            throw std::runtime_error("unsupported interface language; use auto, ja, en, zh-CN, or ru");
         command.fontSize = parser.get<float>("--font-size");
         if (!std::isfinite(command.fontSize) || command.fontSize < 6.0F || command.fontSize > 256.0F) {
             throw std::runtime_error("font size must be between 6 and 256");

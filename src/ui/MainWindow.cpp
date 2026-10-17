@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "MainWindow.hpp"
 #include "UiSemantics.hpp"
 #include "WorkspaceLayout.hpp"
@@ -71,19 +73,19 @@ void buildDefaultDockLayout(ImGuiID dockspaceId) {
     auto leftTop = left;
     const auto leftBottom = ImGui::DockBuilderSplitNode(leftTop, ImGuiDir_Down, 0.72F, nullptr, &leftTop);
 
-    ImGui::DockBuilderDockWindow("ビューポート", center);
-    ImGui::DockBuilderDockWindow("ドキュメント", leftTop);
-    ImGui::DockBuilderDockWindow("アウトライナー", leftBottom);
-    ImGui::DockBuilderDockWindow("インスペクター", right);
-    ImGui::DockBuilderDockWindow("Transform View", transform);
-    ImGui::DockBuilderDockWindow("診断", bottom);
-    ImGui::DockBuilderDockWindow("参照", bottom);
-    ImGui::DockBuilderDockWindow("差分", bottom);
+    ImGui::DockBuilderDockWindow(i18n::windowTitle("ビューポート"), center);
+    ImGui::DockBuilderDockWindow(i18n::windowTitle("ドキュメント"), leftTop);
+    ImGui::DockBuilderDockWindow(i18n::windowTitle("アウトライナー"), leftBottom);
+    ImGui::DockBuilderDockWindow(i18n::windowTitle("インスペクター"), right);
+    ImGui::DockBuilderDockWindow(i18n::windowTitle("Transform View"), transform);
+    ImGui::DockBuilderDockWindow(i18n::windowTitle("診断"), bottom);
+    ImGui::DockBuilderDockWindow(i18n::windowTitle("参照"), bottom);
+    ImGui::DockBuilderDockWindow(i18n::windowTitle("差分"), bottom);
     ImGui::DockBuilderFinish(dockspaceId);
 }
 
 std::string documentBaseName(const DocumentSession &session) {
-    return session.path.empty() ? std::string{"無題"}
+    return session.path.empty() ? std::string{i18n::tr("無題")}
                                 : session.path.filename().string();
 }
 
@@ -166,6 +168,23 @@ int runApplication(const EditCommand &options) {
         log::error(SDL_GetError());
         return 1;
     }
+    std::vector<std::string> preferredLocaleNames;
+    int preferredLocaleCount{};
+    if (auto **preferred = SDL_GetPreferredLocales(&preferredLocaleCount)) {
+        for (int index = 0; index < preferredLocaleCount; ++index) {
+            if (preferred[index]->language == nullptr)
+                continue;
+            std::string name{preferred[index]->language};
+            if (preferred[index]->country != nullptr)
+                name += std::string{"-"} + preferred[index]->country;
+            preferredLocaleNames.push_back(std::move(name));
+        }
+        SDL_free(preferred);
+    }
+    std::vector<std::string_view> preferredLocales;
+    for (const auto &name : preferredLocaleNames)
+        preferredLocales.emplace_back(name);
+    i18n::setLocale(i18n::resolveLocale(options.locale, preferredLocales));
     SDL_Window *window = SDL_CreateWindow("pmxer", 1280, 720, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (window == nullptr) {
         log::error(SDL_GetError());
@@ -246,13 +265,19 @@ int runApplication(const EditCommand &options) {
     const auto resourceDirectory = resolveResourceDirectory(
         options.resourceDirectory,
         basePath == nullptr ? std::filesystem::path{} : std::filesystem::path(basePath));
-    const auto fontPath = resolveUiFont(options.font, resourceDirectory);
+    const auto fontPath = resolveUiFont(options.font, resourceDirectory,
+                                      i18n::locale() == i18n::Locale::chineseSimplified);
     if (fontPath.empty()) {
-        log::warn("UI font was not found; Japanese text may be unavailable");
+        log::warn("UI font was not found; some localized text may be unavailable (use --font or PMXER_FONT)");
         io.Fonts->AddFontDefault();
     } else {
         const auto fontName = fontPath.string();
-        if (io.Fonts->AddFontFromFileTTF(fontName.c_str(), options.fontSize) == nullptr)
+        ImFontConfig fontConfig;
+        const auto filename = fontPath.filename().string();
+        if (i18n::locale() == i18n::Locale::chineseSimplified &&
+            filename.starts_with("NotoSansCJK-") && fontPath.extension() == ".ttc")
+            fontConfig.FontNo = 2; // Noto CJK collections: JP, KR, SC, TC, HK.
+        if (io.Fonts->AddFontFromFileTTF(fontName.c_str(), options.fontSize, &fontConfig) == nullptr)
             log::warn("UI font could not be loaded");
         else
             log::info(("Loaded UI font: " + fontName).c_str());
@@ -307,8 +332,8 @@ int runApplication(const EditCommand &options) {
             log::warn("workspace layout backup could not be created");
         ImGui::ClearIniSettings();
         workspace.status = layoutResult == WorkspaceLayoutLoadResult::legacy
-                               ? "旧レイアウトを更新しました"
-                               : "レイアウトを初期化しました";
+                               ? i18n::tr("旧レイアウトを更新しました")
+                               : i18n::tr("レイアウトを初期化しました");
     }
     bool initializeDockLayout = layoutResult != WorkspaceLayoutLoadResult::loaded;
     bool layoutNeedsSave = initializeDockLayout;
@@ -353,7 +378,7 @@ int runApplication(const EditCommand &options) {
                     preview.controller->setPose(nullptr);
                     preview.controller->setMotion(&*preview.motion);
                 }
-                setStatus(session, "モーションを読み込みました",
+                setStatus(session, i18n::tr("モーションを読み込みました"),
                           UiStatusKind::success);
             } else if (extension == ".vpd") {
                 preview.pose = mmd::vpd::load(path);
@@ -363,7 +388,7 @@ int runApplication(const EditCommand &options) {
                     preview.controller->setMotion(nullptr);
                     preview.controller->setPose(&*preview.pose);
                 }
-                setStatus(session, "ポーズを読み込みました",
+                setStatus(session, i18n::tr("ポーズを読み込みました"),
                           UiStatusKind::success);
             }
             if (preview.controller) {
@@ -460,7 +485,7 @@ int runApplication(const EditCommand &options) {
                         if (discardTransform)
                             discardTransformAfterSaveSession.reset();
                         setOperationStatus(*sessions[*target], saveResult.success,
-                                           "保存しました", "保存に失敗しました");
+                                           i18n::tr("保存しました"), i18n::tr("保存に失敗しました"));
                         if (!saveResult.success && closeAfterSaveSession &&
                             *closeAfterSaveSession == targetId)
                             closeAfterSaveSession.reset();
@@ -494,8 +519,8 @@ int runApplication(const EditCommand &options) {
                                 }
                                 const auto success = relinkTexture(targetSession, handle, storedPath);
                                 setStatus(targetSession,
-                                          success ? "テクスチャを再リンクしました"
-                                                  : "テクスチャの再リンクに失敗しました",
+                                          success ? i18n::tr("テクスチャを再リンクしました")
+                                                  : i18n::tr("テクスチャの再リンクに失敗しました"),
                                           success ? UiStatusKind::success : UiStatusKind::error,
                                           success ? std::chrono::seconds(4)
                                                   : std::chrono::milliseconds::zero(),
@@ -532,16 +557,16 @@ int runApplication(const EditCommand &options) {
             layoutNeedsSave = true;
         }
         if (!untitledRecoveries.empty() && !recoveryPromptOpened) {
-            ImGui::OpenPopup("回復情報");
+            ImGui::OpenPopup(i18n::tr("回復情報"));
             recoveryPromptOpened = true;
         }
-        if (recoveryPromptOpened && ImGui::BeginPopupModal("回復情報", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::TextUnformatted("未保存の無題ドキュメントがあります。");
+        if (recoveryPromptOpened && ImGui::BeginPopupModal(i18n::tr("回復情報"), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextUnformatted(i18n::tr("未保存の無題ドキュメントがあります。"));
             for (std::size_t index = 0; index < untitledRecoveries.size(); ++index) {
                 ImGui::PushID(static_cast<int>(index));
                 ImGui::Text("%s", untitledRecoveries[index].path.filename().string().c_str());
                 ImGui::SameLine();
-                if (ImGui::Button("復元")) {
+                if (ImGui::Button(i18n::tr("復元"))) {
                     untitledRecoveries[index].model.sourcePath.clear();
                     auto session = std::make_unique<DocumentSession>(std::move(untitledRecoveries[index].model));
                     session->commands.markDirty();
@@ -555,7 +580,7 @@ int runApplication(const EditCommand &options) {
                     break;
                 }
                 ImGui::SameLine();
-                if (ImGui::Button("破棄")) {
+                if (ImGui::Button(i18n::tr("破棄"))) {
                     if (!discardRecoveryFile(untitledRecoveries[index].path)) {
                         const auto message = std::string{"Failed to discard recovery file: "} +
                                              untitledRecoveries[index].path.string();
@@ -589,21 +614,21 @@ int runApplication(const EditCommand &options) {
                 quitRequested = false;
                 running = false;
             } else {
-                ImGui::OpenPopup("未保存の変更##quit");
+                ImGui::OpenPopup(i18n::tr("未保存の変更##quit"));
                 quitPromptOpened = true;
             }
         }
         if (quitPromptOpened && quitSessionIndex < sessions.size() &&
-            ImGui::BeginPopupModal("未保存の変更##quit", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::BeginPopupModal(i18n::tr("未保存の変更##quit"), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             auto &session = *sessions[quitSessionIndex];
-            const auto title = session.path.empty() ? std::string{"無題"} : session.path.filename().string();
-            ImGui::Text("%s に未保存の変更があります。", title.c_str());
+            const auto title = session.path.empty() ? std::string{i18n::tr("無題")} : session.path.filename().string();
+            ImGui::Text(i18n::tr("%s に未保存の変更があります。"), title.c_str());
             const auto pendingTransform = session.hasPendingTransformEdit();
             if (pendingTransform)
-                ImGui::TextWrapped("Transform Viewの一時変形はまだPMXには含まれていません。");
-            if (ImGui::Button(pendingTransform ? "一時編集を破棄して保存して終了" : "保存して終了")) {
+                ImGui::TextWrapped(i18n::tr("Transform Viewの一時変形はまだPMXには含まれていません。"));
+            if (ImGui::Button(pendingTransform ? i18n::tr("一時編集を破棄して保存して終了") : i18n::tr("保存して終了"))) {
                 if (session.path.empty()) {
-                    setStatus(session, "保存先を指定してください。終了はキャンセルされました",
+                    setStatus(session, i18n::tr("保存先を指定してください。終了はキャンセルされました"),
                               UiStatusKind::warning, std::chrono::milliseconds::zero(), true);
                     quitRequested = false;
                     quitPromptOpened = false;
@@ -613,7 +638,7 @@ int runApplication(const EditCommand &options) {
                     quitPromptOpened = false;
                     ImGui::CloseCurrentPopup();
                 } else {
-                    setStatus(session, "保存に失敗しました。終了はキャンセルされました",
+                    setStatus(session, i18n::tr("保存に失敗しました。終了はキャンセルされました"),
                               UiStatusKind::error, std::chrono::milliseconds::zero(), true);
                     quitRequested = false;
                     quitPromptOpened = false;
@@ -621,7 +646,7 @@ int runApplication(const EditCommand &options) {
                 }
             }
             ImGui::SameLine();
-            if (ImGui::Button("破棄して終了")) {
+            if (ImGui::Button(i18n::tr("破棄して終了"))) {
                 quitDiscarded[quitSessionIndex] = true;
                 ++quitSessionIndex;
                 quitPromptOpened = false;
@@ -629,7 +654,7 @@ int runApplication(const EditCommand &options) {
             }
             ImGui::SameLine();
             if (pendingTransform) {
-                if (ImGui::Button("Transform Viewを開いてモーフ化")) {
+                if (ImGui::Button(i18n::tr("Transform Viewを開いてモーフ化"))) {
                     revealPendingTransformEdit(quitSessionIndex);
                     quitRequested = false;
                     quitPromptOpened = false;
@@ -637,7 +662,7 @@ int runApplication(const EditCommand &options) {
                 }
                 ImGui::SameLine();
             }
-            if (ImGui::Button("キャンセル")) {
+            if (ImGui::Button(i18n::tr("キャンセル"))) {
                 quitRequested = false;
                 quitPromptOpened = false;
                 ImGui::CloseCurrentPopup();
@@ -645,7 +670,7 @@ int runApplication(const EditCommand &options) {
             ImGui::EndPopup();
         }
         if (workspace.showDocuments) {
-            if (ImGui::Begin("ドキュメント", &workspace.showDocuments)) {
+            if (ImGui::Begin(i18n::windowTitle("ドキュメント"), &workspace.showDocuments)) {
                 if (ImGui::BeginTabBar("document-tabs")) {
                     for (std::size_t i = 0; i < sessions.size(); ++i) {
                         const auto title = documentTabTitle(sessions, i) +
@@ -659,7 +684,7 @@ int runApplication(const EditCommand &options) {
                         if (ImGui::IsItemHovered()) {
                             ImGui::BeginTooltip();
                             ImGui::TextUnformatted(sessions[i]->path.empty()
-                                                       ? "無題"
+                                                       ? i18n::tr("無題")
                                                        : sessions[i]->path.string().c_str());
                             ImGui::EndTooltip();
                         }
@@ -668,11 +693,12 @@ int runApplication(const EditCommand &options) {
                     }
                     ImGui::EndTabBar();
                 }
-                ImGui::InputText("新しいPMX", newSessionPath.data(), newSessionPath.size());
-                ImGui::SameLine();
-                if (ImGui::Button("ファイルを選択") && !fileDialog.busy())
+                ImGui::TextUnformatted(i18n::tr("新しいPMX"));
+                ImGui::SetNextItemWidth(-1.0F);
+                ImGui::InputText("##new-pmx-path", newSessionPath.data(), newSessionPath.size());
+                if (ImGui::Button(i18n::tr("ファイルを選択")) && !fileDialog.busy())
                     (void)fileDialog.open();
-                if (ImGui::Button("タブで開く") && newSessionPath[0] != '\0') {
+                if (ImGui::Button(i18n::tr("タブで開く")) && newSessionPath[0] != '\0') {
                     try {
                         const std::filesystem::path path(newSessionPath.data());
                         if (const auto opened = loadSession(path))
@@ -693,12 +719,12 @@ int runApplication(const EditCommand &options) {
                 closeSession(*target);
                 pendingCloseSession.reset();
             } else {
-                ImGui::OpenPopup("未保存の変更##close-document");
+                ImGui::OpenPopup(i18n::tr("未保存の変更##close-document"));
                 closePromptOpened = true;
             }
         }
         if (closePromptOpened &&
-            ImGui::BeginPopupModal("未保存の変更##close-document", nullptr,
+            ImGui::BeginPopupModal(i18n::tr("未保存の変更##close-document"), nullptr,
                                    ImGuiWindowFlags_AlwaysAutoResize)) {
             const auto target = pendingCloseSession
                                     ? findSession(*pendingCloseSession)
@@ -710,13 +736,13 @@ int runApplication(const EditCommand &options) {
             } else {
                 auto &session = *sessions[*target];
                 const auto title = session.path.empty()
-                                       ? std::string{"無題"}
+                                       ? std::string{i18n::tr("無題")}
                                        : session.path.filename().string();
-                ImGui::Text("%s に未保存の変更があります。", title.c_str());
+                ImGui::Text(i18n::tr("%s に未保存の変更があります。"), title.c_str());
                 const auto pendingTransform = session.hasPendingTransformEdit();
                 if (pendingTransform)
-                    ImGui::TextWrapped("Transform Viewの一時変形はまだPMXには含まれていません。");
-                if (ImGui::Button(pendingTransform ? "一時編集を破棄して保存して閉じる" : "保存して閉じる")) {
+                    ImGui::TextWrapped(i18n::tr("Transform Viewの一時変形はまだPMXには含まれていません。"));
+                if (ImGui::Button(pendingTransform ? i18n::tr("一時編集を破棄して保存して閉じる") : i18n::tr("保存して閉じる"))) {
                     if (session.path.empty()) {
                         if (!fileDialog.busy() &&
                             fileDialog.save({}, session.recoveryId)) {
@@ -733,12 +759,12 @@ int runApplication(const EditCommand &options) {
                         pendingCloseSession.reset();
                         ImGui::CloseCurrentPopup();
                     } else {
-                        setStatus(session, "保存に失敗しました", UiStatusKind::error,
+                        setStatus(session, i18n::tr("保存に失敗しました"), UiStatusKind::error,
                                   std::chrono::milliseconds::zero(), true);
                     }
                 }
                 if (pendingTransform) {
-                    if (ImGui::Button("Transform Viewを開いてモーフ化")) {
+                    if (ImGui::Button(i18n::tr("Transform Viewを開いてモーフ化"))) {
                         revealPendingTransformEdit(*target);
                         closePromptOpened = false;
                         pendingCloseSession.reset();
@@ -747,14 +773,14 @@ int runApplication(const EditCommand &options) {
                     ImGui::SameLine();
                 }
                 ImGui::SameLine();
-                if (ImGui::Button("破棄して閉じる")) {
+                if (ImGui::Button(i18n::tr("破棄して閉じる"))) {
                     closeSession(*target);
                     closePromptOpened = false;
                     pendingCloseSession.reset();
                     ImGui::CloseCurrentPopup();
                 }
                 ImGui::SameLine();
-                if (ImGui::Button("キャンセル")) {
+                if (ImGui::Button(i18n::tr("キャンセル"))) {
                     closePromptOpened = false;
                     pendingCloseSession.reset();
                     ImGui::CloseCurrentPopup();
@@ -773,12 +799,12 @@ int runApplication(const EditCommand &options) {
             workspace.requestPendingTransformSave = false;
             workspace.pendingTransformSaveAs = false;
             if (!pendingTransformSavePromptOpened) {
-                ImGui::OpenPopup("未反映の一時変形");
+                ImGui::OpenPopup(i18n::tr("未反映の一時変形"));
                 pendingTransformSavePromptOpened = true;
             }
         }
         if (pendingTransformSavePromptOpened &&
-            ImGui::BeginPopupModal("未反映の一時変形", nullptr,
+            ImGui::BeginPopupModal(i18n::tr("未反映の一時変形"), nullptr,
                                    ImGuiWindowFlags_AlwaysAutoResize)) {
             const auto target = pendingTransformSaveSession
                                     ? findSession(*pendingTransformSaveSession)
@@ -790,11 +816,11 @@ int runApplication(const EditCommand &options) {
                 ImGui::CloseCurrentPopup();
             } else {
                 auto &session = *sessions[*target];
-                ImGui::TextUnformatted("一時変形が残っています");
-                ImGui::Text("頂点: %zu 頂点", session.deform.vertices.size());
-                ImGui::Text("ボーン: %zu ボーン", session.deform.bones.size());
-                ImGui::TextWrapped("一時変形はまだPMXには含まれていません。");
-                if (ImGui::Button("Transform Viewを開いてモーフ化")) {
+                ImGui::TextUnformatted(i18n::tr("一時変形が残っています"));
+                ImGui::Text(i18n::tr("頂点: %zu 頂点"), session.deform.vertices.size());
+                ImGui::Text(i18n::tr("ボーン: %zu ボーン"), session.deform.bones.size());
+                ImGui::TextWrapped(i18n::tr("一時変形はまだPMXには含まれていません。"));
+                if (ImGui::Button(i18n::tr("Transform Viewを開いてモーフ化"))) {
                     revealPendingTransformEdit(*target);
                     pendingTransformSaveSession.reset();
                     pendingTransformSaveAs = false;
@@ -802,7 +828,7 @@ int runApplication(const EditCommand &options) {
                     ImGui::CloseCurrentPopup();
                 }
                 ImGui::SameLine();
-                if (ImGui::Button("一時変形をすべて破棄して保存")) {
+                if (ImGui::Button(i18n::tr("一時変形をすべて破棄して保存"))) {
                     const bool saveAs = pendingTransformSaveAs;
                     const bool pendingTransform = session.hasPendingTransformEdit();
                     pendingTransformSaveSession.reset();
@@ -820,11 +846,11 @@ int runApplication(const EditCommand &options) {
                     } else {
                         const auto result = saveForPendingAction(session, {});
                         setOperationStatus(session, result.success,
-                                           "保存しました", "保存に失敗しました");
+                                           i18n::tr("保存しました"), i18n::tr("保存に失敗しました"));
                     }
                 }
                 ImGui::SameLine();
-                if (ImGui::Button("キャンセル")) {
+                if (ImGui::Button(i18n::tr("キャンセル"))) {
                     pendingTransformSaveSession.reset();
                     pendingTransformSaveAs = false;
                     pendingTransformSavePromptOpened = false;
@@ -833,7 +859,7 @@ int runApplication(const EditCommand &options) {
             }
             ImGui::EndPopup();
         } else if (pendingTransformSavePromptOpened &&
-                   !ImGui::IsPopupOpen("未反映の一時変形")) {
+                   !ImGui::IsPopupOpen(i18n::tr("未反映の一時変形"))) {
             pendingTransformSaveSession.reset();
             pendingTransformSaveAs = false;
             pendingTransformSavePromptOpened = false;
@@ -842,18 +868,18 @@ int runApplication(const EditCommand &options) {
             drawEditorPanels(*sessions[activeSession], fileDialog,
                              gpuModelRenderer.get(), workspace);
         else {
-            ImGui::Begin("ビューポート");
+            ImGui::Begin(i18n::windowTitle("ビューポート"));
             ImGui::TextUnformatted("pmxer");
             ImGui::Spacing();
-            ImGui::TextUnformatted("PMXモデルを開いて編集を開始");
+            ImGui::TextUnformatted(i18n::tr("PMXモデルを開いて編集を開始"));
             ImGui::Spacing();
-            if (ui::button(ui::UiSemanticId::menuFile, "PMXファイルを開く", !fileDialog.busy()) &&
+            if (ui::button(ui::UiSemanticId::menuFile, i18n::tr("PMXファイルを開く"), !fileDialog.busy()) &&
                 !fileDialog.busy())
                 (void)fileDialog.open();
-            ImGui::TextDisabled("ここへ .pmx をドラッグ＆ドロップ");
-            ImGui::SeparatorText("最近使ったファイル");
+            ImGui::TextDisabled(i18n::tr("ここへ .pmx をドラッグ＆ドロップ"));
+            ImGui::SeparatorText(i18n::tr("最近使ったファイル"));
             if (recentFiles.empty()) {
-                ImGui::TextDisabled("履歴はありません");
+                ImGui::TextDisabled(i18n::tr("履歴はありません"));
             } else {
                 for (std::size_t index = 0; index < recentFiles.size(); ++index) {
                     ImGui::PushID(static_cast<int>(index));

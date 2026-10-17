@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "ModelMergeTool.hpp"
 
 #include "../EditorOperations.hpp"
@@ -166,7 +168,7 @@ bool mergeAppend(DocumentSession &session, const mmd::PmxModel &other, MergeRepo
                 return false;
         }
         return true;
-    }, "モデルを追加結合");
+    }, i18n::tr("モデルを追加結合"));
     if (!result.success)
         return false;
     local.addedVertices = other.vertices.size();

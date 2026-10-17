@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "UiSemantics.hpp"
 
 #include <imgui.h>
@@ -60,7 +62,7 @@ bool button(UiSemanticId id, const char *label, bool enabled) {
     registerItem(id, UiSemanticRole::button, label, enabled, false,
                  enabled ? UiSemanticSupport::supported
                          : UiSemanticSupport::unsupported,
-                 enabled ? std::string_view{} : std::string_view{"操作できません"});
+                 enabled ? std::string_view{} : std::string_view{i18n::tr("操作できません")});
     if (!enabled)
         ImGui::EndDisabled();
     ImGui::PopID();
@@ -76,7 +78,7 @@ bool checkbox(UiSemanticId id, const char *label, bool *value, bool enabled) {
                  value != nullptr && *value,
                  enabled ? UiSemanticSupport::supported
                          : UiSemanticSupport::unsupported,
-                 enabled ? std::string_view{} : std::string_view{"操作できません"});
+                 enabled ? std::string_view{} : std::string_view{i18n::tr("操作できません")});
     if (!enabled)
         ImGui::EndDisabled();
     ImGui::PopID();

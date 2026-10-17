@@ -10,6 +10,7 @@ namespace pmxer {
 
 [[nodiscard]] std::filesystem::path resolveUiFont(
     const std::filesystem::path &requested,
-    const std::filesystem::path &resourceDirectory);
+    const std::filesystem::path &resourceDirectory,
+    bool simplifiedChinese = false);
 
 } // namespace pmxer
