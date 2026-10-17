@@ -46,7 +46,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build xvfb mesa-vulkan-drivers glslang-tools gdb libx11-dev libxext-dev libxrandr-dev libxrender-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev libwayland-dev libxkbcommon-dev libdecor-0-dev
+          sudo apt-get install -y ninja-build xvfb fonts-noto-cjk mesa-vulkan-drivers glslang-tools gdb libx11-dev libxext-dev libxrandr-dev libxrender-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev libwayland-dev libxkbcommon-dev libdecor-0-dev
       - uses: actions/download-artifact@v4
         with:
           name: compiled-shaders
@@ -59,15 +59,17 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           set +e
-          timeout --signal=TERM --kill-after=5s 8s \
-            xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
-            ./build/${{ matrix.preset }}/pmxer
-          status=$?
-          if [ "$status" -ne 124 ]; then
-            xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
-              gdb -batch -ex run -ex bt --args ./build/${{ matrix.preset }}/pmxer || true
-            exit "$status"
-          fi
+          for language in ja en zh-CN ru; do
+            timeout --signal=TERM --kill-after=5s 8s \
+              xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
+              ./build/${{ matrix.preset }}/pmxer --lang "$language"
+            status=$?
+            if [ "$status" -ne 124 ]; then
+              xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
+                gdb -batch -ex run -ex bt --args ./build/${{ matrix.preset }}/pmxer --lang "$language" || true
+              exit "$status"
+            fi
+          done
       - name: Test
         run: ctest --test-dir build/${{ matrix.preset }} --output-on-failure
 

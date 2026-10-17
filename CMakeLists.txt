@@ -377,6 +377,10 @@ if(PMXER_WARNINGS_AS_ERRORS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 if(BUILD_TESTING)
+  add_executable(pmxer_i18n_tests tests/unit/I18nTests.cpp)
+  target_link_libraries(pmxer_i18n_tests PRIVATE pmxer_editor)
+  add_test(NAME pmxer_i18n COMMAND pmxer_i18n_tests)
+
   add_executable(pmxer_editor_tests tests/unit/EditorTests.cpp)
   target_link_libraries(pmxer_editor_tests PRIVATE pmxer_editor pmxer_preview pmxer_render)
   add_test(NAME pmxer_editor COMMAND pmxer_editor_tests)
