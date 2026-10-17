@@ -42,6 +42,18 @@ option(PMXER_FETCH_LIBMMD_DEPENDENCIES "Allow the PMX library to fetch physics d
 option(PMXER_WARNINGS_AS_ERRORS "Treat project warnings as errors" OFF)
 option(PMXER_ENABLE_SANITIZERS "Enable address and undefined behavior sanitizers" OFF)
 
+if(PMXER_BUILD_GUI OR BUILD_TESTING)
+  find_package(nlohmann_json 3.11 CONFIG QUIET)
+  if(NOT TARGET nlohmann_json::nlohmann_json)
+    set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(nlohmann_json
+      URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+      URL_HASH SHA256=d6c65aca6b1ed68e7a182f4757257b107ae403032760ed6ef121c9d55e81757d
+      DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_MakeAvailable(nlohmann_json)
+  endif()
+endif()
+
 set(LIBMMD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(LIBMMD_INSTALL OFF CACHE BOOL "" FORCE)
 set(LIBMMD_ENABLE_PHYSICS ${PMXER_ENABLE_PHYSICS} CACHE BOOL "" FORCE)
@@ -102,6 +114,12 @@ add_library(pmxer_editor
 )
 target_include_directories(pmxer_editor PUBLIC src)
 target_link_libraries(pmxer_editor PUBLIC mmd::core pmxer_platform pmxer_i18n)
+
+if(PMXER_BUILD_GUI OR BUILD_TESTING)
+  add_library(pmxer_ai src/ai/EditPlan.cpp src/editor/AiEditExecutor.cpp)
+  target_include_directories(pmxer_ai PUBLIC src)
+  target_link_libraries(pmxer_ai PUBLIC pmxer_editor nlohmann_json::nlohmann_json)
+endif()
 
 add_library(pmxer_command_line
   src/app/CommandLine.cpp
@@ -368,6 +386,9 @@ endif()
 
 if(PMXER_WARNINGS_AS_ERRORS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   set(PMXER_WARNING_TARGETS pmxer_i18n pmxer_platform pmxer_editor pmxer_command_line pmxer_commands pmxer_preview pmxer_render pmxer)
+  if(TARGET pmxer_ai)
+    list(APPEND PMXER_WARNING_TARGETS pmxer_ai)
+  endif()
   if(TARGET pmxer_ui)
     list(APPEND PMXER_WARNING_TARGETS pmxer_ui)
   endif()
@@ -377,6 +398,9 @@ if(PMXER_WARNINGS_AS_ERRORS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 if(BUILD_TESTING)
+  add_executable(pmxer_ai_tests tests/unit/AiEditTests.cpp)
+  target_link_libraries(pmxer_ai_tests PRIVATE pmxer_ai)
+  add_test(NAME pmxer_ai COMMAND pmxer_ai_tests)
   add_executable(pmxer_i18n_tests tests/unit/I18nTests.cpp)
   target_link_libraries(pmxer_i18n_tests PRIVATE pmxer_editor)
   add_test(NAME pmxer_i18n COMMAND pmxer_i18n_tests)
