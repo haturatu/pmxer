@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "SaveController.hpp"
 
 #include "../platform/AtomicFile.hpp"
@@ -15,13 +17,13 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
                         SaveOptions saveOptions) {
     const auto destination = destinationArgument.empty() ? session.path : destinationArgument;
     if (destination.empty())
-        return {false, "保存先が指定されていません", {}, {}};
+        return {false, i18n::tr("保存先が指定されていません"), {}, {}};
     if (session.hasPendingTransformEdit() && !saveOptions.allowPendingTransformEdit)
-        return {false, "Transform Viewの一時変形はまだPMXに含まれていません。モーフを作成するか、一時変形を破棄してください。", {}, {}};
+        return {false, i18n::tr("Transform Viewの一時変形はまだPMXに含まれていません。モーフを作成するか、一時変形を破棄してください。"), {}, {}};
 
     session.validation = session.document.validate();
     if (!session.validation.valid())
-        return {false, "検証エラーがあるため保存できません", {}, {}};
+        return {false, i18n::tr("検証エラーがあるため保存できません"), {}, {}};
 
     const auto temporary = temporarySibling(destination);
     const auto oldRecovery = session.recoveryFile.value_or(
@@ -37,13 +39,13 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
             session.document.model(), written, mmd::PmxComparisonProfile::preservation);
         if (!result.verification.equal()) {
             std::filesystem::remove(temporary);
-            result.message = "保存後の意味比較に失敗しました";
+            result.message = i18n::tr("保存後の意味比較に失敗しました");
             log::error(result.message.c_str());
             return result;
         }
         if (!atomicReplace(temporary, destination)) {
             std::filesystem::remove(temporary);
-            result.message = "保存先を原子置換できませんでした";
+            result.message = i18n::tr("保存先を原子置換できませんでした");
             log::error(result.message.c_str());
             return result;
         }
@@ -63,7 +65,7 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
         session.recoveryFile.reset();
         (void)discardRecovery(destination);
         result.success = true;
-        result.message = "保存しました";
+        result.message = i18n::tr("保存しました");
         log::info(result.message.c_str());
         return result;
     } catch (const std::exception &error) {

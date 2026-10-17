@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "UiStatus.hpp"
 
 #include "DocumentSession.hpp"
@@ -22,7 +24,7 @@ void setOperationStatus(DocumentSession &session, bool success,
         setStatus(session, std::move(successText), UiStatusKind::success);
     else {
         if (failureText.empty())
-            failureText = "操作に失敗しました";
+            failureText = i18n::tr("操作に失敗しました");
         setStatus(session, std::move(failureText), UiStatusKind::error,
                   std::chrono::milliseconds::zero(), true);
     }

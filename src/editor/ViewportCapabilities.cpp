@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "ViewportCapabilities.hpp"
 
 #include "DocumentSession.hpp"
@@ -48,34 +50,34 @@ ActionAvailability boneTransformAvailability(const DocumentSession &session,
                                               mmd::BoneHandle handle) noexcept {
     const auto *bone = session.document.resolve(handle);
     if (bone == nullptr)
-        return {false, SupportLevel::unsupported, "ボーンが見つかりません"};
+        return {false, SupportLevel::unsupported, i18n::tr("ボーンが見つかりません")};
     const auto &model = session.document.model();
     const auto index = static_cast<std::size_t>(bone - model.bones.data());
     if ((bone->flags & ikFlag) != 0U)
         return {false, SupportLevel::unsupported,
-                "このボーンはIKコントローラーのため変形できません"};
+                i18n::tr("このボーンはIKコントローラーのため変形できません")};
     if ((bone->flags & appendFlags) != 0U)
         return {false, SupportLevel::unsupported,
-                "このボーンは付与（Append / Inherit）により制御されているため変形できません"};
+                i18n::tr("このボーンは付与（Append / Inherit）により制御されているため変形できません")};
     if ((bone->flags & afterPhysicsFlag) != 0U)
         return {false, SupportLevel::unsupported,
-                "このボーンは物理後変形（After Physics）のため変形できません"};
+                i18n::tr("このボーンは物理後変形（After Physics）のため変形できません")};
 
     for (const auto &candidate : model.bones) {
         if ((candidate.flags & ikFlag) == 0U)
             continue;
         if (candidate.ikTarget == static_cast<std::int32_t>(index))
             return {false, SupportLevel::unsupported,
-                    "このボーンはIKターゲットのため変形できません"};
+                    i18n::tr("このボーンはIKターゲットのため変形できません")};
         for (const auto &link : candidate.ikLinks)
             if (link.bone == static_cast<std::int32_t>(index))
                 return {false, SupportLevel::unsupported,
-                        "このボーンはIKリンクのため変形できません"};
+                        i18n::tr("このボーンはIKリンクのため変形できません")};
     }
     for (const auto &body : model.rigidBodies) {
         if (body.physicsEnabled && body.mode != 0U && body.bone == static_cast<std::int32_t>(index))
             return {false, SupportLevel::unsupported,
-                    "このボーンは剛体物理により制御されているため変形できません"};
+                    i18n::tr("このボーンは剛体物理により制御されているため変形できません")};
     }
     return {true, SupportLevel::supported, {}};
 }
@@ -118,15 +120,15 @@ ActionAvailability actionAvailability(EditorAction action,
     case EditorAction::viewportMove:
         return {capabilities.move, capabilities.move ? SupportLevel::supported
                                                        : SupportLevel::unsupported,
-                "選択対象は移動編集に対応していません"};
+                i18n::tr("選択対象は移動編集に対応していません")};
     case EditorAction::viewportRotate:
         return {capabilities.rotate, capabilities.rotate ? SupportLevel::supported
                                                           : SupportLevel::unsupported,
-                "選択対象は回転編集に対応していません"};
+                i18n::tr("選択対象は回転編集に対応していません")};
     case EditorAction::viewportScale:
         return {capabilities.scale, capabilities.scale ? SupportLevel::supported
                                                         : SupportLevel::unsupported,
-                "選択対象は拡縮編集に対応していません"};
+                i18n::tr("選択対象は拡縮編集に対応していません")};
     }
     return {};
 }

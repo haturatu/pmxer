@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "PhysicsTool.hpp"
 
 #include "../EditorOperations.hpp"
@@ -43,7 +45,7 @@ bool generateRigidBodyChain(DocumentSession &session, const std::vector<mmd::Bon
                 return false;
         }
         return true;
-    }, "剛体チェーンを生成").success;
+    }, i18n::tr("剛体チェーンを生成")).success;
 }
 
 } // namespace pmxer

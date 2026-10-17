@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "EditorOperations.hpp"
 
 #include <algorithm>
@@ -179,12 +181,12 @@ OperationResult applyProperty(DocumentSession &session, Handle handle,
                               std::string description) {
   const auto *current = resolver(session.document, handle);
   if (current == nullptr)
-    return {false, "対象が見つかりません"};
+    return {false, i18n::tr("対象が見つかりません")};
   const auto before = *current;
 
   const auto committed = setter(session.document, handle, value);
   if (!committed.committed)
-    return {false, committed.errors.empty() ? "編集結果が検証に失敗しました"
+    return {false, committed.errors.empty() ? i18n::tr("編集結果が検証に失敗しました")
                                             : committed.errors.front()};
 
   session.commands.recordApplied(
@@ -207,10 +209,10 @@ OperationResult applyReversibleTransaction(DocumentSession &session,
                                            std::string description) {
   auto transaction = session.document.transaction();
   if (!forward(transaction))
-    return {false, "対象が見つかりません"};
+    return {false, i18n::tr("対象が見つかりません")};
   const auto committed = transaction.commit();
   if (!committed.committed)
-    return {false, committed.errors.empty() ? "編集結果が検証に失敗しました"
+    return {false, committed.errors.empty() ? i18n::tr("編集結果が検証に失敗しました")
                                             : committed.errors.front()};
   session.commands.recordApplied(std::make_unique<TransactionCommand>(
       std::move(forward), std::move(reverse), std::move(description)));
@@ -229,10 +231,10 @@ OperationResult applyTransaction(
     std::string description) {
   auto transaction = session.document.transaction();
   if (!callback(transaction))
-    return {false, "対象が見つかりません"};
+    return {false, i18n::tr("対象が見つかりません")};
   const auto committed = transaction.commit();
   if (!committed.committed)
-    return {false, committed.errors.empty() ? "編集結果が検証に失敗しました"
+    return {false, committed.errors.empty() ? i18n::tr("編集結果が検証に失敗しました")
                                             : committed.errors.front()};
   if (committed.patch.empty())
     return {true, {}};
@@ -250,7 +252,7 @@ OperationResult moveMaterial(DocumentSession &session,
                              std::size_t destination) {
   const auto source = session.document.resolve(handle);
   if (source == nullptr)
-    return {false, "対象が見つかりません"};
+    return {false, i18n::tr("対象が見つかりません")};
   const auto from = static_cast<std::size_t>(
       source - session.document.model().materials.data());
   return applyReversibleTransaction(
@@ -259,14 +261,14 @@ OperationResult moveMaterial(DocumentSession &session,
         return transaction.moveMaterial(handle, destination);
       },
       [=](auto &transaction) { return transaction.moveMaterial(handle, from); },
-      "材質順序を変更");
+      i18n::tr("材質順序を変更"));
 }
 
 OperationResult moveBone(DocumentSession &session, mmd::BoneHandle handle,
                          std::size_t destination) {
   const auto source = session.document.resolve(handle);
   if (source == nullptr)
-    return {false, "対象が見つかりません"};
+    return {false, i18n::tr("対象が見つかりません")};
   const auto from =
       static_cast<std::size_t>(source - session.document.model().bones.data());
   return applyReversibleTransaction(
@@ -275,14 +277,14 @@ OperationResult moveBone(DocumentSession &session, mmd::BoneHandle handle,
         return transaction.moveBone(handle, destination);
       },
       [=](auto &transaction) { return transaction.moveBone(handle, from); },
-      "ボーン順序を変更");
+      i18n::tr("ボーン順序を変更"));
 }
 
 OperationResult moveMorph(DocumentSession &session, mmd::MorphHandle handle,
                           std::size_t destination) {
   const auto source = session.document.resolve(handle);
   if (source == nullptr)
-    return {false, "対象が見つかりません"};
+    return {false, i18n::tr("対象が見つかりません")};
   const auto from =
       static_cast<std::size_t>(source - session.document.model().morphs.data());
   return applyReversibleTransaction(
@@ -291,7 +293,7 @@ OperationResult moveMorph(DocumentSession &session, mmd::MorphHandle handle,
         return transaction.moveMorph(handle, destination);
       },
       [=](auto &transaction) { return transaction.moveMorph(handle, from); },
-      "モーフ順序を変更");
+      i18n::tr("モーフ順序を変更"));
 }
 
 OperationResult moveDisplayFrame(DocumentSession &session,
@@ -299,7 +301,7 @@ OperationResult moveDisplayFrame(DocumentSession &session,
                                  std::size_t destination) {
   const auto source = session.document.resolve(handle);
   if (source == nullptr)
-    return {false, "対象が見つかりません"};
+    return {false, i18n::tr("対象が見つかりません")};
   const auto from = static_cast<std::size_t>(
       source - session.document.model().displayFrames.data());
   return applyReversibleTransaction(
@@ -310,7 +312,7 @@ OperationResult moveDisplayFrame(DocumentSession &session,
       [=](auto &transaction) {
         return transaction.moveDisplayFrame(handle, from);
       },
-      "表示枠順序を変更");
+      i18n::tr("表示枠順序を変更"));
 }
 
 OperationResult editVertex(DocumentSession &session, mmd::VertexHandle handle,
@@ -320,7 +322,7 @@ OperationResult editVertex(DocumentSession &session, mmd::VertexHandle handle,
       [](const mmd::PmxDocument &document, mmd::VertexHandle valueHandle) {
         return document.resolve(valueHandle);
       },
-      setVertexValue, "頂点を編集");
+      setVertexValue, i18n::tr("頂点を編集"));
 }
 
 OperationResult editTexture(DocumentSession &session, mmd::TextureHandle handle,
@@ -330,7 +332,7 @@ OperationResult editTexture(DocumentSession &session, mmd::TextureHandle handle,
       [](const mmd::PmxDocument &document, mmd::TextureHandle valueHandle) {
         return document.resolve(valueHandle);
       },
-      setTextureValue, "テクスチャを編集");
+      setTextureValue, i18n::tr("テクスチャを編集"));
 }
 
 OperationResult editMetadata(DocumentSession &session,
@@ -338,10 +340,10 @@ OperationResult editMetadata(DocumentSession &session,
   const auto before = session.document.model().metadata;
   const auto committed = session.document.replaceMetadata(value);
   if (!committed.committed)
-    return {false, committed.errors.empty() ? "編集結果が検証に失敗しました"
+    return {false, committed.errors.empty() ? i18n::tr("編集結果が検証に失敗しました")
                                             : committed.errors.front()};
   session.commands.recordApplied(
-      std::make_unique<MetadataCommand>(before, value, "モデル情報を編集"));
+      std::make_unique<MetadataCommand>(before, value, i18n::tr("モデル情報を編集")));
   session.modified = session.commands.isModified();
   ++session.revision;
   session.validation = committed.validation;
@@ -357,7 +359,7 @@ OperationResult editMaterial(DocumentSession &session,
       [](const mmd::PmxDocument &document, mmd::MaterialHandle valueHandle) {
         return document.resolve(valueHandle);
       },
-      setMaterialValue, "材質を編集");
+      setMaterialValue, i18n::tr("材質を編集"));
 }
 
 OperationResult editBone(DocumentSession &session, mmd::BoneHandle handle,
@@ -367,7 +369,7 @@ OperationResult editBone(DocumentSession &session, mmd::BoneHandle handle,
       [](const mmd::PmxDocument &document, mmd::BoneHandle valueHandle) {
         return document.resolve(valueHandle);
       },
-      setBoneValue, "ボーンを編集");
+      setBoneValue, i18n::tr("ボーンを編集"));
 }
 
 OperationResult editMorph(DocumentSession &session, mmd::MorphHandle handle,
@@ -377,7 +379,7 @@ OperationResult editMorph(DocumentSession &session, mmd::MorphHandle handle,
       [](const mmd::PmxDocument &document, mmd::MorphHandle valueHandle) {
         return document.resolve(valueHandle);
       },
-      setMorphValue, "モーフを編集");
+      setMorphValue, i18n::tr("モーフを編集"));
 }
 
 OperationResult editDisplayFrame(DocumentSession &session,
@@ -389,7 +391,7 @@ OperationResult editDisplayFrame(DocumentSession &session,
          mmd::DisplayFrameHandle valueHandle) {
         return document.resolve(valueHandle);
       },
-      setDisplayFrameValue, "表示枠を編集");
+      setDisplayFrameValue, i18n::tr("表示枠を編集"));
 }
 
 OperationResult editRigidBody(DocumentSession &session,
@@ -400,7 +402,7 @@ OperationResult editRigidBody(DocumentSession &session,
       [](const mmd::PmxDocument &document, mmd::RigidBodyHandle valueHandle) {
         return document.resolve(valueHandle);
       },
-      setRigidBodyValue, "剛体を編集");
+      setRigidBodyValue, i18n::tr("剛体を編集"));
 }
 
 OperationResult editJoint(DocumentSession &session, mmd::JointHandle handle,
@@ -410,7 +412,7 @@ OperationResult editJoint(DocumentSession &session, mmd::JointHandle handle,
       [](const mmd::PmxDocument &document, mmd::JointHandle valueHandle) {
         return document.resolve(valueHandle);
       },
-      setJointValue, "ジョイントを編集");
+      setJointValue, i18n::tr("ジョイントを編集"));
 }
 
 OperationResult editSoftBody(DocumentSession &session,
@@ -421,7 +423,7 @@ OperationResult editSoftBody(DocumentSession &session,
       [](const mmd::PmxDocument &document, mmd::SoftBodyHandle valueHandle) {
         return document.resolve(valueHandle);
       },
-      setSoftBodyValue, "ソフトボディを編集");
+      setSoftBodyValue, i18n::tr("ソフトボディを編集"));
 }
 
 OperationResult normalizeWeights(DocumentSession &session, float threshold) {
@@ -453,7 +455,7 @@ OperationResult normalizeWeights(DocumentSession &session, float threshold) {
                                     session.document.model().bones.size();
           });
       if (firstValidBone == vertex.bones.begin() + count)
-        return {false, "ウェイトを修復できる有効なボーンがありません"};
+        return {false, i18n::tr("ウェイトを修復できる有効なボーンがありません")};
       vertex.weights = {};
       vertex.bones[0] = *firstValidBone;
       vertex.weights[0] = 1.0F;
@@ -468,7 +470,7 @@ OperationResult normalizeWeights(DocumentSession &session, float threshold) {
             return false;
         return true;
       },
-      "ウェイトを正規化");
+      i18n::tr("ウェイトを正規化"));
 }
 
 OperationResult setVertexSkin(DocumentSession &session,

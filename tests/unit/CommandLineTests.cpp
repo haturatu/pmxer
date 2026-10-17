@@ -87,6 +87,19 @@ int main() {
     assert(configured.renderer == "vulkan");
     assert(configured.fontSize == 24.0F);
 
+    for (auto language : {"auto", "ja", "en-US", "zh-CN", "zh_Hans_CN", "ru_RU.UTF-8"}) {
+        const std::string argument = std::string{"--lang="} + language;
+        char *arguments[] = {name, const_cast<char *>(argument.c_str()), firstModel};
+        const auto parsed = pmxer::parseInvocation(3, arguments);
+        assert(parsed.error.empty());
+        assert(std::get<pmxer::EditCommand>(parsed.invocation->command).locale == language);
+    }
+    for (auto language : {"", "fr", "zh-Hant"}) {
+        const std::string argument = std::string{"--lang="} + language;
+        char *arguments[] = {name, const_cast<char *>(argument.c_str())};
+        assert(!pmxer::parseInvocation(2, arguments).error.empty());
+    }
+
     char emptyFontSize[] = "--font-size=";
     char *emptyFontSizeArguments[] = {name, emptyFontSize};
     const auto emptyFontSizeResult = pmxer::parseInvocation(2, emptyFontSizeArguments);

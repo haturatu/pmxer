@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "EditorPanels.hpp"
 #include "InspectorPanel.hpp"
 #include "MorphOffsetBrowser.hpp"
@@ -160,7 +162,7 @@ bool inputString(const char *label, std::string &value) {
 
 bool selectIndex(const char *label, std::size_t count, std::size_t &index) {
   if (count == 0) {
-    ImGui::TextUnformatted("対象がありません");
+    ImGui::TextUnformatted(i18n::tr("対象がありません"));
     return false;
   }
   index = std::min(index, count - 1);
@@ -184,7 +186,7 @@ const char *weightName(mmd::PmxWeightType type) {
   case mmd::PmxWeightType::qdef:
     return "QDEF";
   }
-  return "不明";
+  return i18n::tr("不明");
 }
 
 bool chooseBone(const char *label, const mmd::PmxModel &model,
@@ -192,10 +194,10 @@ bool chooseBone(const char *label, const mmd::PmxModel &model,
   const std::string current =
       index >= 0 && static_cast<std::size_t>(index) < model.bones.size()
           ? model.bones[static_cast<std::size_t>(index)].name
-          : (allowNone ? "なし" : "未選択");
+          : (allowNone ? i18n::tr("なし") : i18n::tr("未選択"));
   bool changed = false;
   if (ImGui::BeginCombo(label, current.c_str())) {
-    if (allowNone && ImGui::Selectable("なし", index < 0)) {
+    if (allowNone && ImGui::Selectable(i18n::tr("なし"), index < 0)) {
       index = -1;
       changed = true;
     }
@@ -218,10 +220,10 @@ bool chooseTexture(const char *label, const mmd::PmxModel &model,
   const std::string current =
       index >= 0 && static_cast<std::size_t>(index) < model.textures.size()
           ? model.textures[static_cast<std::size_t>(index)].storedPath
-          : "なし";
+          : i18n::tr("なし");
   bool changed = false;
   if (ImGui::BeginCombo(label, current.c_str())) {
-    if (ImGui::Selectable("なし", index < 0)) {
+    if (ImGui::Selectable(i18n::tr("なし"), index < 0)) {
       index = -1;
       changed = true;
     }
@@ -244,17 +246,17 @@ bool chooseMorph(const char *label, const mmd::PmxModel &model,
   const std::string current =
       index >= 0 && static_cast<std::size_t>(index) < model.morphs.size()
           ? model.morphs[static_cast<std::size_t>(index)].name
-          : "なし";
+          : i18n::tr("なし");
   bool changed = false;
   if (ImGui::BeginCombo(label, current.c_str())) {
-    if (ImGui::Selectable("なし", index < 0)) {
+    if (ImGui::Selectable(i18n::tr("なし"), index < 0)) {
       index = -1;
       changed = true;
     }
     for (std::size_t i = 0; i < model.morphs.size(); ++i) {
       const bool selected = index == static_cast<std::int32_t>(i);
       const auto name = model.morphs[i].name.empty()
-                            ? "(無名)"
+                            ? i18n::tr("(無名)")
                             : model.morphs[i].name.c_str();
       if (ImGui::Selectable(name, selected)) {
         index = static_cast<std::int32_t>(i);
@@ -273,10 +275,10 @@ bool chooseMaterial(const char *label, const mmd::PmxModel &model,
   const std::string current =
       index >= 0 && static_cast<std::size_t>(index) < model.materials.size()
           ? model.materials[static_cast<std::size_t>(index)].name
-          : "全材質 / なし";
+          : i18n::tr("全材質 / なし");
   bool changed = false;
   if (ImGui::BeginCombo(label, current.c_str())) {
-    if (ImGui::Selectable("全材質", index == -1)) {
+    if (ImGui::Selectable(i18n::tr("全材質"), index == -1)) {
       index = -1;
       changed = true;
     }
@@ -299,7 +301,7 @@ bool chooseRigidBody(const char *label, const mmd::PmxModel &model,
   const std::string current =
       index >= 0 && static_cast<std::size_t>(index) < model.rigidBodies.size()
           ? model.rigidBodies[static_cast<std::size_t>(index)].name
-          : "なし";
+          : i18n::tr("なし");
   bool changed = false;
   if (ImGui::BeginCombo(label, current.c_str())) {
     for (std::size_t i = 0; i < model.rigidBodies.size(); ++i) {
@@ -380,7 +382,7 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog,
       auto loaded = mmd::pmx::load(path);
       session = DocumentSession(std::move(loaded), path);
       session.ui.openPath = path.string();
-      setStatus(session, "読み込みました", UiStatusKind::success);
+      setStatus(session, i18n::tr("読み込みました"), UiStatusKind::success);
       return true;
     } catch (const std::exception &error) {
       setStatus(session, error.what(), UiStatusKind::error,
@@ -388,19 +390,19 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog,
       return false;
     }
   };
-  if (!ImGui::Begin("モデル", open)) {
+  if (!ImGui::Begin(i18n::windowTitle("モデル"), open)) {
     ImGui::End();
     return;
   }
   if (session.recoveryModel && !session.recoveryPromptOpened) {
-    ImGui::OpenPopup("回復情報##model");
+    ImGui::OpenPopup(i18n::tr("回復情報##model"));
     session.recoveryPromptOpened = true;
   }
   if (session.recoveryPromptOpened && session.recoveryModel &&
-      ImGui::BeginPopupModal("回復情報##model", nullptr,
+      ImGui::BeginPopupModal(i18n::tr("回復情報##model"), nullptr,
                              ImGuiWindowFlags_AlwaysAutoResize)) {
-    ImGui::TextUnformatted("前回の回復情報が見つかりました。");
-    if (ImGui::Button("復元")) {
+    ImGui::TextUnformatted(i18n::tr("前回の回復情報が見つかりました。"));
+    if (ImGui::Button(i18n::tr("復元"))) {
       session.recoveryModel->sourcePath = session.path;
       session.document = mmd::PmxDocument(std::move(*session.recoveryModel));
       session.recoveryModel.reset();
@@ -413,43 +415,43 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog,
       session.changes.topologyChanged = true;
       session.changes.physicsChanged = true;
       session.changes.texturesChanged = true;
-      setStatus(session, "回復情報を復元しました", UiStatusKind::success);
+      setStatus(session, i18n::tr("回復情報を復元しました"), UiStatusKind::success);
       ImGui::CloseCurrentPopup();
       ImGui::End();
       return;
     }
     ImGui::SameLine();
-    if (ImGui::Button("破棄")) {
+    if (ImGui::Button(i18n::tr("破棄"))) {
       session.recoveryModel.reset();
       (void)discardRecovery(session.path);
-      setStatus(session, "回復情報を破棄しました", UiStatusKind::info);
+      setStatus(session, i18n::tr("回復情報を破棄しました"), UiStatusKind::info);
       ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
   }
-  ImGui::Text("頂点 %zu / 面 %zu", model.vertices.size(),
+  ImGui::Text(i18n::tr("頂点 %zu / 面 %zu"), model.vertices.size(),
               model.indices.size() / 3);
-  ImGui::Text("材質 %zu / テクスチャ %zu", model.materials.size(),
+  ImGui::Text(i18n::tr("材質 %zu / テクスチャ %zu"), model.materials.size(),
               model.textures.size());
-  ImGui::Text("ボーン %zu / モーフ %zu", model.bones.size(),
+  ImGui::Text(i18n::tr("ボーン %zu / モーフ %zu"), model.bones.size(),
               model.morphs.size());
-  ImGui::Text("剛体 %zu / ジョイント %zu / ソフトボディ %zu",
+  ImGui::Text(i18n::tr("剛体 %zu / ジョイント %zu / ソフトボディ %zu"),
               model.rigidBodies.size(), model.joints.size(),
               model.softBodies.size());
-  ImGui::Text("形式 %.1f / 頂点添付UV %u", model.metadata.version,
+  ImGui::Text(i18n::tr("形式 %.1f / 頂点添付UV %u"), model.metadata.version,
               model.metadata.additionalUvCount);
   if (!session.ui.metadataDraft)
     session.ui.metadataDraft = model.metadata;
   auto &metadata = *session.ui.metadataDraft;
-  inputString("モデル名", metadata.modelName);
-  inputString("モデル英語名", metadata.englishName);
-  inputString("コメント", metadata.comment);
-  inputString("英語コメント", metadata.englishComment);
-  if (ImGui::Button("モデル情報を適用")) {
+  inputString(i18n::tr("モデル名"), metadata.modelName);
+  inputString(i18n::tr("モデル英語名"), metadata.englishName);
+  inputString(i18n::tr("コメント"), metadata.comment);
+  inputString(i18n::tr("英語コメント"), metadata.englishComment);
+  if (ImGui::Button(i18n::tr("モデル情報を適用"))) {
     const auto result = editMetadata(session, metadata);
     setStatus(session,
-              result.success ? "モデル情報を更新しました"
-                             : "モデル情報更新に失敗しました",
+              result.success ? i18n::tr("モデル情報を更新しました")
+                             : i18n::tr("モデル情報更新に失敗しました"),
               result.success ? UiStatusKind::success : UiStatusKind::error,
               result.success ? std::chrono::seconds(4)
                              : std::chrono::milliseconds::zero(),
@@ -457,16 +459,16 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog,
     session.ui.metadataDraft.reset();
   }
   ImGui::Separator();
-  inputString("開くパス", session.ui.openPath);
-  if (ImGui::Button("ファイルを選択") && !fileDialog.busy())
+  inputString(i18n::tr("開くパス"), session.ui.openPath);
+  if (ImGui::Button(i18n::tr("ファイルを選択")) && !fileDialog.busy())
     (void)fileDialog.open(session.path.empty() ? std::filesystem::path{}
                                                : session.path.parent_path());
-  if (ImGui::Button("開く") && !session.ui.openPath.empty()) {
+  if (ImGui::Button(i18n::tr("開く")) && !session.ui.openPath.empty()) {
     try {
       const auto path = std::filesystem::path(session.ui.openPath);
       if (session.hasUnsavedWork()) {
         session.ui.pendingOpenPath = path.string();
-        ImGui::OpenPopup("未保存の変更##replace-document");
+        ImGui::OpenPopup(i18n::tr("未保存の変更##replace-document"));
       } else if (replaceDocument(path)) {
         ImGui::End();
         return;
@@ -476,13 +478,13 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog,
                 std::chrono::milliseconds::zero(), true);
     }
   }
-  if (ImGui::BeginPopupModal("未保存の変更##replace-document", nullptr,
+  if (ImGui::BeginPopupModal(i18n::tr("未保存の変更##replace-document"), nullptr,
                              ImGuiWindowFlags_AlwaysAutoResize)) {
-    ImGui::TextUnformatted("現在の編集内容は保存されていません。");
-    ImGui::TextUnformatted("別のモデルを開く前に処理を選択してください。");
-    if (ImGui::Button("保存して開く")) {
+    ImGui::TextUnformatted(i18n::tr("現在の編集内容は保存されていません。"));
+    ImGui::TextUnformatted(i18n::tr("別のモデルを開く前に処理を選択してください。"));
+    if (ImGui::Button(i18n::tr("保存して開く"))) {
       if (session.path.empty()) {
-        setStatus(session, "先に保存先を指定してください",
+        setStatus(session, i18n::tr("先に保存先を指定してください"),
                   UiStatusKind::warning, std::chrono::milliseconds::zero(),
                   true);
       } else if (saveDocument(session).success) {
@@ -494,12 +496,12 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog,
           return;
         }
       } else {
-        setStatus(session, "保存に失敗しました", UiStatusKind::error,
+        setStatus(session, i18n::tr("保存に失敗しました"), UiStatusKind::error,
                   std::chrono::milliseconds::zero(), true);
       }
     }
     ImGui::SameLine();
-    if (ImGui::Button("破棄して開く")) {
+    if (ImGui::Button(i18n::tr("破棄して開く"))) {
       const auto path = std::filesystem::path(session.ui.pendingOpenPath);
       session.ui.pendingOpenPath.clear();
       ImGui::CloseCurrentPopup();
@@ -509,7 +511,7 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog,
       }
     }
     ImGui::SameLine();
-    if (ImGui::Button("キャンセル")) {
+    if (ImGui::Button(i18n::tr("キャンセル"))) {
       session.ui.pendingOpenPath.clear();
       ImGui::CloseCurrentPopup();
     }
@@ -527,7 +529,7 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog,
                               session.recoveryId);
     } else {
       const auto result = saveDocument(session);
-      setStatus(session, result.success ? "保存しました" : "保存に失敗しました",
+      setStatus(session, result.success ? i18n::tr("保存しました") : i18n::tr("保存に失敗しました"),
                 result.success ? UiStatusKind::success : UiStatusKind::error,
                 result.success ? std::chrono::seconds(4)
                                : std::chrono::milliseconds::zero(),
@@ -535,35 +537,35 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog,
     }
   };
   ImGui::SameLine();
-  if (ImGui::Button("保存"))
+  if (ImGui::Button(i18n::tr("保存")))
     requestSave(false);
   ImGui::SameLine();
-  if (ImGui::Button("名前を付けて保存") && !fileDialog.busy())
+  if (ImGui::Button(i18n::tr("名前を付けて保存")) && !fileDialog.busy())
     requestSave(true);
   ImGui::SameLine();
-  if (ImGui::Button("回復保存")) {
+  if (ImGui::Button(i18n::tr("回復保存"))) {
     const auto saved = writeRecovery(session).success;
     if (saved)
       session.lastRecovery = std::chrono::steady_clock::now();
     setStatus(
-        session, saved ? "回復情報を保存しました" : "回復保存に失敗しました",
+        session, saved ? i18n::tr("回復情報を保存しました") : i18n::tr("回復保存に失敗しました"),
         saved ? UiStatusKind::success : UiStatusKind::error,
         saved ? std::chrono::seconds(4) : std::chrono::milliseconds::zero(),
         !saved);
   }
-  inputString("追加するモデル", session.ui.mergePath);
-  if (ImGui::Button("モデルを追加") && !session.ui.mergePath.empty()) {
+  inputString(i18n::tr("追加するモデル"), session.ui.mergePath);
+  if (ImGui::Button(i18n::tr("モデルを追加")) && !session.ui.mergePath.empty()) {
     try {
       const auto other = mmd::pmx::load(session.ui.mergePath);
       MergeReport report;
       if (mergeAppend(session, other, &report)) {
-        auto message = std::string{"モデルを追加しました"};
+        auto message = std::string{i18n::tr("モデルを追加しました")};
         if (!report.conflicts.empty())
-          message += "（名前の衝突 " + std::to_string(report.conflicts.size()) +
-                     "件）";
+          message += i18n::tr("（名前の衝突 ") + std::to_string(report.conflicts.size()) +
+                     i18n::tr("件）");
         setStatus(session, std::move(message), UiStatusKind::success);
       } else {
-        setStatus(session, "モデル追加に失敗しました", UiStatusKind::error,
+        setStatus(session, i18n::tr("モデル追加に失敗しました"), UiStatusKind::error,
                   std::chrono::milliseconds::zero(), true);
       }
     } catch (const std::exception &error) {
@@ -575,9 +577,9 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog,
   }
   ImGui::Separator();
   auto &preview = session.preview;
-  ImGui::Checkbox("再生", &session.ui.previewPlaying);
-  inputString("モーション", session.ui.motionPath);
-  if (ImGui::Button("モーション読込") && !session.ui.motionPath.empty()) {
+  ImGui::Checkbox(i18n::tr("再生"), &session.ui.previewPlaying);
+  inputString(i18n::tr("モーション"), session.ui.motionPath);
+  if (ImGui::Button(i18n::tr("モーション読込")) && !session.ui.motionPath.empty()) {
     try {
       preview.motion = mmd::vmd::load(session.ui.motionPath);
       preview.pose.reset();
@@ -587,15 +589,15 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog,
       preview.clockInitialized = false;
       setDeformPreviews(session, *preview.controller);
       replacePreviewFrame(preview, preview.controller->evaluate());
-      setStatus(session, "モーションを読み込みました", UiStatusKind::success);
+      setStatus(session, i18n::tr("モーションを読み込みました"), UiStatusKind::success);
     } catch (const std::exception &error) {
       setStatus(session, error.what(), UiStatusKind::error,
                 std::chrono::milliseconds::zero(), true);
     }
   }
   ImGui::SameLine();
-  inputString("ポーズ", session.ui.posePath);
-  if (ImGui::Button("ポーズ読込") && !session.ui.posePath.empty()) {
+  inputString(i18n::tr("ポーズ"), session.ui.posePath);
+  if (ImGui::Button(i18n::tr("ポーズ読込")) && !session.ui.posePath.empty()) {
     try {
       preview.pose = mmd::vpd::load(session.ui.posePath);
       preview.motion.reset();
@@ -605,22 +607,22 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog,
       preview.clockInitialized = false;
       setDeformPreviews(session, *preview.controller);
       replacePreviewFrame(preview, preview.controller->evaluate());
-      setStatus(session, "ポーズを読み込みました", UiStatusKind::success);
+      setStatus(session, i18n::tr("ポーズを読み込みました"), UiStatusKind::success);
     } catch (const std::exception &error) {
       setStatus(session, error.what(), UiStatusKind::error,
                 std::chrono::milliseconds::zero(), true);
     }
   }
   if (!session.ui.status.empty())
-    ImGui::TextWrapped("状態: %s", session.ui.status.c_str());
-  ImGui::Text("変更済み: %s / Undo %zu / Redo %zu",
-              session.hasUnsavedWork() ? "はい" : "いいえ",
+    ImGui::TextWrapped(i18n::tr("状態: %s"), session.ui.status.c_str());
+  ImGui::Text(i18n::tr("変更済み: %s / Undo %zu / Redo %zu"),
+              session.hasUnsavedWork() ? i18n::tr("はい") : i18n::tr("いいえ"),
               session.commands.undoCount(), session.commands.redoCount());
   const auto recipes = inspectStandardBones(model);
-  ImGui::Text("準標準骨格: %zu / 不足 %zu", recipes.available, recipes.missing);
-  if (ImGui::Button("不足骨格を追加") && recipes.missing != 0) {
+  ImGui::Text(i18n::tr("準標準骨格: %zu / 不足 %zu"), recipes.available, recipes.missing);
+  if (ImGui::Button(i18n::tr("不足骨格を追加")) && recipes.missing != 0) {
     const auto result = applyStandardBones(session, standardBoneRecipes());
-    setStatus(session, result ? "骨格を追加しました" : "骨格追加に失敗しました",
+    setStatus(session, result ? i18n::tr("骨格を追加しました") : i18n::tr("骨格追加に失敗しました"),
               result ? UiStatusKind::success : UiStatusKind::error,
               result ? std::chrono::seconds(4)
                      : std::chrono::milliseconds::zero(),
@@ -630,27 +632,27 @@ void drawModelPanel(DocumentSession &session, FileDialog &fileDialog,
 }
 
 void drawDiffPanel(DocumentSession &session, bool *open) {
-  if (ImGui::Begin("差分", open)) {
+  if (ImGui::Begin(i18n::windowTitle("差分"), open)) {
     if (session.derived.diffRevision != session.revision) {
       session.derived.diff = compareWithBaseline(session);
       session.derived.diffRevision = session.revision;
     }
-    ImGui::Text("基準との差分: %zu", session.derived.diff.differences.size());
+    ImGui::Text(i18n::tr("基準との差分: %zu"), session.derived.diff.differences.size());
     for (const auto &line : formatDifferences(session.derived.diff))
       ImGui::TextWrapped("%s", line.c_str());
     if (session.derived.diff.differences.empty())
-      ImGui::TextUnformatted("差分はありません");
+      ImGui::TextUnformatted(i18n::tr("差分はありません"));
   }
   ImGui::End();
 }
 
 void drawVertexPanel(DocumentSession &session, bool *open) {
   const auto &model = session.document.model();
-  if (!ImGui::Begin("頂点", open)) {
+  if (!ImGui::Begin(i18n::windowTitle("頂点"), open)) {
     ImGui::End();
     return;
   }
-  if (selectIndex("番号", model.vertices.size(), session.ui.vertexIndex))
+  if (selectIndex(i18n::tr("番号"), model.vertices.size(), session.ui.vertexIndex))
     session.ui.vertexDraft.reset();
   if (model.vertices.empty()) {
     ImGui::End();
@@ -661,18 +663,18 @@ void drawVertexPanel(DocumentSession &session, bool *open) {
   if (!session.ui.vertexDraft)
     session.ui.vertexDraft = *session.document.resolve(handle);
   auto &draft = *session.ui.vertexDraft;
-  ImGui::Text("ウェイト: %s", weightName(draft.weightType));
-  ImGui::InputFloat3("位置", draft.position.data());
-  ImGui::InputFloat3("法線", draft.normal.data());
+  ImGui::Text(i18n::tr("ウェイト: %s"), weightName(draft.weightType));
+  ImGui::InputFloat3(i18n::tr("位置"), draft.position.data());
+  ImGui::InputFloat3(i18n::tr("法線"), draft.normal.data());
   ImGui::InputFloat2("UV", draft.uv.data());
   for (std::size_t channel = 0;
        channel < std::min<std::size_t>(model.metadata.additionalUvCount, 4);
        ++channel) {
-    const auto label = "追加UV " + std::to_string(channel);
+    const auto label = i18n::tr("追加UV ") + std::to_string(channel);
     ImGui::InputFloat4(label.c_str(), draft.additionalUv[channel].data());
   }
-  ImGui::InputFloat("エッジ倍率", &draft.edgeScale);
-  if (ImGui::BeginCombo("方式", weightName(draft.weightType))) {
+  ImGui::InputFloat(i18n::tr("エッジ倍率"), &draft.edgeScale);
+  if (ImGui::BeginCombo(i18n::tr("方式"), weightName(draft.weightType))) {
     const std::array types{mmd::PmxWeightType::bdef1, mmd::PmxWeightType::bdef2,
                            mmd::PmxWeightType::bdef4, mmd::PmxWeightType::sdef,
                            mmd::PmxWeightType::qdef};
@@ -691,9 +693,9 @@ void drawVertexPanel(DocumentSession &session, bool *open) {
                          ? 2U
                          : 4U;
   for (std::size_t i = 0; i < count; ++i) {
-    const auto label = "ボーン " + std::to_string(i + 1);
+    const auto label = i18n::tr("ボーン ") + std::to_string(i + 1);
     chooseBone(label.c_str(), model, draft.bones[i], false);
-    const auto weightLabel = "重み " + std::to_string(i + 1);
+    const auto weightLabel = i18n::tr("重み ") + std::to_string(i + 1);
     ImGui::InputFloat(weightLabel.c_str(), &draft.weights[i]);
   }
   if (draft.weightType == mmd::PmxWeightType::sdef) {
@@ -701,45 +703,45 @@ void drawVertexPanel(DocumentSession &session, bool *open) {
     ImGui::InputFloat3("SDEF R0", draft.sdefR0.data());
     ImGui::InputFloat3("SDEF R1", draft.sdefR1.data());
   }
-  if (ImGui::Button("適用")) {
+  if (ImGui::Button(i18n::tr("適用"))) {
     const auto result = editVertex(session, handle, draft);
-    setOperationStatus(session, result.success, "頂点を更新しました",
-                       "頂点更新に失敗しました");
+    setOperationStatus(session, result.success, i18n::tr("頂点を更新しました"),
+                       i18n::tr("頂点更新に失敗しました"));
     session.ui.vertexDraft.reset();
   }
   ImGui::SameLine();
-  if (ImGui::Button("ウェイト正規化")) {
+  if (ImGui::Button(i18n::tr("ウェイト正規化"))) {
     const auto result = normalizeWeights(session);
-    setOperationStatus(session, result.success, "ウェイトを正規化しました",
-                       "正規化に失敗しました");
+    setOperationStatus(session, result.success, i18n::tr("ウェイトを正規化しました"),
+                       i18n::tr("正規化に失敗しました"));
   }
   ImGui::SameLine();
   if (ImGui::Button("BDEF2→SDEF")) {
     const auto report = convertBdef2ToSdef(session, targets);
-    setOperationStatus(session, report.converted != 0, "SDEFへ変換しました",
-                       "SDEFへ変換できませんでした");
+    setOperationStatus(session, report.converted != 0, i18n::tr("SDEFへ変換しました"),
+                       i18n::tr("SDEFへ変換できませんでした"));
     session.ui.vertexDraft.reset();
   }
   ImGui::SameLine();
   if (ImGui::Button("SDEF→BDEF2")) {
     const auto report = convertSdefToBdef2(session, targets);
-    setOperationStatus(session, report.converted != 0, "BDEF2へ変換しました",
-                       "BDEF2へ変換できませんでした");
+    setOperationStatus(session, report.converted != 0, i18n::tr("BDEF2へ変換しました"),
+                       i18n::tr("BDEF2へ変換できませんでした"));
     session.ui.vertexDraft.reset();
   }
   ImGui::SameLine();
-  if (ImGui::Button("不正SDEFを修復")) {
+  if (ImGui::Button(i18n::tr("不正SDEFを修復"))) {
     const auto report = repairSuspiciousSdef(session, targets);
     setOperationStatus(session, report.converted != 0,
-                       "不正なSDEFをBDEF2へ修復しました",
-                       "修復対象の不正なSDEFがありません");
+                       i18n::tr("不正なSDEFをBDEF2へ修復しました"),
+                       i18n::tr("修復対象の不正なSDEFがありません"));
     session.ui.vertexDraft.reset();
   }
   ImGui::SameLine();
-  if (ImGui::Button("SDEFミラー")) {
+  if (ImGui::Button(i18n::tr("SDEFミラー"))) {
     const auto result = mirrorSdef(session, targets);
-    setOperationStatus(session, result, "SDEFをミラーしました",
-                       "SDEFミラーに失敗しました");
+    setOperationStatus(session, result, i18n::tr("SDEFをミラーしました"),
+                       i18n::tr("SDEFミラーに失敗しました"));
     session.ui.vertexDraft.reset();
   }
   ImGui::End();
@@ -747,11 +749,11 @@ void drawVertexPanel(DocumentSession &session, bool *open) {
 
 void drawMaterialPanel(DocumentSession &session, bool *open) {
   const auto &model = session.document.model();
-  if (!ImGui::Begin("材質", open)) {
+  if (!ImGui::Begin(i18n::windowTitle("材質"), open)) {
     ImGui::End();
     return;
   }
-  if (selectIndex("番号", model.materials.size(), session.ui.materialIndex))
+  if (selectIndex(i18n::tr("番号"), model.materials.size(), session.ui.materialIndex))
     session.ui.materialDraft.reset();
   if (model.materials.empty()) {
     ImGui::End();
@@ -761,31 +763,31 @@ void drawMaterialPanel(DocumentSession &session, bool *open) {
   if (!session.ui.materialDraft)
     session.ui.materialDraft = *session.document.resolve(handle);
   auto &draft = *session.ui.materialDraft;
-  inputString("名前", draft.name);
-  inputString("英語名", draft.englishName);
-  ImGui::ColorEdit4("拡散色", draft.diffuse.data());
-  ImGui::ColorEdit3("鏡面色", draft.specular.data());
-  ImGui::InputFloat("光沢", &draft.shininess);
-  ImGui::ColorEdit3("環境色", draft.ambient.data());
-  ImGui::ColorEdit4("輪郭色", draft.edgeColor.data());
-  ImGui::InputFloat("輪郭幅", &draft.edgeSize);
-  chooseTexture("テクスチャ", model, draft.textureIndex);
-  chooseTexture("球テクスチャ", model, draft.sphereTextureIndex);
-  chooseTexture("トゥーン", model, draft.toonTextureIndex);
+  inputString(i18n::tr("名前"), draft.name);
+  inputString(i18n::tr("英語名"), draft.englishName);
+  ImGui::ColorEdit4(i18n::tr("拡散色"), draft.diffuse.data());
+  ImGui::ColorEdit3(i18n::tr("鏡面色"), draft.specular.data());
+  ImGui::InputFloat(i18n::tr("光沢"), &draft.shininess);
+  ImGui::ColorEdit3(i18n::tr("環境色"), draft.ambient.data());
+  ImGui::ColorEdit4(i18n::tr("輪郭色"), draft.edgeColor.data());
+  ImGui::InputFloat(i18n::tr("輪郭幅"), &draft.edgeSize);
+  chooseTexture(i18n::tr("テクスチャ"), model, draft.textureIndex);
+  chooseTexture(i18n::tr("球テクスチャ"), model, draft.sphereTextureIndex);
+  chooseTexture(i18n::tr("トゥーン"), model, draft.toonTextureIndex);
   int sphereMode = draft.sphereMode;
   int toonMode = draft.toonMode;
-  ImGui::InputInt("球モード", &sphereMode);
-  ImGui::InputInt("トゥーンモード", &toonMode);
+  ImGui::InputInt(i18n::tr("球モード"), &sphereMode);
+  ImGui::InputInt(i18n::tr("トゥーンモード"), &toonMode);
   draft.sphereMode = static_cast<std::uint8_t>(std::clamp(sphereMode, 0, 3));
   draft.toonMode = static_cast<std::uint8_t>(std::clamp(toonMode, 0, 1));
-  inputString("メモ", draft.memo);
+  inputString(i18n::tr("メモ"), draft.memo);
   int flags = draft.drawFlags;
-  ImGui::InputInt("描画フラグ", &flags);
+  ImGui::InputInt(i18n::tr("描画フラグ"), &flags);
   draft.drawFlags = static_cast<std::uint8_t>(std::clamp(flags, 0, 255));
-  if (ImGui::Button("適用")) {
+  if (ImGui::Button(i18n::tr("適用"))) {
     const auto result = editMaterial(session, handle, draft);
-    setOperationStatus(session, result.success, "材質を更新しました",
-                       "材質更新に失敗しました");
+    setOperationStatus(session, result.success, i18n::tr("材質を更新しました"),
+                       i18n::tr("材質更新に失敗しました"));
     session.ui.materialDraft.reset();
   }
   ImGui::SameLine();
@@ -809,11 +811,11 @@ void drawMaterialPanel(DocumentSession &session, bool *open) {
 void drawTexturePanel(DocumentSession &session, EditorWorkspace &workspace,
                       bool *open) {
   const auto &model = session.document.model();
-  if (!ImGui::Begin("テクスチャ", open)) {
+  if (!ImGui::Begin(i18n::windowTitle("テクスチャ"), open)) {
     ImGui::End();
     return;
   }
-  if (selectIndex("番号", model.textures.size(), session.ui.textureIndex)) {
+  if (selectIndex(i18n::tr("番号"), model.textures.size(), session.ui.textureIndex)) {
     const auto handle = session.document.textureHandle(session.ui.textureIndex);
     selectPrimary(
         session, workspace,
@@ -823,25 +825,25 @@ void drawTexturePanel(DocumentSession &session, EditorWorkspace &workspace,
   if (!model.textures.empty()) {
     const auto texture =
         session.document.textureHandle(session.ui.textureIndex);
-    ImGui::Text("保存パス: %s",
+    ImGui::Text(i18n::tr("保存パス: %s"),
                 model.textures[session.ui.textureIndex].storedPath.c_str());
     static std::string replacement;
     if (replacement.empty())
       replacement = model.textures[session.ui.textureIndex].storedPath;
-    inputString("新しいパス", replacement);
-    if (ImGui::Button("再リンク")) {
+    inputString(i18n::tr("新しいパス"), replacement);
+    if (ImGui::Button(i18n::tr("再リンク"))) {
       const auto result = relinkTexture(session, texture, replacement);
-      setOperationStatus(session, result, "テクスチャを更新しました",
-                         "更新に失敗しました");
+      setOperationStatus(session, result, i18n::tr("テクスチャを更新しました"),
+                         i18n::tr("更新に失敗しました"));
       replacement.clear();
     }
     const auto missing = missingTextures(model);
-    ImGui::Text("不足: %zu", missing.size());
-    if (ImGui::Button("絶対パスを相対化") && !session.path.empty()) {
+    ImGui::Text(i18n::tr("不足: %zu"), missing.size());
+    if (ImGui::Button(i18n::tr("絶対パスを相対化")) && !session.path.empty()) {
       const auto result =
           convertAbsoluteTextures(session, session.path.parent_path());
-      setOperationStatus(session, result, "パスを変換しました",
-                         "変換に失敗しました");
+      setOperationStatus(session, result, i18n::tr("パスを変換しました"),
+                         i18n::tr("変換に失敗しました"));
     }
   }
   ImGui::End();
@@ -849,11 +851,11 @@ void drawTexturePanel(DocumentSession &session, EditorWorkspace &workspace,
 
 void drawBonePanel(DocumentSession &session, bool *open) {
   const auto &model = session.document.model();
-  if (!ImGui::Begin("ボーン", open)) {
+  if (!ImGui::Begin(i18n::windowTitle("ボーン"), open)) {
     ImGui::End();
     return;
   }
-  if (selectIndex("番号", model.bones.size(), session.ui.boneIndex))
+  if (selectIndex(i18n::tr("番号"), model.bones.size(), session.ui.boneIndex))
     session.ui.boneDraft.reset();
   if (model.bones.empty()) {
     ImGui::End();
@@ -863,53 +865,53 @@ void drawBonePanel(DocumentSession &session, bool *open) {
   if (!session.ui.boneDraft)
     session.ui.boneDraft = *session.document.resolve(handle);
   auto &draft = *session.ui.boneDraft;
-  inputString("名前", draft.name);
-  inputString("英語名", draft.englishName);
-  ImGui::InputFloat3("位置", draft.position.data());
-  ImGui::InputInt("変形層", &draft.deformLayer);
-  ImGui::InputScalar("フラグ", ImGuiDataType_U16, &draft.flags);
-  chooseBone("親", model, draft.parent);
+  inputString(i18n::tr("名前"), draft.name);
+  inputString(i18n::tr("英語名"), draft.englishName);
+  ImGui::InputFloat3(i18n::tr("位置"), draft.position.data());
+  ImGui::InputInt(i18n::tr("変形層"), &draft.deformLayer);
+  ImGui::InputScalar(i18n::tr("フラグ"), ImGuiDataType_U16, &draft.flags);
+  chooseBone(i18n::tr("親"), model, draft.parent);
   if ((draft.flags & 1U) != 0)
-    chooseBone("末端", model, draft.tailBone);
+    chooseBone(i18n::tr("末端"), model, draft.tailBone);
   else
-    ImGui::InputFloat3("末端オフセット", draft.tailOffset.data());
+    ImGui::InputFloat3(i18n::tr("末端オフセット"), draft.tailOffset.data());
   if ((draft.flags & 0x0300U) != 0) {
-    chooseBone("付与元", model, draft.inheritParent);
-    ImGui::InputFloat("付与率", &draft.inheritRatio);
+    chooseBone(i18n::tr("付与元"), model, draft.inheritParent);
+    ImGui::InputFloat(i18n::tr("付与率"), &draft.inheritRatio);
   }
-  ImGui::InputFloat3("固定軸", draft.fixedAxis.data());
-  ImGui::InputFloat3("ローカルX軸", draft.localAxisX.data());
-  ImGui::InputFloat3("ローカルZ軸", draft.localAxisZ.data());
-  ImGui::InputInt("外部親キー", &draft.externalParentKey);
+  ImGui::InputFloat3(i18n::tr("固定軸"), draft.fixedAxis.data());
+  ImGui::InputFloat3(i18n::tr("ローカルX軸"), draft.localAxisX.data());
+  ImGui::InputFloat3(i18n::tr("ローカルZ軸"), draft.localAxisZ.data());
+  ImGui::InputInt(i18n::tr("外部親キー"), &draft.externalParentKey);
   if ((draft.flags & 0x0020U) != 0) {
-    chooseBone("IK対象", model, draft.ikTarget);
-    ImGui::InputInt("IK回数", &draft.ikLoopCount);
-    ImGui::InputFloat("IK角度", &draft.ikLimitAngle);
-    ImGui::Text("IKリンク: %zu", draft.ikLinks.size());
+    chooseBone(i18n::tr("IK対象"), model, draft.ikTarget);
+    ImGui::InputInt(i18n::tr("IK回数"), &draft.ikLoopCount);
+    ImGui::InputFloat(i18n::tr("IK角度"), &draft.ikLimitAngle);
+    ImGui::Text(i18n::tr("IKリンク: %zu"), draft.ikLinks.size());
     if (!draft.ikLinks.empty()) {
-      selectIndex("IKリンク番号", draft.ikLinks.size(),
+      selectIndex(i18n::tr("IKリンク番号"), draft.ikLinks.size(),
                   session.ui.boneIkLinkIndex);
       auto &link = draft.ikLinks[session.ui.boneIkLinkIndex];
-      chooseBone("IKリンク先", model, link.bone, false);
-      ImGui::Checkbox("可動範囲制限", &link.limited);
+      chooseBone(i18n::tr("IKリンク先"), model, link.bone, false);
+      ImGui::Checkbox(i18n::tr("可動範囲制限"), &link.limited);
       if (link.limited) {
-        ImGui::InputFloat3("IK下限", link.minimum.data());
-        ImGui::InputFloat3("IK上限", link.maximum.data());
+        ImGui::InputFloat3(i18n::tr("IK下限"), link.minimum.data());
+        ImGui::InputFloat3(i18n::tr("IK上限"), link.maximum.data());
       }
     }
   }
   const bool hasIk = (draft.flags & 0x0020U) != 0;
-  if (ImGui::Button("適用")) {
+  if (ImGui::Button(i18n::tr("適用"))) {
     const auto result = editBone(session, handle, draft);
-    setOperationStatus(session, result.success, "ボーンを更新しました",
+    setOperationStatus(session, result.success, i18n::tr("ボーンを更新しました"),
                        result.message);
     session.ui.boneDraft.reset();
   }
   if (hasIk) {
-    if (ImGui::Button("IKリンク追加")) {
+    if (ImGui::Button(i18n::tr("IKリンク追加"))) {
       draft.ikLinks.emplace_back();
       const auto result = editBone(session, handle, draft);
-      setOperationStatus(session, result.success, "IKリンクを追加しました",
+      setOperationStatus(session, result.success, i18n::tr("IKリンクを追加しました"),
                          result.message);
       session.ui.boneDraft.reset();
       ImGui::End();
@@ -917,12 +919,12 @@ void drawBonePanel(DocumentSession &session, bool *open) {
     }
     if (!draft.ikLinks.empty()) {
       ImGui::SameLine();
-      if (ImGui::Button("IKリンク削除")) {
+      if (ImGui::Button(i18n::tr("IKリンク削除"))) {
         draft.ikLinks.erase(
             draft.ikLinks.begin() +
             static_cast<std::ptrdiff_t>(session.ui.boneIkLinkIndex));
         const auto result = editBone(session, handle, draft);
-        setOperationStatus(session, result.success, "IKリンクを削除しました",
+        setOperationStatus(session, result.success, i18n::tr("IKリンクを削除しました"),
                            result.message);
         session.ui.boneIkLinkIndex = 0;
         session.ui.boneDraft.reset();
@@ -948,11 +950,11 @@ void drawBonePanel(DocumentSession &session, bool *open) {
 
 void drawMorphPanel(DocumentSession &session, bool *open) {
   const auto &model = session.document.model();
-  if (!ImGui::Begin("モーフ", open)) {
+  if (!ImGui::Begin(i18n::windowTitle("モーフ"), open)) {
     ImGui::End();
     return;
   }
-  if (selectIndex("番号", model.morphs.size(), session.ui.morphIndex)) {
+  if (selectIndex(i18n::tr("番号"), model.morphs.size(), session.ui.morphIndex)) {
     session.ui.morphDraft.reset();
     session.ui.morphOffsetIndex = 0;
     session.ui.morphOffsetDirty = false;
@@ -965,15 +967,15 @@ void drawMorphPanel(DocumentSession &session, bool *open) {
   if (!session.ui.morphDraft)
     session.ui.morphDraft = *session.document.resolve(handle);
   auto &draft = *session.ui.morphDraft;
-  inputString("名前", draft.name);
-  inputString("英語名", draft.englishName);
+  inputString(i18n::tr("名前"), draft.name);
+  inputString(i18n::tr("英語名"), draft.englishName);
   int panel = draft.panel;
   int type = draft.type;
-  ImGui::InputInt("パネル", &panel);
-  const auto typeChanged = ImGui::InputInt("種類", &type);
+  ImGui::InputInt(i18n::tr("パネル"), &panel);
+  const auto typeChanged = ImGui::InputInt(i18n::tr("種類"), &type);
   draft.panel = static_cast<std::uint8_t>(std::clamp(panel, 0, 4));
   draft.type = static_cast<std::uint8_t>(std::clamp(type, 0, 10));
-  ImGui::Text("オフセット: %zu", draft.offsets.size());
+  ImGui::Text(i18n::tr("オフセット: %zu"), draft.offsets.size());
   bool offsetDirty = typeChanged;
   if (!draft.offsets.empty()) {
     (void)drawMorphOffsetBrowser(session, draft, session.ui.morphOffsetIndex,
@@ -982,23 +984,23 @@ void drawMorphPanel(DocumentSession &session, bool *open) {
     switch (draft.type) {
     case 0:
       offsetDirty =
-          chooseMorph("対象モーフ", model, offset.index) || offsetDirty;
-      offsetDirty = ImGui::InputFloat("重み", &offset.scalar) || offsetDirty;
+          chooseMorph(i18n::tr("対象モーフ"), model, offset.index) || offsetDirty;
+      offsetDirty = ImGui::InputFloat(i18n::tr("重み"), &offset.scalar) || offsetDirty;
       break;
     case 1:
       offsetDirty =
-          chooseIndex("対象頂点", model.vertices.size(), offset.index) ||
+          chooseIndex(i18n::tr("対象頂点"), model.vertices.size(), offset.index) ||
           offsetDirty;
       offsetDirty =
-          ImGui::InputFloat3("移動", offset.vector3.data()) || offsetDirty;
+          ImGui::InputFloat3(i18n::tr("移動"), offset.vector3.data()) || offsetDirty;
       break;
     case 2:
       offsetDirty =
-          chooseBone("対象ボーン", model, offset.index, false) || offsetDirty;
+          chooseBone(i18n::tr("対象ボーン"), model, offset.index, false) || offsetDirty;
       offsetDirty =
-          ImGui::InputFloat3("移動", offset.vector3.data()) || offsetDirty;
+          ImGui::InputFloat3(i18n::tr("移動"), offset.vector3.data()) || offsetDirty;
       offsetDirty =
-          ImGui::InputFloat4("回転", offset.vector4.data()) || offsetDirty;
+          ImGui::InputFloat4(i18n::tr("回転"), offset.vector4.data()) || offsetDirty;
       break;
     case 3:
     case 4:
@@ -1006,54 +1008,54 @@ void drawMorphPanel(DocumentSession &session, bool *open) {
     case 6:
     case 7:
       offsetDirty =
-          chooseIndex("対象頂点", model.vertices.size(), offset.index) ||
+          chooseIndex(i18n::tr("対象頂点"), model.vertices.size(), offset.index) ||
           offsetDirty;
       offsetDirty =
-          ImGui::InputFloat4("UV移動", offset.vector4.data()) || offsetDirty;
+          ImGui::InputFloat4(i18n::tr("UV移動"), offset.vector4.data()) || offsetDirty;
       break;
     case 8: {
       offsetDirty =
-          chooseMaterial("対象材質", model, offset.index) || offsetDirty;
+          chooseMaterial(i18n::tr("対象材質"), model, offset.index) || offsetDirty;
       int operation = offset.operation;
-      offsetDirty = ImGui::InputInt("演算", &operation) || offsetDirty;
+      offsetDirty = ImGui::InputInt(i18n::tr("演算"), &operation) || offsetDirty;
       offset.operation = static_cast<std::uint8_t>(std::clamp(operation, 0, 1));
       offsetDirty =
-          ImGui::InputFloat4("拡散色", offset.materialVectors[0].data()) ||
+          ImGui::InputFloat4(i18n::tr("拡散色"), offset.materialVectors[0].data()) ||
           offsetDirty;
       offsetDirty =
-          ImGui::InputFloat4("鏡面色", offset.materialVectors[1].data()) ||
+          ImGui::InputFloat4(i18n::tr("鏡面色"), offset.materialVectors[1].data()) ||
           offsetDirty;
       offsetDirty =
-          ImGui::InputFloat4("環境・輪郭", offset.materialVectors[2].data()) ||
+          ImGui::InputFloat4(i18n::tr("環境・輪郭"), offset.materialVectors[2].data()) ||
           offsetDirty;
       offsetDirty =
-          ImGui::InputFloat4("輪郭色", offset.materialVectors[3].data()) ||
+          ImGui::InputFloat4(i18n::tr("輪郭色"), offset.materialVectors[3].data()) ||
           offsetDirty;
-      offsetDirty = ImGui::InputFloat4("テクスチャ色",
+      offsetDirty = ImGui::InputFloat4(i18n::tr("テクスチャ色"),
                                        offset.materialVectors[4].data()) ||
                     offsetDirty;
       offsetDirty =
-          ImGui::InputFloat4("球色", offset.materialVectors[5].data()) ||
+          ImGui::InputFloat4(i18n::tr("球色"), offset.materialVectors[5].data()) ||
           offsetDirty;
       offsetDirty =
-          ImGui::InputFloat4("トゥーン色", offset.materialVectors[6].data()) ||
+          ImGui::InputFloat4(i18n::tr("トゥーン色"), offset.materialVectors[6].data()) ||
           offsetDirty;
       break;
     }
     case 9:
       offsetDirty =
-          chooseMorph("対象モーフ", model, offset.index) || offsetDirty;
-      offsetDirty = ImGui::InputFloat("重み", &offset.scalar) || offsetDirty;
+          chooseMorph(i18n::tr("対象モーフ"), model, offset.index) || offsetDirty;
+      offsetDirty = ImGui::InputFloat(i18n::tr("重み"), &offset.scalar) || offsetDirty;
       break;
     case 10:
       offsetDirty =
-          chooseRigidBody("対象剛体", model, offset.index) || offsetDirty;
+          chooseRigidBody(i18n::tr("対象剛体"), model, offset.index) || offsetDirty;
       offsetDirty =
-          ImGui::InputFloat3("速度", offset.vector3.data()) || offsetDirty;
+          ImGui::InputFloat3(i18n::tr("速度"), offset.vector3.data()) || offsetDirty;
       offsetDirty =
-          ImGui::InputFloat3("トルク", offset.tertiaryVector3.data()) ||
+          ImGui::InputFloat3(i18n::tr("トルク"), offset.tertiaryVector3.data()) ||
           offsetDirty;
-      offsetDirty = ImGui::Checkbox("ローカル", &offset.local) || offsetDirty;
+      offsetDirty = ImGui::Checkbox(i18n::tr("ローカル"), &offset.local) || offsetDirty;
       break;
     default:
       break;
@@ -1062,10 +1064,10 @@ void drawMorphPanel(DocumentSession &session, bool *open) {
   session.ui.morphOffsetDirty = session.ui.morphOffsetDirty || offsetDirty;
   if (offsetDirty)
     ++session.ui.morphOffsetFilterEpoch;
-  if (ImGui::Button("適用")) {
+  if (ImGui::Button(i18n::tr("適用"))) {
     const auto result = editMorph(session, handle, draft);
-    setOperationStatus(session, result.success, "モーフを更新しました",
-                       result.message.empty() ? "モーフ更新に失敗しました"
+    setOperationStatus(session, result.success, i18n::tr("モーフを更新しました"),
+                       result.message.empty() ? i18n::tr("モーフ更新に失敗しました")
                                               : result.message);
     session.ui.morphDraft.reset();
     session.ui.morphOffsetDirty = false;
@@ -1073,7 +1075,7 @@ void drawMorphPanel(DocumentSession &session, bool *open) {
     return;
   }
   ImGui::SameLine();
-  if (ImGui::Button("オフセット削除") && !draft.offsets.empty()) {
+  if (ImGui::Button(i18n::tr("オフセット削除")) && !draft.offsets.empty()) {
     draft.offsets.erase(
         draft.offsets.begin() +
         static_cast<std::ptrdiff_t>(session.ui.morphOffsetIndex));
@@ -1087,7 +1089,7 @@ void drawMorphPanel(DocumentSession &session, bool *open) {
     }
   }
   ImGui::SameLine();
-  if (ImGui::Button("オフセットを前へ") && session.ui.morphOffsetIndex > 0) {
+  if (ImGui::Button(i18n::tr("オフセットを前へ")) && session.ui.morphOffsetIndex > 0) {
     std::swap(draft.offsets[session.ui.morphOffsetIndex],
               draft.offsets[session.ui.morphOffsetIndex - 1]);
     if (editMorph(session, handle, draft).success)
@@ -1098,7 +1100,7 @@ void drawMorphPanel(DocumentSession &session, bool *open) {
     return;
   }
   ImGui::SameLine();
-  if (ImGui::Button("オフセットを後へ") && !draft.offsets.empty() &&
+  if (ImGui::Button(i18n::tr("オフセットを後へ")) && !draft.offsets.empty() &&
       session.ui.morphOffsetIndex + 1 < draft.offsets.size()) {
     std::swap(draft.offsets[session.ui.morphOffsetIndex],
               draft.offsets[session.ui.morphOffsetIndex + 1]);
@@ -1126,11 +1128,11 @@ void drawMorphPanel(DocumentSession &session, bool *open) {
 
 void drawDisplayFramePanel(DocumentSession &session, bool *open) {
   const auto &model = session.document.model();
-  if (!ImGui::Begin("表示枠", open)) {
+  if (!ImGui::Begin(i18n::windowTitle("表示枠"), open)) {
     ImGui::End();
     return;
   }
-  if (selectIndex("番号", model.displayFrames.size(),
+  if (selectIndex(i18n::tr("番号"), model.displayFrames.size(),
                   session.ui.displayFrameIndex)) {
     session.ui.displayFrameDraft.reset();
     session.ui.displayItemIndex = 0;
@@ -1144,31 +1146,31 @@ void drawDisplayFramePanel(DocumentSession &session, bool *open) {
   if (!session.ui.displayFrameDraft)
     session.ui.displayFrameDraft = *session.document.resolve(handle);
   auto &draft = *session.ui.displayFrameDraft;
-  inputString("名前", draft.name);
-  inputString("英語名", draft.englishName);
-  ImGui::Text("項目: %zu", draft.items.size());
+  inputString(i18n::tr("名前"), draft.name);
+  inputString(i18n::tr("英語名"), draft.englishName);
+  ImGui::Text(i18n::tr("項目: %zu"), draft.items.size());
   if (!draft.items.empty()) {
-    (void)selectIndex("項目番号", draft.items.size(),
+    (void)selectIndex(i18n::tr("項目番号"), draft.items.size(),
                       session.ui.displayItemIndex);
     auto &item = draft.items[session.ui.displayItemIndex];
     if (item.bone)
-      (void)chooseBone("対象ボーン", model, item.index, false);
+      (void)chooseBone(i18n::tr("対象ボーン"), model, item.index, false);
     else
-      (void)chooseMorph("対象モーフ", model, item.index);
+      (void)chooseMorph(i18n::tr("対象モーフ"), model, item.index);
   }
-  if (ImGui::Button("適用")) {
+  if (ImGui::Button(i18n::tr("適用"))) {
     const auto result = editDisplayFrame(session, handle, draft);
-    setOperationStatus(session, result.success, "表示枠を更新しました",
+    setOperationStatus(session, result.success, i18n::tr("表示枠を更新しました"),
                        result.message);
     session.ui.displayFrameDraft.reset();
     ImGui::End();
     return;
   }
-  if (ImGui::Button("項目削除") && !draft.items.empty()) {
+  if (ImGui::Button(i18n::tr("項目削除")) && !draft.items.empty()) {
     draft.items.erase(draft.items.begin() +
                       static_cast<std::ptrdiff_t>(session.ui.displayItemIndex));
     const auto result = editDisplayFrame(session, handle, draft);
-    setOperationStatus(session, result.success, "表示枠項目を削除しました",
+    setOperationStatus(session, result.success, i18n::tr("表示枠項目を削除しました"),
                        result.message);
     session.ui.displayItemIndex = 0;
     session.ui.displayFrameDraft.reset();
@@ -1176,11 +1178,11 @@ void drawDisplayFramePanel(DocumentSession &session, bool *open) {
     return;
   }
   ImGui::SameLine();
-  if (ImGui::Button("項目を前へ") && session.ui.displayItemIndex > 0) {
+  if (ImGui::Button(i18n::tr("項目を前へ")) && session.ui.displayItemIndex > 0) {
     std::swap(draft.items[session.ui.displayItemIndex],
               draft.items[session.ui.displayItemIndex - 1]);
     const auto result = editDisplayFrame(session, handle, draft);
-    setOperationStatus(session, result.success, "表示枠項目を移動しました",
+    setOperationStatus(session, result.success, i18n::tr("表示枠項目を移動しました"),
                        result.message);
     --session.ui.displayItemIndex;
     session.ui.displayFrameDraft.reset();
@@ -1188,12 +1190,12 @@ void drawDisplayFramePanel(DocumentSession &session, bool *open) {
     return;
   }
   ImGui::SameLine();
-  if (ImGui::Button("項目を後へ") && !draft.items.empty() &&
+  if (ImGui::Button(i18n::tr("項目を後へ")) && !draft.items.empty() &&
       session.ui.displayItemIndex + 1 < draft.items.size()) {
     std::swap(draft.items[session.ui.displayItemIndex],
               draft.items[session.ui.displayItemIndex + 1]);
     const auto result = editDisplayFrame(session, handle, draft);
-    setOperationStatus(session, result.success, "表示枠項目を移動しました",
+    setOperationStatus(session, result.success, i18n::tr("表示枠項目を移動しました"),
                        result.message);
     ++session.ui.displayItemIndex;
     session.ui.displayFrameDraft.reset();
@@ -1201,20 +1203,20 @@ void drawDisplayFramePanel(DocumentSession &session, bool *open) {
     return;
   }
   ImGui::SameLine();
-  if (ImGui::Button("ボーン項目追加") && !model.bones.empty()) {
+  if (ImGui::Button(i18n::tr("ボーン項目追加")) && !model.bones.empty()) {
     draft.items.push_back({true, 0});
     const auto result = editDisplayFrame(session, handle, draft);
-    setOperationStatus(session, result.success, "表示枠項目を追加しました",
+    setOperationStatus(session, result.success, i18n::tr("表示枠項目を追加しました"),
                        result.message);
     session.ui.displayFrameDraft.reset();
     ImGui::End();
     return;
   }
   ImGui::SameLine();
-  if (ImGui::Button("モーフ項目追加") && !model.morphs.empty()) {
+  if (ImGui::Button(i18n::tr("モーフ項目追加")) && !model.morphs.empty()) {
     draft.items.push_back({false, 0});
     const auto result = editDisplayFrame(session, handle, draft);
-    setOperationStatus(session, result.success, "表示枠項目を追加しました",
+    setOperationStatus(session, result.success, i18n::tr("表示枠項目を追加しました"),
                        result.message);
     session.ui.displayFrameDraft.reset();
     ImGui::End();
@@ -1240,18 +1242,18 @@ void drawDisplayFramePanel(DocumentSession &session, bool *open) {
 
 void drawPhysicsPanel(DocumentSession &session, bool *open) {
   const auto &model = session.document.model();
-  if (!ImGui::Begin("物理", open)) {
+  if (!ImGui::Begin(i18n::windowTitle("物理"), open)) {
     ImGui::End();
     return;
   }
-  ImGui::Checkbox("物理プレビュー", &session.previewPhysics);
-  ImGui::Checkbox("IKプレビュー", &session.previewIk);
+  ImGui::Checkbox(i18n::tr("物理プレビュー"), &session.previewPhysics);
+  ImGui::Checkbox(i18n::tr("IKプレビュー"), &session.previewIk);
   const auto status = physicsPreviewStatus(model);
-  ImGui::Text("対応ジョイント %zu / 保存のみ %zu / ソフトボディ %zu",
+  ImGui::Text(i18n::tr("対応ジョイント %zu / 保存のみ %zu / ソフトボディ %zu"),
               status.supportedJoints, status.preservedJoints,
               status.softBodies);
-  if (ImGui::CollapsingHeader("剛体", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (selectIndex("剛体番号", model.rigidBodies.size(),
+  if (ImGui::CollapsingHeader(i18n::tr("剛体"), ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (selectIndex(i18n::tr("剛体番号"), model.rigidBodies.size(),
                     session.ui.rigidBodyIndex))
       session.ui.rigidBodyDraft.reset();
     if (!model.rigidBodies.empty()) {
@@ -1260,32 +1262,32 @@ void drawPhysicsPanel(DocumentSession &session, bool *open) {
       if (!session.ui.rigidBodyDraft)
         session.ui.rigidBodyDraft = *session.document.resolve(handle);
       auto &draft = *session.ui.rigidBodyDraft;
-      inputString("剛体名", draft.name);
-      chooseBone("関連ボーン", model, draft.bone);
+      inputString(i18n::tr("剛体名"), draft.name);
+      chooseBone(i18n::tr("関連ボーン"), model, draft.bone);
       int shape = draft.shape;
-      ImGui::InputInt("形状", &shape);
+      ImGui::InputInt(i18n::tr("形状"), &shape);
       draft.shape = static_cast<std::uint8_t>(std::clamp(shape, 0, 2));
-      ImGui::InputFloat3("大きさ", draft.size.data());
-      ImGui::InputFloat3("位置", draft.position.data());
-      ImGui::InputFloat3("回転", draft.rotation.data());
-      ImGui::InputFloat("質量", &draft.mass);
-      ImGui::InputFloat("移動減衰", &draft.linearDamping);
-      ImGui::InputFloat("回転減衰", &draft.angularDamping);
-      ImGui::InputFloat("反発", &draft.restitution);
-      ImGui::InputFloat("摩擦", &draft.friction);
+      ImGui::InputFloat3(i18n::tr("大きさ"), draft.size.data());
+      ImGui::InputFloat3(i18n::tr("位置"), draft.position.data());
+      ImGui::InputFloat3(i18n::tr("回転"), draft.rotation.data());
+      ImGui::InputFloat(i18n::tr("質量"), &draft.mass);
+      ImGui::InputFloat(i18n::tr("移動減衰"), &draft.linearDamping);
+      ImGui::InputFloat(i18n::tr("回転減衰"), &draft.angularDamping);
+      ImGui::InputFloat(i18n::tr("反発"), &draft.restitution);
+      ImGui::InputFloat(i18n::tr("摩擦"), &draft.friction);
       int group = draft.group;
       int collisionMask = draft.collisionMask;
-      ImGui::InputInt("衝突グループ", &group);
-      ImGui::InputInt("衝突マスク", &collisionMask);
+      ImGui::InputInt(i18n::tr("衝突グループ"), &group);
+      ImGui::InputInt(i18n::tr("衝突マスク"), &collisionMask);
       draft.group = static_cast<std::uint8_t>(std::clamp(group, 0, 15));
       draft.collisionMask =
           static_cast<std::uint16_t>(std::clamp(collisionMask, 0, 65535));
       int mode = draft.mode;
-      ImGui::InputInt("モード", &mode);
+      ImGui::InputInt(i18n::tr("モード"), &mode);
       draft.mode = static_cast<std::uint8_t>(std::clamp(mode, 0, 2));
-      if (ImGui::Button("剛体を適用")) {
+      if (ImGui::Button(i18n::tr("剛体を適用"))) {
         const auto result = editRigidBody(session, handle, draft);
-        setOperationStatus(session, result.success, "剛体を更新しました",
+        setOperationStatus(session, result.success, i18n::tr("剛体を更新しました"),
                            result.message);
         session.ui.rigidBodyDraft.reset();
         ImGui::End();
@@ -1293,8 +1295,8 @@ void drawPhysicsPanel(DocumentSession &session, bool *open) {
       }
     }
   }
-  if (ImGui::CollapsingHeader("ジョイント")) {
-    if (selectIndex("ジョイント番号", model.joints.size(),
+  if (ImGui::CollapsingHeader(i18n::tr("ジョイント"))) {
+    if (selectIndex(i18n::tr("ジョイント番号"), model.joints.size(),
                     session.ui.jointIndex))
       session.ui.jointDraft.reset();
     if (!model.joints.empty()) {
@@ -1302,23 +1304,23 @@ void drawPhysicsPanel(DocumentSession &session, bool *open) {
       if (!session.ui.jointDraft)
         session.ui.jointDraft = *session.document.resolve(handle);
       auto &draft = *session.ui.jointDraft;
-      inputString("ジョイント名", draft.name);
-      chooseRigidBody("剛体A", model, draft.bodyA);
-      chooseRigidBody("剛体B", model, draft.bodyB);
+      inputString(i18n::tr("ジョイント名"), draft.name);
+      chooseRigidBody(i18n::tr("剛体A"), model, draft.bodyA);
+      chooseRigidBody(i18n::tr("剛体B"), model, draft.bodyB);
       int type = draft.type;
-      ImGui::InputInt("種類", &type);
+      ImGui::InputInt(i18n::tr("種類"), &type);
       draft.type = static_cast<std::uint8_t>(std::clamp(type, 0, 5));
-      ImGui::InputFloat3("移動下限", draft.translationMinimum.data());
-      ImGui::InputFloat3("移動上限", draft.translationMaximum.data());
-      ImGui::InputFloat3("回転下限", draft.rotationMinimum.data());
-      ImGui::InputFloat3("回転上限", draft.rotationMaximum.data());
-      ImGui::InputFloat3("位置", draft.position.data());
-      ImGui::InputFloat3("回転", draft.rotation.data());
-      ImGui::InputFloat3("移動ばね", draft.translationSpring.data());
-      ImGui::InputFloat3("回転ばね", draft.rotationSpring.data());
-      if (ImGui::Button("ジョイントを適用")) {
+      ImGui::InputFloat3(i18n::tr("移動下限"), draft.translationMinimum.data());
+      ImGui::InputFloat3(i18n::tr("移動上限"), draft.translationMaximum.data());
+      ImGui::InputFloat3(i18n::tr("回転下限"), draft.rotationMinimum.data());
+      ImGui::InputFloat3(i18n::tr("回転上限"), draft.rotationMaximum.data());
+      ImGui::InputFloat3(i18n::tr("位置"), draft.position.data());
+      ImGui::InputFloat3(i18n::tr("回転"), draft.rotation.data());
+      ImGui::InputFloat3(i18n::tr("移動ばね"), draft.translationSpring.data());
+      ImGui::InputFloat3(i18n::tr("回転ばね"), draft.rotationSpring.data());
+      if (ImGui::Button(i18n::tr("ジョイントを適用"))) {
         const auto result = editJoint(session, handle, draft);
-        setOperationStatus(session, result.success, "ジョイントを更新しました",
+        setOperationStatus(session, result.success, i18n::tr("ジョイントを更新しました"),
                            result.message);
         session.ui.jointDraft.reset();
         ImGui::End();
@@ -1326,8 +1328,8 @@ void drawPhysicsPanel(DocumentSession &session, bool *open) {
       }
     }
   }
-  if (ImGui::CollapsingHeader("ソフトボディ")) {
-    if (selectIndex("ソフトボディ番号", model.softBodies.size(),
+  if (ImGui::CollapsingHeader(i18n::tr("ソフトボディ"))) {
+    if (selectIndex(i18n::tr("ソフトボディ番号"), model.softBodies.size(),
                     session.ui.softBodyIndex))
       session.ui.softBodyDraft.reset();
     if (!model.softBodies.empty()) {
@@ -1336,53 +1338,53 @@ void drawPhysicsPanel(DocumentSession &session, bool *open) {
       if (!session.ui.softBodyDraft)
         session.ui.softBodyDraft = *session.document.resolve(handle);
       auto &draft = *session.ui.softBodyDraft;
-      inputString("ソフトボディ名", draft.name);
+      inputString(i18n::tr("ソフトボディ名"), draft.name);
       int shape = draft.shape;
       int group = draft.group;
       int collisionMask = draft.collisionMask;
       int flags = draft.flags;
-      ImGui::InputInt("形状", &shape);
-      ImGui::InputInt("材質番号", &draft.material);
-      ImGui::InputInt("衝突グループ", &group);
-      ImGui::InputInt("衝突マスク", &collisionMask);
-      ImGui::InputInt("フラグ", &flags);
+      ImGui::InputInt(i18n::tr("形状"), &shape);
+      ImGui::InputInt(i18n::tr("材質番号"), &draft.material);
+      ImGui::InputInt(i18n::tr("衝突グループ"), &group);
+      ImGui::InputInt(i18n::tr("衝突マスク"), &collisionMask);
+      ImGui::InputInt(i18n::tr("フラグ"), &flags);
       draft.shape = static_cast<std::uint8_t>(std::clamp(shape, 0, 1));
       draft.group = static_cast<std::uint8_t>(std::clamp(group, 0, 15));
       draft.collisionMask =
           static_cast<std::uint16_t>(std::clamp(collisionMask, 0, 65535));
       draft.flags = static_cast<std::uint8_t>(std::clamp(flags, 0, 255));
-      ImGui::InputInt("曲げリンク距離", &draft.bendingLinkDistance);
-      ImGui::InputInt("クラスタ数", &draft.clusterCount);
-      ImGui::InputFloat("総質量", &draft.totalMass);
-      ImGui::InputFloat("衝突余白", &draft.collisionMargin);
-      ImGui::InputInt("空気力モデル", &draft.aeroModel);
+      ImGui::InputInt(i18n::tr("曲げリンク距離"), &draft.bendingLinkDistance);
+      ImGui::InputInt(i18n::tr("クラスタ数"), &draft.clusterCount);
+      ImGui::InputFloat(i18n::tr("総質量"), &draft.totalMass);
+      ImGui::InputFloat(i18n::tr("衝突余白"), &draft.collisionMargin);
+      ImGui::InputInt(i18n::tr("空気力モデル"), &draft.aeroModel);
       for (std::size_t i = 0; i < draft.config.size(); i += 3) {
-        const auto label = "設定 " + std::to_string(i / 3);
+        const auto label = i18n::tr("設定 ") + std::to_string(i / 3);
         ImGui::InputFloat3(label.c_str(), draft.config.data() + i);
       }
-      ImGui::InputFloat3("クラスタ設定", draft.cluster.data());
-      ImGui::InputInt4("反復設定", draft.iteration.data());
-      ImGui::InputFloat3("材質設定", draft.materialConfig.data());
-      ImGui::Text("アンカー %zu / 固定頂点 %zu", draft.anchors.size(),
+      ImGui::InputFloat3(i18n::tr("クラスタ設定"), draft.cluster.data());
+      ImGui::InputInt4(i18n::tr("反復設定"), draft.iteration.data());
+      ImGui::InputFloat3(i18n::tr("材質設定"), draft.materialConfig.data());
+      ImGui::Text(i18n::tr("アンカー %zu / 固定頂点 %zu"), draft.anchors.size(),
                   draft.pinnedVertices.size());
-      if (ImGui::Button("ソフトボディを適用")) {
+      if (ImGui::Button(i18n::tr("ソフトボディを適用"))) {
         const auto result = editSoftBody(session, handle, draft);
         setOperationStatus(session, result.success,
-                           "ソフトボディを更新しました", result.message);
+                           i18n::tr("ソフトボディを更新しました"), result.message);
         session.ui.softBodyDraft.reset();
         ImGui::End();
         return;
       }
     }
   }
-  if (ImGui::Button("全ボーンから剛体を生成") && !model.bones.empty()) {
+  if (ImGui::Button(i18n::tr("全ボーンから剛体を生成")) && !model.bones.empty()) {
     std::vector<mmd::BoneHandle> handles;
     handles.reserve(model.bones.size());
     for (std::size_t i = 0; i < model.bones.size(); ++i)
       handles.push_back(session.document.boneHandle(i));
     const auto result = generateRigidBodyChain(session, handles, 1);
-    setOperationStatus(session, result, "剛体を生成しました",
-                       "剛体生成に失敗しました");
+    setOperationStatus(session, result, i18n::tr("剛体を生成しました"),
+                       i18n::tr("剛体生成に失敗しました"));
   }
   ImGui::End();
 }
@@ -1390,7 +1392,7 @@ void drawPhysicsPanel(DocumentSession &session, bool *open) {
 void drawDiagnosticsPanel(DocumentSession &session, FileDialog &fileDialog,
                           GpuModelRenderer *renderer,
                           EditorWorkspace &workspace, bool *open) {
-  if (ImGui::Begin("診断", open)) {
+  if (ImGui::Begin(i18n::windowTitle("診断"), open)) {
     if (session.derived.diagnosticsRevision != session.revision) {
       session.derived.diagnostics = validateForEditing(session.document);
       session.derived.diagnosticsRevision = session.revision;
@@ -1404,7 +1406,7 @@ void drawDiagnosticsPanel(DocumentSession &session, FileDialog &fileDialog,
       const auto selectable = toSelectionKind(issue);
       if (selectable && issue.location.id != 0) {
         ImGui::SameLine();
-        const auto button = "選択##診断" + std::to_string(index);
+        const auto button = i18n::tr("選択##診断") + std::to_string(index);
         if (ImGui::SmallButton(button.c_str()))
           selectPrimary(session, workspace,
                         {*selectable, session.document.domain(),
@@ -1413,27 +1415,27 @@ void drawDiagnosticsPanel(DocumentSession &session, FileDialog &fileDialog,
       }
     }
     if (session.derived.diagnostics.issues.empty())
-      ImGui::TextUnformatted("問題はありません");
+      ImGui::TextUnformatted(i18n::tr("問題はありません"));
     if (renderer != nullptr) {
       const auto resources = renderer->resourceSummary(session);
       if (resources.missingTextureCount != 0U ||
           resources.failedTextureCount != 0U) {
-        ImGui::SeparatorText("テクスチャリソース");
-        ImGui::Text("欠落 %zu / 失敗 %zu", resources.missingTextureCount,
+        ImGui::SeparatorText(i18n::tr("テクスチャリソース"));
+        ImGui::Text(i18n::tr("欠落 %zu / 失敗 %zu"), resources.missingTextureCount,
                     resources.failedTextureCount);
         for (const auto &texture : renderer->resourceStatuses(session)) {
           if (texture.state == TextureResourceState::loaded)
             continue;
           const auto state =
-              texture.state == TextureResourceState::missing ? "欠落"
+              texture.state == TextureResourceState::missing ? i18n::tr("欠落")
               : texture.state == TextureResourceState::decodeFailed
-                  ? "デコード失敗"
-                  : "GPU転送失敗";
+                  ? i18n::tr("デコード失敗")
+                  : i18n::tr("GPU転送失敗");
           ImGui::TextWrapped("[%s] %s", state,
                              texture.resolvedPath.string().c_str());
           ImGui::SameLine();
           const auto button =
-              "選択##texture-resource" + std::to_string(texture.textureIndex);
+              i18n::tr("選択##texture-resource") + std::to_string(texture.textureIndex);
           if (ImGui::SmallButton(button.c_str()) &&
               texture.textureIndex < session.document.model().textures.size()) {
             const auto handle =
@@ -1445,7 +1447,7 @@ void drawDiagnosticsPanel(DocumentSession &session, FileDialog &fileDialog,
             session.ui.textureIndex = texture.textureIndex;
           }
           ImGui::SameLine();
-          const auto relinkButton = "再リンク##texture-resource" +
+          const auto relinkButton = i18n::tr("再リンク##texture-resource") +
                                     std::to_string(texture.textureIndex);
           if (ImGui::SmallButton(relinkButton.c_str()) && !fileDialog.busy())
             (void)fileDialog.open(texture.resolvedPath.parent_path(),
@@ -1459,31 +1461,30 @@ void drawDiagnosticsPanel(DocumentSession &session, FileDialog &fileDialog,
 }
 
 void drawReferencePanel(DocumentSession &session, bool *open) {
-  if (!ImGui::Begin("参照", open)) {
+  if (!ImGui::Begin(i18n::windowTitle("参照"), open)) {
     ImGui::End();
     return;
   }
   const auto &model = session.document.model();
   if (session.selection.items().empty()) {
     ImGui::TextUnformatted(
-        "ビューポートまたは各編集欄で対象を選択してください");
+        i18n::tr("ビューポートまたは各編集欄で対象を選択してください"));
   } else {
     const auto selected = session.selection.items().front();
-    ImGui::Text("選択 ID: %llu", static_cast<unsigned long long>(selected.id));
-    ImGui::Text("世代: %u", selected.generation);
+    ImGui::Text(i18n::tr("選択 ID: %llu"), static_cast<unsigned long long>(selected.id));
+    ImGui::Text(i18n::tr("世代: %u"), selected.generation);
     if (selected.kind == SelectionKind::bone && !model.bones.empty()) {
       const auto handle =
           selectionHandle<mmd::BoneTag>(session.document, selected);
       if (session.document.resolve(handle) != nullptr) {
         const auto summary = summarizeReferences(session.document, handle);
-        ImGui::Text("頂点 %zu / 子ボーン %zu / IK %zu / モーフ %zu / 表示枠 "
-                    "%zu / 剛体 %zu",
+        ImGui::Text(i18n::tr("頂点 %zu / 子ボーン %zu / IK %zu / モーフ %zu / 表示枠 %zu / 剛体 %zu"),
                     summary.vertices, summary.childBones, summary.ikLinks,
                     summary.morphs, summary.displayFrames, summary.rigidBodies);
       }
     }
   }
-  ImGui::Text("頂点 %zu / 材質 %zu / ボーン %zu / モーフ %zu",
+  ImGui::Text(i18n::tr("頂点 %zu / 材質 %zu / ボーン %zu / モーフ %zu"),
               model.vertices.size(), model.materials.size(), model.bones.size(),
               model.morphs.size());
   ImGui::End();
@@ -1531,8 +1532,8 @@ void drawMainMenu(DocumentSession *session, FileDialog &fileDialog,
                               session->recoveryId);
     } else {
       const auto result = saveDocument(*session);
-      setOperationStatus(*session, result.success, "保存しました",
-                         "保存に失敗しました");
+      setOperationStatus(*session, result.success, i18n::tr("保存しました"),
+                         i18n::tr("保存に失敗しました"));
     }
   };
   if (hasSession) {
@@ -1558,77 +1559,77 @@ void drawMainMenu(DocumentSession *session, FileDialog &fileDialog,
 
   if (!ImGui::BeginMainMenuBar())
     return;
-  if (ImGui::BeginMenu("ファイル")) {
-    if (ImGui::MenuItem("開く…", "Ctrl+O") && !fileDialog.busy())
+  if (ImGui::BeginMenu(i18n::tr("ファイル"))) {
+    if (ImGui::MenuItem(i18n::tr("開く…"), "Ctrl+O") && !fileDialog.busy())
       (void)fileDialog.open(hasSession ? session->path.parent_path()
                                        : std::filesystem::path{});
-    if (ImGui::MenuItem("保存", "Ctrl+S", false, hasSession)) {
+    if (ImGui::MenuItem(i18n::tr("保存"), "Ctrl+S", false, hasSession)) {
       requestSave(false);
     }
-    if (ImGui::MenuItem("名前を付けて保存…", "Ctrl+Shift+S", false,
+    if (ImGui::MenuItem(i18n::tr("名前を付けて保存…"), "Ctrl+Shift+S", false,
                         hasSession && !fileDialog.busy()))
       requestSave(true);
-    if (ImGui::MenuItem("閉じる", "Ctrl+W", false, hasSession))
+    if (ImGui::MenuItem(i18n::tr("閉じる"), "Ctrl+W", false, hasSession))
       workspace.requestCloseDocument = true;
     ImGui::EndMenu();
   }
-  if (ImGui::BeginMenu("編集")) {
-    if (ImGui::MenuItem("元に戻す", "Ctrl+Z", false,
+  if (ImGui::BeginMenu(i18n::tr("編集"))) {
+    if (ImGui::MenuItem(i18n::tr("元に戻す"), "Ctrl+Z", false,
                         hasSession && session->commands.undoCount() != 0))
       (void)session->undo();
-    if (ImGui::MenuItem("やり直す", "Ctrl+Y", false,
+    if (ImGui::MenuItem(i18n::tr("やり直す"), "Ctrl+Y", false,
                         hasSession && session->commands.redoCount() != 0))
       (void)session->redo();
     ImGui::EndMenu();
   }
-  if (ImGui::BeginMenu("表示")) {
-    if (ImGui::MenuItem("物理プレビュー", nullptr,
+  if (ImGui::BeginMenu(i18n::tr("表示"))) {
+    if (ImGui::MenuItem(i18n::tr("物理プレビュー"), nullptr,
                         hasSession ? session->previewPhysics : false,
                         hasSession))
       session->previewPhysics = !session->previewPhysics;
-    if (ImGui::MenuItem("IKプレビュー", nullptr,
+    if (ImGui::MenuItem(i18n::tr("IKプレビュー"), nullptr,
                         hasSession ? session->previewIk : false, hasSession))
       session->previewIk = !session->previewIk;
-    if (ImGui::BeginMenu("パネル")) {
-      ImGui::MenuItem("ドキュメント", nullptr, &workspace.showDocuments);
-      ImGui::MenuItem("ビューポート", nullptr, &workspace.showViewport);
-      ImGui::MenuItem("アウトライナー", nullptr, &workspace.showOutliner);
-      ImGui::MenuItem("インスペクター", nullptr, &workspace.showInspector);
-      ImGui::MenuItem("Transform View", nullptr, &workspace.showTransformView);
-      ImGui::SeparatorText("高度なパネル");
-      ImGui::MenuItem("モデル", nullptr, &workspace.showModel);
-      ImGui::MenuItem("頂点", nullptr, &workspace.showVertex);
-      ImGui::MenuItem("材質", nullptr, &workspace.showMaterial);
-      ImGui::MenuItem("テクスチャ", nullptr, &workspace.showTexture);
-      ImGui::MenuItem("ボーン", nullptr, &workspace.showBone);
-      ImGui::MenuItem("モーフ", nullptr, &workspace.showMorph);
-      ImGui::MenuItem("表示枠", nullptr, &workspace.showDisplayFrame);
-      ImGui::MenuItem("物理", nullptr, &workspace.showPhysics);
-      ImGui::MenuItem("診断", nullptr, &workspace.showDiagnostics);
-      ImGui::MenuItem("参照", nullptr, &workspace.showReferences);
-      ImGui::MenuItem("差分", nullptr, &workspace.showDiff);
+    if (ImGui::BeginMenu(i18n::tr("パネル"))) {
+      ImGui::MenuItem(i18n::tr("ドキュメント"), nullptr, &workspace.showDocuments);
+      ImGui::MenuItem(i18n::tr("ビューポート"), nullptr, &workspace.showViewport);
+      ImGui::MenuItem(i18n::tr("アウトライナー"), nullptr, &workspace.showOutliner);
+      ImGui::MenuItem(i18n::tr("インスペクター"), nullptr, &workspace.showInspector);
+      ImGui::MenuItem(i18n::tr("Transform View"), nullptr, &workspace.showTransformView);
+      ImGui::SeparatorText(i18n::tr("高度なパネル"));
+      ImGui::MenuItem(i18n::tr("モデル"), nullptr, &workspace.showModel);
+      ImGui::MenuItem(i18n::tr("頂点"), nullptr, &workspace.showVertex);
+      ImGui::MenuItem(i18n::tr("材質"), nullptr, &workspace.showMaterial);
+      ImGui::MenuItem(i18n::tr("テクスチャ"), nullptr, &workspace.showTexture);
+      ImGui::MenuItem(i18n::tr("ボーン"), nullptr, &workspace.showBone);
+      ImGui::MenuItem(i18n::tr("モーフ"), nullptr, &workspace.showMorph);
+      ImGui::MenuItem(i18n::tr("表示枠"), nullptr, &workspace.showDisplayFrame);
+      ImGui::MenuItem(i18n::tr("物理"), nullptr, &workspace.showPhysics);
+      ImGui::MenuItem(i18n::tr("診断"), nullptr, &workspace.showDiagnostics);
+      ImGui::MenuItem(i18n::tr("参照"), nullptr, &workspace.showReferences);
+      ImGui::MenuItem(i18n::tr("差分"), nullptr, &workspace.showDiff);
       ImGui::EndMenu();
     }
-    if (ImGui::MenuItem("レイアウトをリセット")) {
+    if (ImGui::MenuItem(i18n::tr("レイアウトをリセット"))) {
       workspace.resetPanels();
       workspace.resetLayout = true;
     }
     ImGui::EndMenu();
   }
   ImGui::Separator();
-  workspaceButton("モデル", EditorWorkspace::model,
+  workspaceButton(i18n::tr("モデル"), EditorWorkspace::model,
                   ui::UiSemanticId::workspaceModel, session, workspace);
   ImGui::SameLine();
-  workspaceButton("リグ", EditorWorkspace::rig, ui::UiSemanticId::workspaceRig,
+  workspaceButton(i18n::tr("リグ"), EditorWorkspace::rig, ui::UiSemanticId::workspaceRig,
                   session, workspace);
   ImGui::SameLine();
-  workspaceButton("モーフ", EditorWorkspace::morph,
+  workspaceButton(i18n::tr("モーフ"), EditorWorkspace::morph,
                   ui::UiSemanticId::workspaceMorph, session, workspace);
   ImGui::SameLine();
-  workspaceButton("物理", EditorWorkspace::physics,
+  workspaceButton(i18n::tr("物理"), EditorWorkspace::physics,
                   ui::UiSemanticId::workspacePhysics, session, workspace);
   ImGui::SameLine();
-  workspaceButton("検査", EditorWorkspace::inspect,
+  workspaceButton(i18n::tr("検査"), EditorWorkspace::inspect,
                   ui::UiSemanticId::workspaceInspect, session, workspace);
   if (!workspace.status.empty()) {
     ImGui::SameLine();

@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "FileDialog.hpp"
 
 #include <SDL3/SDL_dialog.h>
@@ -7,7 +9,11 @@
 namespace pmxer {
 namespace {
 
-const SDL_DialogFileFilter filters[] = {{"PMX model", "pmx;PMX"}, {"All files", "*"}};
+const SDL_DialogFileFilter *localizedFilters() {
+    static const SDL_DialogFileFilter filters[] = {
+        {i18n::tr("PMX model"), "pmx;PMX"}, {i18n::tr("All files"), "*"}};
+    return filters;
+}
 
 } // namespace
 
@@ -27,9 +33,9 @@ bool FileDialog::begin(const std::filesystem::path &location, bool saveMode,
         defaultLocation = location_.empty() ? nullptr : location_.c_str();
     }
     if (saveMode)
-        SDL_ShowSaveFileDialog(callback, this, window_, filters, 2, defaultLocation);
+        SDL_ShowSaveFileDialog(callback, this, window_, localizedFilters(), 2, defaultLocation);
     else
-        SDL_ShowOpenFileDialog(callback, this, window_, filters, 2, defaultLocation, false);
+        SDL_ShowOpenFileDialog(callback, this, window_, localizedFilters(), 2, defaultLocation, false);
     return true;
 }
 

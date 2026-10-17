@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "WeightTool.hpp"
 
 #include "../EditorOperations.hpp"
@@ -58,7 +60,7 @@ bool assignBone(DocumentSession &session, const std::vector<mmd::VertexHandle> &
                 return false;
         }
         return true;
-    }, "ボーンウェイトを割り当て").success;
+    }, i18n::tr("ボーンウェイトを割り当て")).success;
 }
 
 bool mirrorWeights(DocumentSession &session, const std::vector<mmd::VertexHandle> &sourceHandles,
@@ -87,7 +89,7 @@ bool mirrorWeights(DocumentSession &session, const std::vector<mmd::VertexHandle
             if (!transaction.setVertexSkin(destinationHandles[i], values[i]))
                 return false;
         return true;
-    }, "ウェイトをミラー").success;
+    }, i18n::tr("ウェイトをミラー")).success;
 }
 
 bool pruneWeights(DocumentSession &session, float threshold) {

@@ -31,6 +31,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+if(MSVC)
+  add_compile_options(/utf-8)
+endif()
 
 option(PMXER_BUILD_GUI "Build the SDL3 desktop application" ON)
 option(PMXER_FETCH_GUI_DEPENDENCIES "Fetch GUI source dependencies when missing" OFF)
@@ -50,6 +53,9 @@ if(PMXER_ENABLE_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
   add_link_options(-fsanitize=address,undefined)
 endif()
+
+add_library(pmxer_i18n src/i18n/Language.cpp)
+target_include_directories(pmxer_i18n PUBLIC src)
 
 add_library(pmxer_platform
   src/platform/AtomicFile.cpp
@@ -95,13 +101,13 @@ add_library(pmxer_editor
   src/editor/tools/TextureTool.cpp
 )
 target_include_directories(pmxer_editor PUBLIC src)
-target_link_libraries(pmxer_editor PUBLIC mmd::core pmxer_platform)
+target_link_libraries(pmxer_editor PUBLIC mmd::core pmxer_platform pmxer_i18n)
 
 add_library(pmxer_command_line
   src/app/CommandLine.cpp
 )
 target_include_directories(pmxer_command_line PUBLIC src)
-target_link_libraries(pmxer_command_line PUBLIC mmd::core PRIVATE argparse::argparse)
+target_link_libraries(pmxer_command_line PUBLIC mmd::core pmxer_i18n PRIVATE argparse::argparse)
 
 add_library(pmxer_commands
   src/commands/CommandOutput.cpp
@@ -361,16 +367,20 @@ else()
 endif()
 
 if(PMXER_WARNINGS_AS_ERRORS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  set(PMXER_WARNING_TARGETS pmxer_platform pmxer_editor pmxer_command_line pmxer_commands pmxer_preview pmxer_render pmxer)
+  set(PMXER_WARNING_TARGETS pmxer_i18n pmxer_platform pmxer_editor pmxer_command_line pmxer_commands pmxer_preview pmxer_render pmxer)
   if(TARGET pmxer_ui)
     list(APPEND PMXER_WARNING_TARGETS pmxer_ui)
   endif()
   foreach(target IN LISTS PMXER_WARNING_TARGETS)
-    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror)
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wformat-security -Werror)
   endforeach()
 endif()
 
 if(BUILD_TESTING)
+  add_executable(pmxer_i18n_tests tests/unit/I18nTests.cpp)
+  target_link_libraries(pmxer_i18n_tests PRIVATE pmxer_editor)
+  add_test(NAME pmxer_i18n COMMAND pmxer_i18n_tests)
+
   add_executable(pmxer_editor_tests tests/unit/EditorTests.cpp)
   target_link_libraries(pmxer_editor_tests PRIVATE pmxer_editor pmxer_preview pmxer_render)
   add_test(NAME pmxer_editor COMMAND pmxer_editor_tests)

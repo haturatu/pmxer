@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "RecoveryController.hpp"
 
 #include "../platform/AtomicFile.hpp"
@@ -49,16 +51,16 @@ RecoveryResult writeRecovery(DocumentSession &session) {
         std::ofstream metadata(path.string() + ".json", std::ios::trunc);
         metadata << "{\n  \"source\": \"" << escapeJson(session.path.string()) << "\",\n  \"modified\": true\n}\n";
         if (!metadata)
-            log::warn("回復メタデータの保存に失敗しました");
+            log::warn(i18n::tr("回復メタデータの保存に失敗しました"));
         if (session.recoveryFile && *session.recoveryFile != path)
             (void)discardRecoveryFile(*session.recoveryFile);
         session.recoveryFile = path;
-        log::info("回復情報を保存しました");
+        log::info(i18n::tr("回復情報を保存しました"));
         return {true, path};
     } catch (...) {
         std::error_code error;
         std::filesystem::remove(temporary, error);
-        log::warn("回復情報の保存に失敗しました");
+        log::warn(i18n::tr("回復情報の保存に失敗しました"));
         return {false, {}};
     }
 }
@@ -97,7 +99,7 @@ std::vector<RecoveryEntry> findUntitledRecoveries() {
         try {
             result.push_back({entry.path(), mmd::pmx::load(entry.path())});
         } catch (...) {
-            log::warn("回復情報の読み込みに失敗しました");
+            log::warn(i18n::tr("回復情報の読み込みに失敗しました"));
         }
     }
     return result;

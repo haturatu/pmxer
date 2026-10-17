@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "MorphOffsetBrowser.hpp"
 
 #include "../editor/DocumentSession.hpp"
@@ -20,26 +22,26 @@ std::string offsetLabel(const DocumentSession &session,
     const auto &model = session.document.model();
     if ((morph.type == 0U || morph.type == 9U) && target >= 0 &&
         static_cast<std::size_t>(target) < model.morphs.size())
-        return "モーフ " + indexedName(
+        return i18n::tr("モーフ ") + indexedName(
                                model.morphs[static_cast<std::size_t>(target)].name,
                                static_cast<std::size_t>(target));
     if (morph.type == 2U && target >= 0 &&
         static_cast<std::size_t>(target) < model.bones.size())
-        return "ボーン " + indexedName(
+        return i18n::tr("ボーン ") + indexedName(
                                model.bones[static_cast<std::size_t>(target)].name,
                                static_cast<std::size_t>(target));
     if (morph.type == 8U && target < 0)
-        return "材質 全材質";
+        return i18n::tr("材質 全材質");
     if (morph.type == 8U && static_cast<std::size_t>(target) < model.materials.size())
-        return "材質 " + indexedName(
+        return i18n::tr("材質 ") + indexedName(
                                model.materials[static_cast<std::size_t>(target)].name,
                                static_cast<std::size_t>(target));
     if (morph.type == 10U && target >= 0 &&
         static_cast<std::size_t>(target) < model.rigidBodies.size())
-        return "剛体 " + indexedName(
+        return i18n::tr("剛体 ") + indexedName(
                                model.rigidBodies[static_cast<std::size_t>(target)].name,
                                static_cast<std::size_t>(target));
-    return (morph.type == 2U ? "ボーン " : "頂点 ") +
+    return (morph.type == 2U ? i18n::tr("ボーン ") : i18n::tr("頂点 ")) +
            std::to_string(target);
 }
 
@@ -60,8 +62,8 @@ MorphOffsetBrowserResult drawMorphOffsetBrowser(
         return result;
     selectedIndex = std::min(selectedIndex, morph.offsets.size() - 1U);
     ImGui::InputTextWithHint(
-        ("対象検索##morph-offset-search-" + std::string(id)).c_str(),
-        "名前または番号", session.ui.morphOffsetSearch.data(),
+        (i18n::tr("対象検索##morph-offset-search-") + std::string(id)).c_str(),
+        i18n::tr("名前または番号"), session.ui.morphOffsetSearch.data(),
         session.ui.morphOffsetSearch.size());
     const std::string_view query(session.ui.morphOffsetSearch.data());
     const bool filtering = !query.empty();

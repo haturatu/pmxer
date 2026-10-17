@@ -103,8 +103,18 @@ pmxer help [command]
 ```
 
 GUI起動時は `--font`、`--font-size`、`--resource-dir`、`--renderer`、`--gpu-debug`、
-`--no-physics`、`--safe-mode` を指定できます。`PMXER_FONT` と
+`--no-physics`、`--safe-mode`、`--lang` を指定できます。`PMXER_FONT` と
 `PMXER_RESOURCE_DIR` 環境変数も利用できます。
+
+GUIの表示言語は日本語（`ja`）、英語（`en`）、中国語・簡体字（`zh-CN`）、
+ロシア語（`ru`）に対応しています。例えば `pmxer --lang ru model.pmx` で
+ロシア語で起動できます。`ja-JP`、`en_US.UTF-8`、`zh-Hans` などの言語タグも使えます。
+既定の `--lang auto` は `PMXER_LANG`、`LC_ALL`、`LC_MESSAGES`、`LANG`、
+OSの優先言語の順に選択し、未対応の言語は英語で表示します。
+言語指定はGUIに適用され、PMX内の名前・コメントやCLIのJSONキーは変更しません。
+日本語・中国語・キリル文字を含むフォント（Noto Sans CJKなど）を使用してください。
+自動検出できない場合は `--font` または `PMXER_FONT` で指定できます。
+言語を変えてもドック配置は引き継ぎます。初回起動時は旧形式のレイアウトをバックアップして更新します。
 
 ## ログ
 

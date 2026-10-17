@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "MorphMixer.hpp"
 
 #include "../../preview/PreviewController.hpp"
@@ -127,14 +129,14 @@ OperationResult bakeMixAsVertexMorph(DocumentSession &session, std::string name,
                                      VertexBakeOptions options) {
   const auto analysis = analyzeVertexMix(session);
   if (analysis.budgetExceeded)
-    return {false, "Mixerのモーフ展開が安全上限を超えました"};
+    return {false, i18n::tr("Mixerのモーフ展開が安全上限を超えました")};
   if (!analysis.ignoredTypes.empty() && !options.allowIgnoredTypes)
-    return {false, "Mixerに頂点以外のモーフ成分があります"};
+    return {false, i18n::tr("Mixerに頂点以外のモーフ成分があります")};
   if (analysis.vertexParts.empty())
-    return {false, "Mixerに頂点モーフがありません"};
+    return {false, i18n::tr("Mixerに頂点モーフがありません")};
   return createMorphFromData(session, combine(analysis.vertexParts),
                              std::move(name),
-                             "Mixerの状態から頂点モーフを作成");
+                             i18n::tr("Mixerの状態から頂点モーフを作成"));
 }
 
 } // namespace pmxer::morph

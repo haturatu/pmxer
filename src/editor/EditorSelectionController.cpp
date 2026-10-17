@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "EditorSelectionController.hpp"
 
 #include "DocumentSession.hpp"
@@ -205,13 +207,13 @@ bool selectMorphOffsetTarget(DocumentSession &session, SelectionItem item) {
     if (!target.picking)
         return false;
     if (item.kind != target.expectedKind) {
-        setStatus(session, "このオフセットが参照する種類を選択してください",
+        setStatus(session, i18n::tr("このオフセットが参照する種類を選択してください"),
                   UiStatusKind::warning);
         return true;
     }
     const auto index = selectionIndex(session, item);
     if (!index || *index > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())) {
-        setStatus(session, "オフセット対象のインデックスを解決できません",
+        setStatus(session, i18n::tr("オフセット対象のインデックスを解決できません"),
                   UiStatusKind::error, std::chrono::milliseconds::zero(), true);
         return true;
     }
@@ -220,14 +222,14 @@ bool selectMorphOffsetTarget(DocumentSession &session, SelectionItem item) {
     } else {
         const auto *morph = session.document.resolve(target.morph);
         if (morph == nullptr || target.offsetIndex >= morph->offsets.size()) {
-            setStatus(session, "モーフオフセットが見つかりません",
+            setStatus(session, i18n::tr("モーフオフセットが見つかりません"),
                       UiStatusKind::error, std::chrono::milliseconds::zero(), true);
             return true;
         }
         if (!session.ui.morphDraft)
             session.ui.morphDraft = *morph;
         if (target.offsetIndex >= session.ui.morphDraft->offsets.size()) {
-            setStatus(session, "モーフオフセットの編集状態が古くなっています",
+            setStatus(session, i18n::tr("モーフオフセットの編集状態が古くなっています"),
                       UiStatusKind::error, std::chrono::milliseconds::zero(), true);
             return true;
         }
@@ -238,7 +240,7 @@ bool selectMorphOffsetTarget(DocumentSession &session, SelectionItem item) {
     }
     target.target = item;
     target.picking = false;
-    setStatus(session, "モーフオフセットの対象を設定しました",
+    setStatus(session, i18n::tr("モーフオフセットの対象を設定しました"),
               UiStatusKind::success);
     return true;
 }

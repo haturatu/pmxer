@@ -40,10 +40,17 @@ std::filesystem::path resolveResourceDirectory(const std::filesystem::path &requ
 }
 
 std::filesystem::path resolveUiFont(const std::filesystem::path &requested,
-                                    const std::filesystem::path &resourceDirectory) {
+                                    const std::filesystem::path &resourceDirectory,
+                                    bool simplifiedChinese) {
     const std::vector<std::filesystem::path> candidates = {
         requested,
         environmentPath("PMXER_FONT"),
+        simplifiedChinese ? resourceDirectory / "fonts" / "NotoSansCJKsc-Regular.otf" : std::filesystem::path{},
+        simplifiedChinese ? resourceDirectory / "fonts" / "NotoSansSC-Regular.ttf" : std::filesystem::path{},
+        simplifiedChinese ? std::filesystem::path{"/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf"} : std::filesystem::path{},
+        simplifiedChinese ? std::filesystem::path{"/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc"} : std::filesystem::path{},
+        simplifiedChinese ? std::filesystem::path{"C:/Windows/Fonts/msyh.ttc"} : std::filesystem::path{},
+        simplifiedChinese ? std::filesystem::path{"/System/Library/Fonts/PingFang.ttc"} : std::filesystem::path{},
         resourceDirectory / "fonts" / "NotoSansCJKjp-Regular.otf",
         resourceDirectory / "fonts" / "NotoSansJP-Regular.otf",
         resourceDirectory / "fonts" / "NotoSansCJK-Regular.ttc",
@@ -56,6 +63,9 @@ std::filesystem::path resolveUiFont(const std::filesystem::path &requested,
         "/usr/share/fonts/truetype/noto/NotoSansJP-Regular.ttf",
         "/usr/share/fonts/truetype/droid/DroidSansJapanese.ttf",
         "/usr/share/fonts/droid/DroidSansJapanese.ttf",
+        resourceDirectory / "fonts" / "NotoSans-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "C:/Windows/Fonts/msgothic.ttc",
         "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
     };

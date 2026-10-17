@@ -1,3 +1,5 @@
+#include "i18n/Language.hpp"
+
 #include "StandardBoneTool.hpp"
 
 #include "../EditorOperations.hpp"
@@ -67,7 +69,7 @@ bool applyStandardBones(DocumentSession &session, const std::vector<BoneRecipe> 
             created.emplace(recipe.name, createdBone);
         }
         return true;
-    }, "標準ボーンを追加").success;
+    }, i18n::tr("標準ボーンを追加")).success;
 }
 
 } // namespace pmxer
