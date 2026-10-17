@@ -625,7 +625,7 @@ int runApplication(const EditCommand &options) {
             ImGui::Text(i18n::tr("%s に未保存の変更があります。"), title.c_str());
             const auto pendingTransform = session.hasPendingTransformEdit();
             if (pendingTransform)
-                ImGui::TextWrapped(i18n::tr("Transform Viewの一時変形はまだPMXには含まれていません。"));
+                ImGui::TextWrapped("%s", i18n::tr("Transform Viewの一時変形はまだPMXには含まれていません。"));
             if (ImGui::Button(pendingTransform ? i18n::tr("一時編集を破棄して保存して終了") : i18n::tr("保存して終了"))) {
                 if (session.path.empty()) {
                     setStatus(session, i18n::tr("保存先を指定してください。終了はキャンセルされました"),
@@ -741,7 +741,7 @@ int runApplication(const EditCommand &options) {
                 ImGui::Text(i18n::tr("%s に未保存の変更があります。"), title.c_str());
                 const auto pendingTransform = session.hasPendingTransformEdit();
                 if (pendingTransform)
-                    ImGui::TextWrapped(i18n::tr("Transform Viewの一時変形はまだPMXには含まれていません。"));
+                    ImGui::TextWrapped("%s", i18n::tr("Transform Viewの一時変形はまだPMXには含まれていません。"));
                 if (ImGui::Button(pendingTransform ? i18n::tr("一時編集を破棄して保存して閉じる") : i18n::tr("保存して閉じる"))) {
                     if (session.path.empty()) {
                         if (!fileDialog.busy() &&
@@ -819,7 +819,7 @@ int runApplication(const EditCommand &options) {
                 ImGui::TextUnformatted(i18n::tr("一時変形が残っています"));
                 ImGui::Text(i18n::tr("頂点: %zu 頂点"), session.deform.vertices.size());
                 ImGui::Text(i18n::tr("ボーン: %zu ボーン"), session.deform.bones.size());
-                ImGui::TextWrapped(i18n::tr("一時変形はまだPMXには含まれていません。"));
+                ImGui::TextWrapped("%s", i18n::tr("一時変形はまだPMXには含まれていません。"));
                 if (ImGui::Button(i18n::tr("Transform Viewを開いてモーフ化"))) {
                     revealPendingTransformEdit(*target);
                     pendingTransformSaveSession.reset();
@@ -876,10 +876,10 @@ int runApplication(const EditCommand &options) {
             if (ui::button(ui::UiSemanticId::menuFile, i18n::tr("PMXファイルを開く"), !fileDialog.busy()) &&
                 !fileDialog.busy())
                 (void)fileDialog.open();
-            ImGui::TextDisabled(i18n::tr("ここへ .pmx をドラッグ＆ドロップ"));
+            ImGui::TextDisabled("%s", i18n::tr("ここへ .pmx をドラッグ＆ドロップ"));
             ImGui::SeparatorText(i18n::tr("最近使ったファイル"));
             if (recentFiles.empty()) {
-                ImGui::TextDisabled(i18n::tr("履歴はありません"));
+                ImGui::TextDisabled("%s", i18n::tr("履歴はありません"));
             } else {
                 for (std::size_t index = 0; index < recentFiles.size(); ++index) {
                     ImGui::PushID(static_cast<int>(index));

@@ -435,14 +435,14 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                                i18n::tr("⚠ 外部リソース %zu件不足"),
                                resources.missingTextureCount + resources.failedTextureCount);
             ImGui::PushTextWrapPos(0.0F);
-            ImGui::TextDisabled(i18n::tr("不足テクスチャを代替表示しています"));
+            ImGui::TextDisabled("%s", i18n::tr("不足テクスチャを代替表示しています"));
             ImGui::PopTextWrapPos();
             ui::sameLineIfFits(i18n::tr("診断##texture-diagnostics"));
             if (ImGui::SmallButton(i18n::tr("診断##texture-diagnostics")) && showDiagnostics != nullptr)
                                *showDiagnostics = true;
         }
         if (resources.sharedToonFallbackCount != 0U) {
-            ImGui::TextDisabled(i18n::tr("共有Toonを簡易表示中"));
+            ImGui::TextDisabled("%s", i18n::tr("共有Toonを簡易表示中"));
         }
     }
     const auto targetPicking = session.ui.morphOffsetTarget.picking;
@@ -485,7 +485,7 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                                       !targetPicking;
     if (normalMorphWorkspace) {
         placeSelectionControl(i18n::tr("モーフはアウトライナーから選択"));
-        ImGui::TextDisabled(i18n::tr("モーフはアウトライナーから選択"));
+        ImGui::TextDisabled("%s", i18n::tr("モーフはアウトライナーから選択"));
     } else {
         modeButton(i18n::tr("頂点"), ViewportSelectionMode::vertex);
         modeButton(i18n::tr("面"), ViewportSelectionMode::face);

@@ -189,7 +189,7 @@ void texturePreviewCard(const DocumentSession &session, const char *label,
   ImGui::TextUnformatted(label);
   if (preview.texture == nullptr || preview.width == 0U ||
       preview.height == 0U) {
-    ImGui::TextDisabled(i18n::tr("画像を読み込めません"));
+    ImGui::TextDisabled("%s", i18n::tr("画像を読み込めません"));
     return;
   }
   const auto maximum =
@@ -476,7 +476,7 @@ void jointInspector(DocumentSession &session, const SelectionItem &selected) {
                                        i18n::tr("円錐ねじり"), i18n::tr("スライダー"), i18n::tr("ヒンジ")};
   commit |= enumCombo(i18n::tr("種類"), draft.type, types, std::size(types));
   if (draft.type != 0U)
-    ImGui::TextDisabled(i18n::tr("この種類は編集・保存できますが、プレビュー未対応です"));
+    ImGui::TextDisabled("%s", i18n::tr("この種類は編集・保存できますが、プレビュー未対応です"));
 
   ImGui::SeparatorText(i18n::tr("接続"));
   commit |= referenceCombo(i18n::tr("剛体A"), draft.bodyA,
@@ -735,7 +735,7 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
   } else {
     const auto type = std::min<std::size_t>(draft.type, std::size(types) - 1U);
     ImGui::Text(i18n::tr("種類: %s"), types[type]);
-    ImGui::TextDisabled(i18n::tr("オフセットがあるモーフの種類は変更できません"));
+    ImGui::TextDisabled("%s", i18n::tr("オフセットがあるモーフの種類は変更できません"));
   }
   ImGui::Text(i18n::tr("オフセット: %zu"), draft.offsets.size());
 
@@ -799,7 +799,7 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
     if (offsetCommit)
       ++session.ui.morphOffsetFilterEpoch;
     if (session.ui.morphOffsetTarget.picking)
-      ImGui::TextDisabled(i18n::tr("対象を選択中…"));
+      ImGui::TextDisabled("%s", i18n::tr("対象を選択中…"));
     if (session.ui.morphOffsetTarget.target)
       ImGui::TextDisabled(i18n::tr("対象ID: %llu"), static_cast<unsigned long long>(session.ui.morphOffsetTarget.target->id));
   }
@@ -827,7 +827,7 @@ void morphInspector(DocumentSession &session, WorkspaceUiState &workspace,
       beginMorphOffsetTargetPick(session, handle, draft.offsets.size(),
                                  draft.type, true);
   } else {
-    ImGui::TextDisabled(i18n::tr("対象材質: 全材質 (-1)"));
+    ImGui::TextDisabled("%s", i18n::tr("対象材質: 全材質 (-1)"));
   }
   const auto addLabel = std::string{"+ "} +
                         types[std::min<std::size_t>(draft.type,
@@ -965,7 +965,7 @@ void drawInspectorPanel(DocumentSession &session, GpuModelRenderer *renderer,
   }
   const auto selected = session.selection.items().front();
   if (!workspacePolicy(activeWorkspace).allows(selected.kind)) {
-    ImGui::TextDisabled(i18n::tr("このワークスペースでは選択対象を編集できません"));
+    ImGui::TextDisabled("%s", i18n::tr("このワークスペースでは選択対象を編集できません"));
     ImGui::End();
     return;
   }

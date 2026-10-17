@@ -460,7 +460,7 @@ void drawOutlinerPanel(DocumentSession &session, WorkspaceUiState &workspace,
         filter, workspace, revealBlockedByFilter);
   if (revealBlockedByFilter) {
     ImGui::Separator();
-    ImGui::TextDisabled(i18n::tr("選択中の項目は検索条件で非表示です"));
+    ImGui::TextDisabled("%s", i18n::tr("選択中の項目は検索条件で非表示です"));
     if (ImGui::SmallButton(i18n::tr("検索をクリア##outliner-reveal")))
       query.fill('\0');
   }

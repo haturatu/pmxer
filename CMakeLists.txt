@@ -372,7 +372,7 @@ if(PMXER_WARNINGS_AS_ERRORS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     list(APPEND PMXER_WARNING_TARGETS pmxer_ui)
   endif()
   foreach(target IN LISTS PMXER_WARNING_TARGETS)
-    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror)
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wformat-security -Werror)
   endforeach()
 endif()
 

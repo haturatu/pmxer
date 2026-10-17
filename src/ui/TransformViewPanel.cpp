@@ -75,7 +75,7 @@ std::size_t currentMorphIndex(const DocumentSession &session) {
 
 bool morphCombo(const char *label, const mmd::PmxModel &model, std::size_t &index) {
     if (model.morphs.empty()) {
-        ImGui::TextDisabled(i18n::tr("モーフがありません"));
+        ImGui::TextDisabled("%s", i18n::tr("モーフがありません"));
         return false;
     }
     index = std::min(index, model.morphs.size() - 1U);
@@ -188,20 +188,20 @@ void drawVertexTransform(DocumentSession &session, WorkspaceUiState &workspace) 
     ImGui::PushTextWrapPos(0.0F);
     if (selectedVertices == 0U) {
         ImGui::TextColored(ImVec4{0.35F, 0.7F, 1.0F, 1.0F},
-                           i18n::tr("● 1. ビューポートで変形する頂点を選択してください"));
-        ImGui::TextDisabled(i18n::tr("  クリックまたはドラッグで選択できます"));
-        ImGui::TextDisabled(i18n::tr("○ 2. 変形"));
-        ImGui::TextDisabled(i18n::tr("○ 3. モーフを作成"));
+                           "%s", i18n::tr("● 1. ビューポートで変形する頂点を選択してください"));
+        ImGui::TextDisabled("%s", i18n::tr("  クリックまたはドラッグで選択できます"));
+        ImGui::TextDisabled("%s", i18n::tr("○ 2. 変形"));
+        ImGui::TextDisabled("%s", i18n::tr("○ 3. モーフを作成"));
     } else if (modifiedVertices == 0U) {
         ImGui::TextUnformatted(i18n::tr("✓ 1. 頂点を選択"));
         ImGui::TextColored(ImVec4{0.35F, 0.7F, 1.0F, 1.0F},
-                           i18n::tr("● 2. 移動・回転・拡縮で頂点を変形してください"));
-        ImGui::TextDisabled(i18n::tr("○ 3. モーフを作成"));
+                           "%s", i18n::tr("● 2. 移動・回転・拡縮で頂点を変形してください"));
+        ImGui::TextDisabled("%s", i18n::tr("○ 3. モーフを作成"));
     } else {
         ImGui::TextUnformatted(i18n::tr("✓ 1. 頂点を選択"));
         ImGui::Text(i18n::tr("✓ 2. %zu 頂点を変形"), modifiedVertices);
         ImGui::TextColored(ImVec4{0.35F, 0.7F, 1.0F, 1.0F},
-                           i18n::tr("● 3. 頂点モーフとして作成できます"));
+                           "%s", i18n::tr("● 3. 頂点モーフとして作成できます"));
     }
 
     ImGui::PopTextWrapPos();
@@ -253,7 +253,7 @@ void drawVertexTransform(DocumentSession &session, WorkspaceUiState &workspace) 
         drawDisabledReason(i18n::tr("まだ頂点が変形されていません"));
     if (modifiedVertices != 0U && ImGui::Button(i18n::tr("この頂点編集を破棄")))
         discardPendingVertexEdit(session);
-    ImGui::TextDisabled(i18n::tr("ⓘ モーフを作成するまでPMX本体には反映されません"));
+    ImGui::TextDisabled("%s", i18n::tr("ⓘ モーフを作成するまでPMX本体には反映されません"));
 }
 
 void drawBoneTransform(DocumentSession &session, WorkspaceUiState &workspace) {
@@ -277,7 +277,7 @@ void drawBoneTransform(DocumentSession &session, WorkspaceUiState &workspace) {
     }
     if (!selectedAvailability.enabled)
         ImGui::TextWrapped("ⓘ %s", selectedAvailability.reason.data());
-    ImGui::TextDisabled(i18n::tr("複数のボーンを順番に変形して1つのボーンモーフにできます"));
+    ImGui::TextDisabled("%s", i18n::tr("複数のボーンを順番に変形して1つのボーンモーフにできます"));
     ImGui::SeparatorText(i18n::tr("操作"));
     drawTransformToolButton(session, i18n::tr("選択"), ViewportTool::select, true);
     ui::sameLineIfFits(i18n::tr("移動 G"));
@@ -316,7 +316,7 @@ void drawBoneTransform(DocumentSession &session, WorkspaceUiState &workspace) {
         drawDisabledReason(captureReason);
     if (modifiedBones != 0U && ImGui::Button(i18n::tr("このボーン編集を破棄")))
         discardPendingBoneEdit(session);
-    ImGui::TextDisabled(i18n::tr("ⓘ モーフを作成するまでPMX本体には反映されません"));
+    ImGui::TextDisabled("%s", i18n::tr("ⓘ モーフを作成するまでPMX本体には反映されません"));
 }
 
 float blendWeight(const PreviewSession &preview, mmd::MorphHandle handle) {
@@ -383,10 +383,10 @@ void drawMorphMixer(DocumentSession &session) {
     if (session.deform.confirmVertexBake &&
         ImGui::BeginPopupModal(i18n::tr("頂点成分のベイクを確認"), nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::TextWrapped(i18n::tr("このミックスには次の種類も含まれます:"));
+        ImGui::TextWrapped("%s", i18n::tr("このミックスには次の種類も含まれます:"));
         for (const auto type : session.deform.vertexBakeIgnoredTypes)
             ImGui::BulletText("%s", morphTypeName(type));
-        ImGui::TextWrapped(i18n::tr("これらは頂点モーフには含まれません。"));
+        ImGui::TextWrapped("%s", i18n::tr("これらは頂点モーフには含まれません。"));
         if (ImGui::Button(i18n::tr("頂点成分をベイク"))) {
             const auto result = morph::bakeMixAsVertexMorph(
                 session, session.deform.groupCaptureName, {.allowIgnoredTypes = true});
@@ -464,7 +464,7 @@ void drawMorphOperations(DocumentSession &session) {
                                ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text(i18n::tr("このモーフは %zu 個のグループ／フリップモーフから参照されています。"),
                     session.deform.bakeReverseReferenceCount);
-        ImGui::TextWrapped(i18n::tr("反転すると参照元のモーフも変化する可能性があります。"));
+        ImGui::TextWrapped("%s", i18n::tr("反転すると参照元のモーフも変化する可能性があります。"));
         if (ImGui::Button(i18n::tr("反転する"))) {
             const auto result = morph::bakeAndReverseBase(
                 session, session.deform.bakeReverseMorph, {.allowReferencedMorph = true});
@@ -491,7 +491,7 @@ void drawMorphOperations(DocumentSession &session) {
     const auto validOther = otherIndex < model.morphs.size() && otherIndex != index &&
                             model.morphs[otherIndex].type == source.type;
     if (!validOther)
-        ImGui::TextDisabled(i18n::tr("同じ種類の別のモーフを選択してください"));
+        ImGui::TextDisabled("%s", i18n::tr("同じ種類の別のモーフを選択してください"));
     ImGui::BeginDisabled(!validOther);
     if (ImGui::Button(i18n::tr("モーフを結合"))) {
         const auto &other = model.morphs[otherIndex];
