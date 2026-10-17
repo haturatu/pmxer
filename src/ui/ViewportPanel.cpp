@@ -413,6 +413,14 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         ImGui::End();
         return;
     }
+    if (session.ui.aiRegionSelection) {
+        session.ui.selectionMode = ViewportSelectionMode::face;
+        session.ui.viewportTool = ViewportTool::select;
+    }
+    if (session.ui.aiPreviewReadOnly) {
+        session.ui.viewportTool = ViewportTool::select;
+        ImGui::TextUnformatted(i18n::tr("Preview only. The original model has not changed."));
+    }
     if (profile != nullptr)
         applyViewportProfile(session, *profile);
     if (session.ui.morphOffsetTarget.picking) {
@@ -710,8 +718,11 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     }
     const auto hovered = ImGui::IsItemHovered();
     const auto mouse = ImGui::GetIO().MousePos;
-    if (session.ui.viewportTool == ViewportTool::select && ImGui::IsItemActivated()) {
+    if (!session.ui.aiPreviewReadOnly && session.ui.viewportTool == ViewportTool::select &&
+        ImGui::IsItemActivated()) {
         session.ui.boxSelecting = true;
+        session.ui.aiLasso.clear();
+        session.ui.aiLasso.push_back({mouse.x, mouse.y});
         session.ui.boxSelectStartX = mouse.x;
         session.ui.boxSelectStartY = mouse.y;
         session.ui.boxSelectEndX = mouse.x;
@@ -720,6 +731,13 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     if (session.ui.boxSelecting) {
         session.ui.boxSelectEndX = mouse.x;
         session.ui.boxSelectEndY = mouse.y;
+        if (session.ui.aiRegionSelection && session.ui.aiSelectionShape == 1 &&
+            session.ui.aiLasso.size() < 256) {
+            const auto last = session.ui.aiLasso.back();
+            const auto dx = mouse.x - last[0], dy = mouse.y - last[1];
+            if (dx * dx + dy * dy > 9)
+                session.ui.aiLasso.push_back({mouse.x, mouse.y});
+        }
     }
     const auto &model = session.document.model();
     const auto &vertices = frame != nullptr && !frame->vertices.empty() ? frame->vertices : model.vertices;
@@ -861,10 +879,12 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             setStatus(session, i18n::tr("モーフオフセット対象の選択をキャンセルしました"),
                       UiStatusKind::info);
         } else if (hovered) {
+            session.ui.aiRegionSelection = false;
+            session.ui.aiLasso.clear();
             session.ui.viewportTool = ViewportTool::select;
         }
     }
-    if (hovered && !ImGui::GetIO().WantTextInput) {
+    if (!session.ui.aiPreviewReadOnly && hovered && !ImGui::GetIO().WantTextInput) {
         if (ImGui::IsKeyPressed(ImGuiKey_1) && policy.allows(ViewportSelectionMode::vertex))
             session.ui.selectionMode = ViewportSelectionMode::vertex;
         if (ImGui::IsKeyPressed(ImGuiKey_2) && policy.allows(ViewportSelectionMode::face))
@@ -1092,9 +1112,21 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         const ImVec2 end{session.ui.boxSelectEndX, session.ui.boxSelectEndY};
         const auto dx = end.x - start.x;
         const auto dy = end.y - start.y;
-        if (dx * dx + dy * dy > 16.0F) {
-            const auto picked = pickViewportRectangle(session, vertices, camera, origin,
-                                                      available, start, end);
+        const bool lasso = session.ui.aiRegionSelection && session.ui.aiSelectionShape == 1 &&
+                           session.ui.aiLasso.size() >= 3;
+        if (lasso || dx * dx + dy * dy > 16.0F) {
+            std::vector<ImVec2> polygon;
+            if (session.ui.aiRegionSelection && session.ui.aiSelectionShape == 1) {
+                for (auto p : session.ui.aiLasso)
+                    polygon.push_back({p[0], p[1]});
+            } else
+                polygon = {start, {end.x, start.y}, end, {start.x, end.y}};
+            const auto picked =
+                session.ui.aiRegionSelection
+                    ? pickViewportRegion(session, vertices, camera, origin, available, polygon,
+                                         session.ui.aiSelectThrough)
+                    : pickViewportRectangle(session, vertices, camera, origin, available, start,
+                                            end);
             const auto targetCaptured = session.ui.morphOffsetTarget.picking && !picked.empty();
             if (targetCaptured) {
                 selectViewportItem(session, activeWorkspace, picked.front().item,
@@ -1113,6 +1145,8 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
                     for (const auto &item : selected)
                         addSelection(session, activeWorkspace, item,
                                      SelectionOrigin::viewport);
+                } else if (selected.empty()) {
+                    session.selection.clear();
                 } else if (!selected.empty()) {
                     selectPrimary(session, activeWorkspace, selected.front(),
                                   SelectionOrigin::viewport);
@@ -1187,6 +1221,36 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
             session.ui.viewportHoverUpdated = now;
         }
     }
+    if (session.ui.aiRegionSelection) {
+        for (const auto &item : session.selection.items()) {
+            if (item.kind != SelectionKind::face)
+                continue;
+            const auto *face =
+                session.document.resolve(selectionHandle<mmd::FaceTag>(session.document, item));
+            if (!face)
+                continue;
+            std::array<ImVec2, 3> points;
+            bool visible = true;
+            for (std::size_t i = 0; i < 3; ++i) {
+                const auto *vertex = session.document.resolve(face->vertices[i]);
+                if (!vertex) {
+                    visible = false;
+                    break;
+                }
+                const auto index = static_cast<std::size_t>(vertex - model.vertices.data());
+                const auto screen = projectWorldToScreen(camera, vertices[index].position, origin.x,
+                                                         origin.y, available.x, available.y);
+                if (!screen.inFront) {
+                    visible = false;
+                    break;
+                }
+                points[i] = {screen.x, screen.y};
+            }
+            if (visible)
+                draw->AddTriangleFilled(points[0], points[1], points[2],
+                                        IM_COL32(80, 170, 255, 70));
+        }
+    }
     if (session.ui.viewportHover) {
         if (session.ui.viewportHoverFace) {
             const auto offset = *session.ui.viewportHoverFace * 3U;
@@ -1218,7 +1282,13 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
     if (session.ui.boxSelecting) {
         const ImVec2 start{session.ui.boxSelectStartX, session.ui.boxSelectStartY};
         const ImVec2 end{session.ui.boxSelectEndX, session.ui.boxSelectEndY};
-        if (std::abs(end.x - start.x) > 2.0F || std::abs(end.y - start.y) > 2.0F) {
+        if (session.ui.aiRegionSelection && session.ui.aiSelectionShape == 1 &&
+            session.ui.aiLasso.size() > 1) {
+            for (std::size_t i = 1; i < session.ui.aiLasso.size(); ++i) {
+                const auto a = session.ui.aiLasso[i - 1], b = session.ui.aiLasso[i];
+                draw->AddLine({a[0], a[1]}, {b[0], b[1]}, IM_COL32(110, 180, 255, 230), 2.0F);
+            }
+        } else if (std::abs(end.x - start.x) > 2.0F || std::abs(end.y - start.y) > 2.0F) {
             const ImVec2 minimum{std::min(start.x, end.x), std::min(start.y, end.y)};
             const ImVec2 maximum{std::max(start.x, end.x), std::max(start.y, end.y)};
             draw->AddRectFilled(minimum, maximum, IM_COL32(80, 150, 255, 35));
@@ -1308,7 +1378,9 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         }
         ImGui::EndPopup();
     }
-    drawViewportGizmo(session, makeCameraMatrices(camera, available.x / available.y), origin, available);
+    if (!session.ui.aiPreviewReadOnly)
+        drawViewportGizmo(session, makeCameraMatrices(camera, available.x / available.y), origin,
+                          available);
     ImGui::End();
 }
 

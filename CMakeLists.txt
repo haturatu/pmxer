@@ -351,7 +351,12 @@ if(PMXER_BUILD_GUI)
     message(FATAL_ERROR "PMXER_BUILD_GUI requires PMXER_FETCH_GUI_DEPENDENCIES=ON in this source tree")
   endif()
 
+  find_package(Threads REQUIRED)
+  add_library(pmxer_codex src/ai/CodexClient.cpp)
+  target_include_directories(pmxer_codex PUBLIC src)
+  target_link_libraries(pmxer_codex PUBLIC pmxer_ai SDL3::SDL3 Threads::Threads)
   add_library(pmxer_ui
+    src/ui/AiEditPanel.cpp
     src/ui/TransformViewPanel.cpp
     src/ui/MainWindow.cpp
     src/ui/EditorPanels.cpp
@@ -368,7 +373,7 @@ if(PMXER_BUILD_GUI)
   )
   target_include_directories(pmxer_ui PUBLIC src)
   target_include_directories(pmxer_ui SYSTEM PRIVATE "${stb_image_SOURCE_DIR}" "${bcdec_SOURCE_DIR}")
-  target_link_libraries(pmxer_ui PUBLIC pmxer_render pmxer_imgui pmxer_gizmo SDL3::SDL3)
+  target_link_libraries(pmxer_ui PUBLIC pmxer_render pmxer_imgui pmxer_gizmo pmxer_codex SDL3::SDL3)
   target_compile_definitions(pmxer_ui PRIVATE PMXER_HAS_GUI=1 PMXER_SHADER_DIRECTORY="${PMXER_SHADER_OUTPUT_DIR}")
 endif()
 
@@ -390,7 +395,7 @@ if(PMXER_WARNINGS_AS_ERRORS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     list(APPEND PMXER_WARNING_TARGETS pmxer_ai)
   endif()
   if(TARGET pmxer_ui)
-    list(APPEND PMXER_WARNING_TARGETS pmxer_ui)
+    list(APPEND PMXER_WARNING_TARGETS pmxer_ui pmxer_codex)
   endif()
   foreach(target IN LISTS PMXER_WARNING_TARGETS)
     target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wformat-security -Werror)
@@ -420,6 +425,14 @@ if(BUILD_TESTING)
   target_link_libraries(pmxer_command_line_tests PRIVATE pmxer_command_line)
   add_test(NAME pmxer_command_line COMMAND pmxer_command_line_tests)
   if(PMXER_BUILD_GUI)
+    add_executable(pmxer_ai_picking_tests tests/unit/AiPickingTests.cpp src/ui/ViewportPicking.cpp)
+    target_link_libraries(pmxer_ai_picking_tests PRIVATE pmxer_editor pmxer_imgui)
+    add_test(NAME pmxer_ai_picking COMMAND pmxer_ai_picking_tests)
+    add_executable(pmxer_codex_tests tests/integration/CodexClientTests.cpp)
+    target_link_libraries(pmxer_codex_tests PRIVATE pmxer_codex)
+    add_test(NAME pmxer_codex COMMAND pmxer_codex_tests)
+    add_executable(pmxer_ai_smoke tests/integration/AiSmoke.cpp)
+    target_link_libraries(pmxer_ai_smoke PRIVATE pmxer_codex)
     add_executable(pmxer_image_decoder_tests
       tests/unit/ImageDecoderTests.cpp
       src/render/ImageDecoder.cpp

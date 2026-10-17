@@ -127,6 +127,11 @@ struct EditorUiState {
     float cameraNavigationStartY{};
     bool gizmoDragging{};
     bool boxSelecting{};
+    bool aiRegionSelection{};
+    bool aiSelectThrough{true};
+    bool aiPreviewReadOnly{};
+    int aiSelectionShape{};
+    std::vector<mmd::Float2> aiLasso;
     float boxSelectStartX{};
     float boxSelectStartY{};
     float boxSelectEndX{};

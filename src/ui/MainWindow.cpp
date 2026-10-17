@@ -1,6 +1,7 @@
 #include "i18n/Language.hpp"
 
 #include "MainWindow.hpp"
+#include "AiEditPanel.hpp"
 #include "UiSemantics.hpp"
 #include "WorkspaceLayout.hpp"
 
@@ -892,6 +893,8 @@ int runApplication(const EditCommand &options) {
             }
             ImGui::End();
         }
+        drawAiEditPanel(!sessions.empty() && activeSession < sessions.size()
+                           ? sessions[activeSession].get() : nullptr, workspace);
         if (workspace.requestCloseDocument) {
             workspace.requestCloseDocument = false;
             if (!sessions.empty() && activeSession < sessions.size())
@@ -918,7 +921,7 @@ int runApplication(const EditCommand &options) {
         } else if (swapchain != nullptr) {
             ImGui_ImplSDLGPU3_PrepareDrawData(ImGui::GetDrawData(), commands);
             if (!sessions.empty() && activeSession < sessions.size()) {
-                auto &session = *sessions[activeSession];
+                auto &session = aiDisplaySession(*sessions[activeSession], workspace);
                 (void)gpuModelRenderer->prepare(commands, session.document.model(), session.ui.previewFrame,
                                                 session.revision, session.resourceRevision,
                                                 session.preview.frameRevision, session.changes);
@@ -947,6 +950,8 @@ int runApplication(const EditCommand &options) {
     const auto *contents = ImGui::SaveIniSettingsToMemory(&size);
     if (!saveWorkspaceLayout(layoutPath, std::string_view(contents, size)))
         log::warn("workspace layout could not be saved during shutdown");
+    // Stop Codex workers while SDL process and IO services are still available.
+    workspace.ai.reset();
     ImGui_ImplSDLGPU3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
