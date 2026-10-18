@@ -1,6 +1,7 @@
 #include "ResourceLocator.hpp"
 
 #include <cstdlib>
+#include <optional>
 #include <system_error>
 #include <vector>
 
@@ -23,6 +24,44 @@ bool isRegularFile(const std::filesystem::path &path) {
 }
 
 } // namespace
+
+std::filesystem::path resolveFileCase(const std::filesystem::path &path) {
+    if (path.empty() || isRegularFile(path))
+        return path;
+    const auto fold = [](const std::filesystem::path &name) {
+        auto value = name.generic_u8string();
+        for (auto &c : value)
+            if (c >= u8'A' && c <= u8'Z')
+                c = static_cast<char8_t>(c + (u8'a' - u8'A'));
+        return value;
+    };
+    const auto normalized = path.lexically_normal();
+    auto resolved = normalized.root_path();
+    for (const auto &part : normalized.relative_path()) {
+        const auto candidate = resolved / part;
+        std::error_code error;
+        if (std::filesystem::exists(candidate, error)) {
+            resolved = candidate;
+            continue;
+        }
+        std::optional<std::filesystem::path> match;
+        const auto name = fold(part);
+        auto entries = std::filesystem::directory_iterator(
+            resolved.empty() ? std::filesystem::path{"."} : resolved, error);
+        const auto end = std::filesystem::directory_iterator{};
+        for (; !error && entries != end; entries.increment(error)) {
+            if (fold(entries->path().filename()) != name)
+                continue;
+            if (match)
+                return path; // Never choose arbitrarily between two files.
+            match = entries->path();
+        }
+        if (error || !match)
+            return path;
+        resolved = *match;
+    }
+    return isRegularFile(resolved) ? resolved : path;
+}
 
 std::filesystem::path resolveResourceDirectory(const std::filesystem::path &requested,
                                                 const std::filesystem::path &executableDirectory) {

@@ -1,4 +1,5 @@
 #include "TextureCache.hpp"
+#include "../platform/ResourceLocator.hpp"
 
 namespace pmxer {
 
@@ -6,7 +7,7 @@ void TextureCache::inspect(const mmd::PmxModel &model) {
     items_.clear();
     for (std::size_t i = 0; i < model.textures.size(); ++i) {
         const auto &texture = model.textures[i];
-        const auto resolved = mmd::pmx::resolveTexturePath(model, i);
+        const auto resolved = resolveFileCase(mmd::pmx::resolveTexturePath(model, i));
         items_.emplace(texture.storedPath, TextureStatus{texture.storedPath, resolved, std::filesystem::exists(resolved)});
     }
 }
