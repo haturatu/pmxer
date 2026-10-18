@@ -754,3 +754,4 @@ PMXER_MESSAGE("Procedural loafers, shirts and skirts; solid colors and transform
 PMXER_MESSAGE("The model changed. Capture the selection again.", "モデルが変更されました。選択範囲を取得し直してください。", "The model changed. Capture the selection again.", "模型已更改。请重新记录所选区域。", "Модель изменилась. Зафиксируйте область заново.")
 PMXER_MESSAGE("No supported edits were generated.", "対応する編集案が生成されませんでした。", "No supported edits were generated.", "未生成受支持的编辑方案。", "Поддерживаемых изменений не создано.")
 PMXER_MESSAGE("AI region edit", "AIで範囲を編集", "AI region edit", "AI区域编辑", "Изменение области с ИИ")
+PMXER_MESSAGE("Select only clothing or shoe faces. Body surfaces missing beneath clothing are not reconstructed.", "衣服や靴の面だけを選択してください。衣装の下に身体の面がない場合、その面は自動で補完しません。", "Select only clothing or shoe faces. Body surfaces missing beneath clothing are not reconstructed.", "请仅选择衣服或鞋子的面。不会自动补全衣物下缺失的身体表面。", "Выбирайте только грани одежды или обуви. Отсутствующая под одеждой поверхность тела не восстанавливается.")

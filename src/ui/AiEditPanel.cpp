@@ -199,6 +199,8 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
     ImGui::TextDisabled(
         "%s", i18n::tr("Procedural loafers, shirts and skirts; solid colors and transforms. Custom "
                        "fashion and generated textures are not supported."));
+    ImGui::TextDisabled("%s", i18n::tr("Select only clothing or shoe faces. Body surfaces missing "
+                                      "beneath clothing are not reconstructed."));
     ImGui::PopTextWrapPos();
     ImGui::End();
 }
