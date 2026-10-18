@@ -97,10 +97,22 @@ int main(int argc, char **argv) {
                 std::string_view{argv[1]} == "--broad-live") {
                 std::cout << "INFO requesting " << scenario << std::endl;
                 pmxer::ai::CodexClient client;
-                client.generate(prompt, pmxer::ai::regionContext(session, region).dump());
-                const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(4);
-                while (client.state().busy && std::chrono::steady_clock::now() < deadline)
+                const pmxer::ai::CodexOptions options;
+                client.generate(prompt, pmxer::ai::regionContext(session, region).dump(), {},
+                                options);
+                const auto deadline = std::chrono::steady_clock::now() + options.planTimeout +
+                                      options.rpcTimeout * 3 + std::chrono::seconds(10);
+                auto nextProgress = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+                while (client.state().busy && std::chrono::steady_clock::now() < deadline) {
+                    if (std::chrono::steady_clock::now() >= nextProgress) {
+                        const auto progress = client.state();
+                        std::cout << "INFO waiting for Codex: elapsed_s=" << progress.elapsedSeconds
+                                  << " idle_s=" << progress.inactiveSeconds
+                                  << " reconnecting=" << progress.reconnecting << std::endl;
+                        nextProgress += std::chrono::seconds(15);
+                    }
                     std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                }
                 if (client.state().busy) {
                     client.cancel();
                     throw std::runtime_error("Live generation timed out");

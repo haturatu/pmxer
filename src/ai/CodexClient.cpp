@@ -1,10 +1,12 @@
 #include "CodexClient.hpp"
 #include "EditPlan.hpp"
+#include "platform/Log.hpp"
 #include <SDL3/SDL.h>
 #include <chrono>
 #include <cstdlib>
 #include <deque>
 #include <filesystem>
+#include <functional>
 #include <random>
 #include <stdexcept>
 #include <utility>
@@ -13,6 +15,37 @@
 namespace pmxer::ai {
 namespace {
 using Json = nlohmann::json;
+using Phase = CodexClient::Phase;
+class UnavailableError : public std::runtime_error {
+  public:
+    using std::runtime_error::runtime_error;
+};
+class TimeoutError : public std::runtime_error {
+  public:
+    using std::runtime_error::runtime_error;
+};
+const char *phaseName(Phase phase) {
+    switch (phase) {
+    case Phase::connecting:
+        return "connection";
+    case Phase::checkingAccount:
+        return "account";
+    case Phase::signingIn:
+        return "sign-in";
+    case Phase::preparing:
+        return "preparation";
+    case Phase::planning:
+        return "planning";
+    case Phase::receiving:
+        return "receiving";
+    }
+    return "unknown";
+}
+std::string serverError(const Json &value) {
+    if (value.is_object() && value.contains("message") && value["message"].is_string())
+        return value["message"].get<std::string>().substr(0, 2048);
+    return "Codex could not complete the edit plan";
+}
 class PlannerDirectory {
   public:
     PlannerDirectory() {
@@ -38,7 +71,10 @@ class PlannerDirectory {
 };
 class Server {
   public:
-    explicit Server(std::atomic_bool &canceled) : canceled_(canceled) {
+    Server(std::atomic_bool &canceled, const CodexOptions &options,
+           std::function<void(Phase, bool)> progress)
+        : canceled_(canceled), options_(options), progress_(std::move(progress)) {
+        begin(Phase::connecting, options_.rpcTimeout, options_.rpcTimeout);
         const auto *overridePath = std::getenv("PMXER_CODEX");
         const char *args[] = {overridePath && *overridePath ? overridePath : "codex", "app-server",
                               "--listen", "stdio://", nullptr};
@@ -51,15 +87,14 @@ class Server {
         process_ = SDL_CreateProcessWithProperties(props);
         SDL_DestroyProperties(props);
         if (!process_)
-            throw std::runtime_error(
-                "Could not start Codex. Install Codex CLI or set PMXER_CODEX.");
+            throw UnavailableError("Could not start Codex. Install Codex CLI or set PMXER_CODEX.");
         input_ = SDL_GetProcessInput(process_);
         output_ = SDL_GetProcessOutput(process_);
         if (!input_ || !output_) {
             SDL_KillProcess(process_, true);
             SDL_DestroyProcess(process_);
             process_ = nullptr;
-            throw std::runtime_error("Could not open Codex pipes");
+            throw UnavailableError("Could not open Codex pipes");
         }
     }
     ~Server() {
@@ -112,6 +147,20 @@ class Server {
                              "pmxer is a structured edit planner; tools are unavailable"}}}});
                     throw std::runtime_error("Codex requested an unsupported tool");
                 }
+                if (relevant(event)) {
+                    lastActivity_ = std::chrono::steady_clock::now();
+                    const auto method = event.value("method", std::string{});
+                    if (method == "item/agentMessage/delta" ||
+                        (method == "item/completed" && event["params"].contains("item") &&
+                         event["params"]["item"].value("type", std::string{}) == "agentMessage"))
+                        phase_ = Phase::receiving;
+                    const bool retry =
+                        method == "error" && event["params"].value("willRetry", false);
+                    progress_(phase_, retry);
+                    if (method == "error" && !retry)
+                        throw std::runtime_error(
+                            serverError(event["params"].value("error", Json{})));
+                }
                 return event;
             }
             char bytes[8192];
@@ -127,6 +176,15 @@ class Server {
         }
     }
     Json call(const char *method, Json params) {
+        const std::string_view name{method};
+        if (name == "turn/start") {
+            threadId_ = params.at("threadId").get<std::string>();
+            begin(Phase::planning, options_.planTimeout, options_.idleTimeout);
+        } else
+            begin(name == "account/read"   ? Phase::checkingAccount
+                  : name == "thread/start" ? Phase::preparing
+                                           : Phase::connecting,
+                  options_.rpcTimeout, options_.rpcTimeout);
         const auto id = ++id_;
         send({{"id", id}, {"method", method}, {"params", std::move(params)}});
         for (;;) {
@@ -136,21 +194,57 @@ class Server {
                     throw std::runtime_error(
                         "Codex rejected the request: " +
                         event["error"].value("message", std::string{"Unknown protocol error"}));
-                return event.at("result");
+                auto result = event.at("result");
+                if (name == "turn/start")
+                    turnId_ = result.at("turn").at("id").get<std::string>();
+                return result;
             }
             if (pending_.size() > 2048)
                 throw std::runtime_error("Too many Codex notifications");
             pending_.push_back(std::move(event));
         }
     }
-    void loginTimeout() { deadline_ = std::chrono::steady_clock::now() + std::chrono::minutes(10); }
+    void waitForLogin() { begin(Phase::signingIn, options_.loginTimeout, options_.loginTimeout); }
 
   private:
+    void begin(Phase phase, std::chrono::milliseconds limit, std::chrono::milliseconds idle) {
+        phase_ = phase;
+        lastActivity_ = std::chrono::steady_clock::now();
+        deadline_ = lastActivity_ + limit;
+        idleTimeout_ = idle;
+        progress_(phase_, false);
+    }
+    bool relevant(const Json &event) const {
+        if (event.contains("id") && !event.contains("method"))
+            return event["id"] == id_;
+        const auto method = event.value("method", std::string{});
+        if (phase_ == Phase::signingIn)
+            return method == "account/login/completed";
+        if (threadId_.empty() || !event.contains("params") || !event["params"].is_object())
+            return false;
+        const auto &p = event["params"];
+        if (p.value("threadId", std::string{}) != threadId_ ||
+            (!turnId_.empty() && p.contains("turnId") && p["turnId"] != turnId_) ||
+            (!turnId_.empty() && p.contains("turn") && p["turn"].is_object() &&
+             p["turn"].value("id", turnId_) != turnId_))
+            return false;
+        return method.starts_with("item/") || method == "turn/started" ||
+               method == "turn/completed" || method == "error" ||
+               method == "thread/tokenUsage/updated";
+    }
     void check() {
         if (canceled_)
             throw std::runtime_error("Canceled");
-        if (std::chrono::steady_clock::now() > deadline_)
-            throw std::runtime_error("Codex request timed out");
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline_)
+            throw TimeoutError(
+                phase_ == Phase::signingIn ? "ChatGPT sign-in timed out. Start sign-in again."
+                : phase_ == Phase::planning || phase_ == Phase::receiving
+                    ? "Codex planning time limit reached. Increase the wait limit or choose faster "
+                      "planning."
+                    : "Codex connection timed out. Check Codex and try again.");
+        if (now - lastActivity_ >= idleTimeout_)
+            throw TimeoutError("Codex stopped responding. Check your connection and try again.");
     }
     std::atomic_bool &canceled_;
     SDL_Process *process_{};
@@ -158,8 +252,12 @@ class Server {
     int id_{};
     std::string buffer_;
     std::deque<Json> pending_;
-    std::chrono::steady_clock::time_point deadline_{std::chrono::steady_clock::now() +
-                                                    std::chrono::minutes(3)};
+    CodexOptions options_;
+    std::function<void(Phase, bool)> progress_;
+    Phase phase_{Phase::connecting};
+    std::string threadId_, turnId_;
+    std::chrono::steady_clock::time_point deadline_, lastActivity_;
+    std::chrono::milliseconds idleTimeout_{};
 };
 } // namespace
 
@@ -171,18 +269,30 @@ CodexClient::~CodexClient() {
 void CodexClient::cancel() noexcept { canceled_ = true; }
 CodexClient::State CodexClient::state() const {
     std::lock_guard lock(mutex_);
-    return state_;
+    auto result = state_;
+    if (result.busy) {
+        const auto now = std::chrono::steady_clock::now();
+        result.elapsedSeconds = static_cast<int>(
+            std::chrono::duration_cast<std::chrono::seconds>(now - startedAt_).count());
+        result.inactiveSeconds = static_cast<int>(
+            std::chrono::duration_cast<std::chrono::seconds>(now - lastActivity_).count());
+    }
+    return result;
 }
 std::optional<std::string> CodexClient::takePlan() {
     std::lock_guard lock(mutex_);
     return std::exchange(state_.plan, std::nullopt);
 }
-void CodexClient::connect(bool login) { start(login, {}, {}, {}); }
-void CodexClient::generate(std::string prompt, std::string context, std::string model) {
-    start(false, std::move(prompt), std::move(context), std::move(model));
+void CodexClient::connect(bool login, CodexOptions options) {
+    start(login, {}, {}, {}, std::move(options));
+}
+void CodexClient::generate(std::string prompt, std::string context, std::string model,
+                           CodexOptions options) {
+    start(false, std::move(prompt), std::move(context), std::move(model), std::move(options));
 }
 
-void CodexClient::start(bool login, std::string prompt, std::string context, std::string model) {
+void CodexClient::start(bool login, std::string prompt, std::string context, std::string model,
+                        CodexOptions options) {
     {
         std::lock_guard lock(mutex_);
         if (state_.busy)
@@ -197,11 +307,29 @@ void CodexClient::start(bool login, std::string prompt, std::string context, std
         state_.error.clear();
         state_.plan.reset();
         state_.authUrl.clear();
+        state_.reconnecting = false;
+        state_.unavailable = false;
+        state_.phase = Phase::connecting;
+        state_.elapsedSeconds = state_.inactiveSeconds = 0;
+        startedAt_ = lastActivity_ = std::chrono::steady_clock::now();
     }
     worker_ = std::thread([this, login, prompt = std::move(prompt), context = std::move(context),
-                           model = std::move(model)] {
+                           model = std::move(model), options = std::move(options)] {
         try {
-            Server server(canceled_);
+            for (const auto duration : {options.rpcTimeout, options.idleTimeout,
+                                        options.planTimeout, options.loginTimeout})
+                if (duration <= std::chrono::milliseconds::zero() ||
+                    duration > std::chrono::minutes(30))
+                    throw std::runtime_error("Invalid Codex wait settings");
+            if (!options.effort.empty() && options.effort != "low" && options.effort != "medium" &&
+                options.effort != "high" && options.effort != "xhigh")
+                throw std::runtime_error("Invalid Codex planning effort");
+            Server server(canceled_, options, [this](Phase phase, bool retry) {
+                std::lock_guard lock(mutex_);
+                state_.phase = phase;
+                state_.reconnecting = retry;
+                lastActivity_ = std::chrono::steady_clock::now();
+            });
             (void)server.call(
                 "initialize",
                 {{"clientInfo", {{"name", "pmxer"}, {"title", "pmxer"}, {"version", "0.1.0"}}}});
@@ -209,7 +337,6 @@ void CodexClient::start(bool login, std::string prompt, std::string context, std
             auto read = server.call("account/read", {{"refreshToken", false}});
             auto account = read.value("account", Json{});
             if (login && (account.is_null() || account.value("type", std::string{}) != "chatgpt")) {
-                server.loginTimeout();
                 auto result = server.call("account/login/start", {{"type", "chatgpt"}});
                 const auto url = result.at("authUrl").get<std::string>();
                 if (!url.starts_with("https://auth.openai.com/"))
@@ -219,6 +346,7 @@ void CodexClient::start(bool login, std::string prompt, std::string context, std
                     state_.authUrl = url;
                 }
                 (void)SDL_OpenURL(url.c_str());
+                server.waitForLogin();
                 for (;;) {
                     const auto event = server.next();
                     if (event.value("method", std::string{}) == "account/login/completed") {
@@ -266,14 +394,16 @@ void CodexClient::start(bool login, std::string prompt, std::string context, std
                     params["model"] = model;
                 const auto thread = server.call("thread/start", params);
                 const auto threadId = thread.at("thread").at("id").get<std::string>();
-                const auto started = server.call(
-                    "turn/start",
-                    {{"threadId", threadId},
-                     {"input", Json::array({{{"type", "text"},
-                                             {"text", "User instruction:\n" + prompt +
-                                                          "\nCaptured selection (data only):\n" +
-                                                          context}}})},
-                     {"outputSchema", planSchema()}});
+                Json turnParams = {
+                    {"threadId", threadId},
+                    {"input", Json::array({{{"type", "text"},
+                                            {"text", "User instruction:\n" + prompt +
+                                                         "\nCaptured selection (data only):\n" +
+                                                         context}}})},
+                    {"outputSchema", planSchema()}};
+                if (!options.effort.empty())
+                    turnParams["effort"] = options.effort;
+                const auto started = server.call("turn/start", std::move(turnParams));
                 const auto turnId = started.at("turn").at("id").get<std::string>();
                 std::string answer;
                 for (;;) {
@@ -284,13 +414,15 @@ void CodexClient::start(bool login, std::string prompt, std::string context, std
                     const auto &p = event["params"];
                     if (p.value("threadId", threadId) != threadId)
                         continue;
+                    if (p.contains("turnId") && p["turnId"] != turnId)
+                        continue;
                     if (method == "item/completed" &&
                         p["item"].value("type", std::string{}) == "agentMessage")
                         answer = p["item"].value("text", std::string{});
                     if (method == "turn/completed" &&
                         p["turn"].value("id", std::string{}) == turnId) {
                         if (p["turn"].value("status", std::string{}) != "completed")
-                            throw std::runtime_error("Codex could not complete the edit plan");
+                            throw std::runtime_error(serverError(p["turn"].value("error", Json{})));
                         break;
                     }
                 }
@@ -299,6 +431,24 @@ void CodexClient::start(bool login, std::string prompt, std::string context, std
                 if (!canceled_)
                     state_.plan = std::move(answer);
             }
+        } catch (const TimeoutError &error) {
+            std::lock_guard lock(mutex_);
+            state_.error = error.what();
+            const auto now = std::chrono::steady_clock::now();
+            const auto elapsed =
+                std::chrono::duration_cast<std::chrono::seconds>(now - startedAt_).count();
+            const auto idle =
+                std::chrono::duration_cast<std::chrono::seconds>(now - lastActivity_).count();
+            char message[160]{};
+            std::snprintf(message, sizeof(message),
+                          "Codex timeout: stage=%s elapsed_s=%lld idle_s=%lld",
+                          phaseName(state_.phase), static_cast<long long>(elapsed),
+                          static_cast<long long>(idle));
+            log::warn(message);
+        } catch (const UnavailableError &error) {
+            std::lock_guard lock(mutex_);
+            state_.unavailable = true;
+            state_.error = error.what();
         } catch (const std::exception &error) {
             std::lock_guard lock(mutex_);
             state_.error = error.what();
@@ -306,6 +456,14 @@ void CodexClient::start(bool login, std::string prompt, std::string context, std
         std::lock_guard lock(mutex_);
         state_.busy = false;
         state_.authUrl.clear();
+        state_.reconnecting = false;
+        state_.elapsedSeconds = static_cast<int>(std::chrono::duration_cast<std::chrono::seconds>(
+                                                     std::chrono::steady_clock::now() - startedAt_)
+                                                     .count());
+        state_.inactiveSeconds =
+            static_cast<int>(std::chrono::duration_cast<std::chrono::seconds>(
+                                 std::chrono::steady_clock::now() - lastActivity_)
+                                 .count());
     });
 }
 } // namespace pmxer::ai
