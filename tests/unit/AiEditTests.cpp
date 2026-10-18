@@ -171,6 +171,9 @@ int main() {
             require(acceptEditPreview(source, captured, *preview).success &&
                         source.ui.isolatedMaterials.size() == 2,
                     "Applied generation disappeared from isolated view");
+            for (auto h : source.changes.vertices)
+                require(h.domain == source.document.domain() && source.document.resolve(h),
+                        "Accepted preview published foreign vertex handles");
         }
         for (auto shape : {Shape::loafers, Shape::shirt, Shape::skirt, Shape::dress, Shape::pants,
                            Shape::boots, Shape::coat}) {

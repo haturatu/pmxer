@@ -838,6 +838,21 @@ OperationResult acceptEditPreview(DocumentSession &session, const EditRegion &ca
     ++session.revision;
     session.validation = session.document.validate();
     session.changes = preview.changes;
+    // The prepared preview owns an independent domain. Change notifications
+    // published to the editor must use the accepted document's handles.
+    const auto remap = [&](auto &handles) {
+        for (auto &handle : handles)
+            handle.domain = session.document.domain();
+    };
+    remap(session.changes.vertices);
+    remap(session.changes.textures);
+    remap(session.changes.materials);
+    remap(session.changes.bones);
+    remap(session.changes.morphs);
+    remap(session.changes.displayFrames);
+    remap(session.changes.rigidBodies);
+    remap(session.changes.joints);
+    remap(session.changes.softBodies);
     session.changes.topologyChanged = true;
     session.changes.texturesChanged = true;
     if (!session.ui.isolatedMaterials.empty())
