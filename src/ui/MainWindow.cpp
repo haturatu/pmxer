@@ -865,6 +865,9 @@ int runApplication(const EditCommand &options) {
             pendingTransformSaveAs = false;
             pendingTransformSavePromptOpened = false;
         }
+        // Resolve AI preview transitions before evaluating the displayed model's frame.
+        drawAiEditPanel(!sessions.empty() && activeSession < sessions.size()
+                           ? sessions[activeSession].get() : nullptr, workspace);
         if (!sessions.empty() && activeSession < sessions.size())
             drawEditorPanels(*sessions[activeSession], fileDialog,
                              gpuModelRenderer.get(), workspace);
@@ -893,8 +896,6 @@ int runApplication(const EditCommand &options) {
             }
             ImGui::End();
         }
-        drawAiEditPanel(!sessions.empty() && activeSession < sessions.size()
-                           ? sessions[activeSession].get() : nullptr, workspace);
         if (workspace.requestCloseDocument) {
             workspace.requestCloseDocument = false;
             if (!sessions.empty() && activeSession < sessions.size())

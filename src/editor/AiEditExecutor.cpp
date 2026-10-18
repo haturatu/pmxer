@@ -433,6 +433,7 @@ OperationResult applyEditPlan(DocumentSession &session, const EditRegion &region
         std::any_of(plan.operations.begin(), plan.operations.end(),
                     [](const auto &op) { return op.type == OperationType::transform; });
     const auto mesh = generates ? generate(session, region, plan.operations.front()) : Mesh{};
+    const auto originalMaterialCount = session.document.model().materials.size();
     const auto pivot = center(region);
     const auto originalFaces = session.document.faces();
     const std::set<mmd::FaceHandle> chosen(region.faces.begin(), region.faces.end());
@@ -554,10 +555,59 @@ OperationResult applyEditPlan(DocumentSession &session, const EditRegion &region
         return true;
     });
     if (result.success) {
+        if (!session.ui.isolatedMaterials.empty())
+            for (auto index = originalMaterialCount;
+                 index < session.document.model().materials.size(); ++index) {
+                const auto h = session.document.materialHandle(index);
+                session.ui.isolatedMaterials.push_back(
+                    {SelectionKind::material, h.domain, h.id, h.generation});
+            }
         session.selection.retainAlive(session.document);
         session.ui.clearDrafts();
         session.ui.viewportPickCache.clear();
     }
     return result;
+}
+
+std::unique_ptr<DocumentSession> makeEditPreview(const DocumentSession &source,
+                                                 const EditRegion &captured, const EditPlan &plan) {
+    if (captured.documentId != source.recoveryId || captured.domain != source.document.domain() ||
+        captured.revision != source.revision)
+        throw std::runtime_error(i18n::tr("The model changed. Capture the selection again."));
+    if (source.hasPendingTransformEdit())
+        throw std::runtime_error(i18n::tr("Finish or discard temporary transforms first."));
+    auto preview = std::make_unique<DocumentSession>();
+    const auto domain = preview->document.domain();
+    preview->document.restoreSnapshot(source.document, domain);
+    preview->revision = source.revision;
+    preview->ui = source.ui;
+    // Never borrow a frame whose vertex count belongs to the original topology.
+    preview->ui.previewFrame = nullptr;
+    preview->ui.viewportPickCache.clear();
+    preview->ui.viewportHover.reset();
+    preview->ui.gizmoDragging = false;
+    preview->ui.boxSelecting = false;
+    preview->ui.morphOffsetTarget = {};
+    preview->ui.aiPreviewReadOnly = true;
+    preview->ui.aiRegionSelection = false;
+    // Snapshot handles retain IDs and generations, with an independent domain.
+    for (auto *items : {&preview->ui.hiddenMaterials, &preview->ui.isolatedMaterials})
+        for (auto &item : *items)
+            item.domain = domain;
+    preview->preview.motion = source.preview.motion;
+    preview->preview.pose = source.preview.pose;
+    preview->preview.morphValues = source.preview.morphValues;
+    for (auto &blend : preview->preview.morphValues)
+        blend.morph.domain = domain;
+    preview->preview.solo = source.preview.solo;
+    preview->preview.soloMorph = source.preview.soloMorph;
+    preview->preview.soloMorph.domain = domain;
+    preview->previewIk = source.previewIk;
+    preview->previewPhysics = false;
+    const auto region = captureFaces(*preview, captured.faceIndices);
+    const auto result = applyEditPlan(*preview, region, plan);
+    if (!result.success)
+        throw std::runtime_error(result.message);
+    return preview;
 }
 } // namespace pmxer::ai

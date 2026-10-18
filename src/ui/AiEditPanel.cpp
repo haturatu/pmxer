@@ -62,24 +62,7 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
                 state.message = state.plan->summary;
                 state.preview.reset();
             } else {
-                auto preview = std::make_unique<DocumentSession>(session->document.model());
-                preview->revision = session->revision;
-                preview->ui = session->ui;
-                preview->ui.viewportPickCache.clear();
-                preview->ui.viewportHover.reset();
-                preview->ui.gizmoDragging = false;
-                preview->ui.boxSelecting = false;
-                preview->ui.aiPreviewReadOnly = true;
-                preview->ui.aiRegionSelection = false;
-                preview->preview.motion = session->preview.motion;
-                preview->preview.pose = session->preview.pose;
-                preview->previewIk = session->previewIk;
-                preview->previewPhysics = false;
-                auto region = ai::captureFaces(*preview, state.region->faceIndices);
-                const auto result = ai::applyEditPlan(*preview, region, *state.plan);
-                if (!result.success)
-                    throw std::runtime_error(result.message);
-                state.preview = std::move(preview);
+                state.preview = ai::makeEditPreview(*session, *state.region, *state.plan);
                 state.message.clear();
             }
         } catch (const std::exception &error) {

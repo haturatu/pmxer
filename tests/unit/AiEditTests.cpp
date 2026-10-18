@@ -133,6 +133,43 @@ int main() {
                     mmd::pmx::semanticCompare(recolored, s.document.model()).equal() &&
                     s.document.resolve(outside) != nullptr,
                 "Chained redo lost model data or stable handles");
+        {
+            auto model = sample();
+            model.materials[0].indexCount = 3;
+            model.materials.push_back(model.materials[0]);
+            DocumentSession source(model);
+            const auto isolated = source.document.materialHandle(0);
+            const auto hidden = source.document.materialHandle(1);
+            source.ui.isolatedMaterials = {
+                {SelectionKind::material, isolated.domain, isolated.id, isolated.generation}};
+            source.ui.hiddenMaterials = {
+                {SelectionKind::material, hidden.domain, hidden.id, hidden.generation}};
+            mmd::AnimatedModelFrame oldFrame;
+            oldFrame.vertices.resize(1);
+            source.ui.previewFrame = &oldFrame;
+            const auto captured = captureFaces(source, std::array<std::size_t, 1>{0});
+            Operation op;
+            op.type = OperationType::generate;
+            op.shape = Shape::skirt;
+            const EditPlan plan{"Preview skirt", {op}};
+            const auto preview = makeEditPreview(source, captured, plan);
+            require(preview->document.domain() != source.document.domain() &&
+                        preview->ui.aiPreviewReadOnly && preview->ui.previewFrame == nullptr,
+                    "Preview borrowed the source document or animation frame");
+            require(preview->ui.hiddenMaterials[0].domain == preview->document.domain() &&
+                        preview->document.resolve(selectionHandle<mmd::MaterialTag>(
+                            preview->document, preview->ui.hiddenMaterials[0])) != nullptr,
+                    "Preview lost material visibility handles");
+            require(preview->ui.isolatedMaterials.size() == 2 &&
+                        preview->ui.isolatedMaterials.back().domain == preview->document.domain(),
+                    "Generated material was hidden by source isolation");
+            require(mmd::pmx::semanticCompare(model, source.document.model()).equal() &&
+                        source.commands.undoCount() == 0 && source.ui.isolatedMaterials.size() == 1,
+                    "Preview modified the source model or its view");
+            require(applyEditPlan(source, captured, plan).success &&
+                        source.ui.isolatedMaterials.size() == 2,
+                    "Applied generation disappeared from isolated view");
+        }
         for (auto shape : {Shape::loafers, Shape::shirt, Shape::skirt}) {
             DocumentSession generated(sample());
             auto chosen = captureFaces(generated, std::array<std::size_t, 1>{0});
