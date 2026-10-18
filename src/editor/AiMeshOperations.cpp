@@ -19,32 +19,69 @@ V unit(V v) {
         value /= length;
     return v;
 }
+float dot(V a, V b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+V cross(V a, V b) {
+    return {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
+}
+V transportNormal(V authored, V before, V after) {
+    if (dot(before, before) < 1e-16F || dot(after, after) < 1e-16F)
+        return authored;
+    before = unit(before);
+    after = unit(after);
+    auto axis = cross(before, after);
+    const auto cosine = std::clamp(dot(before, after), -1.0F, 1.0F);
+    if (dot(axis, axis) < 1e-12F) {
+        if (cosine >= 0)
+            return authored;
+        // A stable half-turn for opposed normals, including folded geometry.
+        const V helper = std::abs(before[0]) < 0.8F ? V{1, 0, 0} : V{0, 1, 0};
+        axis = unit(cross(before, helper));
+        const auto projection = dot(axis, authored);
+        for (std::size_t i = 0; i < 3; ++i)
+            authored[i] = 2 * axis[i] * projection - authored[i];
+    } else {
+        // Shortest-arc rotation carries the authored shading offset with the
+        // changing surface. Replacing it with a face average destroys custom
+        // normals, particularly at newly subdivided vertices and UV seams.
+        const auto sine = std::sqrt(dot(axis, axis));
+        axis = unit(axis);
+        const auto perpendicular = cross(axis, authored);
+        const auto projection = dot(axis, authored);
+        for (std::size_t i = 0; i < 3; ++i)
+            authored[i] = authored[i] * cosine + perpendicular[i] * sine +
+                          axis[i] * projection * (1 - cosine);
+    }
+    return unit(authored);
+}
 void normals(mmd::PmxDocument &doc, mmd::PmxDocument::Transaction &tx,
              const std::vector<std::array<Handle, 3>> &triangles, const std::set<Handle> &fixed,
              const std::map<Handle, V> &positions) {
     const auto position = [&](Handle h) {
         return positions.contains(h) ? positions.at(h) : doc.resolve(h)->position;
     };
-    std::map<Handle, V> sums;
+    std::map<Handle, V> before, after;
     for (const auto &face : triangles) {
-        const auto a = position(face[0]), b = position(face[1]), c = position(face[2]);
-        V ab{}, ac{};
-        for (std::size_t i = 0; i < 3; ++i) {
-            ab[i] = b[i] - a[i];
-            ac[i] = c[i] - a[i];
-        }
-        const V normal{ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2],
-                       ab[0] * ac[1] - ab[1] * ac[0]};
-        for (auto h : face)
-            for (std::size_t i = 0; i < 3; ++i)
-                sums[h][i] += normal[i];
+        const auto accumulate = [&](auto &sums, auto getPosition) {
+            const auto a = getPosition(face[0]), b = getPosition(face[1]), c = getPosition(face[2]);
+            V ab{}, ac{};
+            for (std::size_t i = 0; i < 3; ++i) {
+                ab[i] = b[i] - a[i];
+                ac[i] = c[i] - a[i];
+            }
+            const auto normal = cross(ab, ac);
+            for (auto h : face)
+                for (std::size_t i = 0; i < 3; ++i)
+                    sums[h][i] += normal[i];
+        };
+        accumulate(before, [&](Handle h) { return doc.resolve(h)->position; });
+        accumulate(after, position);
     }
-    for (const auto &[h, sum] : sums) {
+    for (const auto &[h, sum] : after) {
         if (fixed.contains(h))
             continue;
         auto v = *doc.resolve(h);
         v.position = position(h);
-        v.normal = unit(sum);
+        v.normal = transportNormal(v.normal, before.at(h), sum);
         if (!tx.setVertex(h, v))
             throw std::runtime_error("AI normal update failed");
     }
@@ -93,6 +130,8 @@ mmd::PmxVertex midpoint(const mmd::PmxVertex &a, const mmd::PmxVertex &b) {
 } // namespace
 void editMesh(mmd::PmxDocument &doc, mmd::PmxDocument::Transaction &tx, const EditRegion &region,
               const Operation &op) {
+    if (op.type != OperationType::subdivide && op.amount == 0)
+        return;
     if (op.type == OperationType::subdivide) {
         if (region.faces.size() > 250000 ||
             doc.faces().size() + region.faces.size() * 3 > 2000000 ||

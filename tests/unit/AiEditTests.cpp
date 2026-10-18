@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <limits>
 #include <mmd/pmx.hpp>
+#include <numeric>
 #include <stdexcept>
 
 namespace {
@@ -363,6 +364,109 @@ int main() {
             require(mesh.commands.undoCount() == 1 && mesh.undo() &&
                         mmd::pmx::semanticCompare(model, mesh.document.model()).equal(),
                     "Deformation undo failed");
+        }
+        {
+            auto model = sample();
+            model.vertices.clear();
+            for (const auto &p : std::array<mmd::Float3, 5>{
+                     {{-1, 0, -1}, {-1, 0, 1}, {1, 0, 1}, {1, 0, -1}, {0, 0.5F, 0}}}) {
+                mmd::PmxVertex vertex;
+                vertex.position = p;
+                // Artist-authored shading intentionally differs from the face normal.
+                vertex.normal = {0, 0.8F, 0.6F};
+                vertex.bones[0] = 0;
+                model.vertices.push_back(vertex);
+            }
+            model.indices = {0, 1, 4, 1, 2, 4, 2, 3, 4, 3, 0, 4};
+            model.materials[0].indexCount = 12;
+            DocumentSession mesh(model);
+            Operation smooth;
+            smooth.type = OperationType::smooth;
+            smooth.amount = 0;
+            const auto capture = [&]() {
+                return captureFaces(mesh, std::array<std::size_t, 4>{0, 1, 2, 3});
+            };
+            require(applyEditPlan(mesh, capture(), EditPlan{"Zero smoothing", {smooth}}).success &&
+                        mmd::pmx::semanticCompare(model, mesh.document.model()).equal(),
+                    "Zero-strength smoothing overwrote authored shading normals");
+            auto inflate = smooth;
+            inflate.type = OperationType::inflate;
+            require(applyEditPlan(mesh, capture(), EditPlan{"Zero inflation", {inflate}}).success &&
+                        mmd::pmx::semanticCompare(model, mesh.document.model()).equal(),
+                    "Zero-strength inflation overwrote authored shading normals");
+            smooth.amount = 0.2F;
+            require(applyEditPlan(mesh, capture(), EditPlan{"Gentle smoothing", {smooth}}).success,
+                    "Authored-normal smoothing failed");
+            const auto &center = mesh.document.model().vertices[4];
+            require(std::abs(center.position[1] - 0.4F) < 1e-5F &&
+                        std::abs(center.normal[1] - 0.8F) < 1e-5F &&
+                        std::abs(center.normal[2] - 0.6F) < 1e-5F,
+                    "Smoothing discarded the authored normal offset from the surface");
+        }
+        {
+            auto model = sample();
+            model.vertices.clear();
+            model.indices.clear();
+            for (int z = 0; z < 5; ++z)
+                for (int x = 0; x < 5; ++x) {
+                    mmd::PmxVertex vertex;
+                    const auto fx = static_cast<float>(x), fz = static_cast<float>(z);
+                    vertex.position = {fx, 0.1F * fx * fx + 0.2F * fz * fz + 0.07F * fx * fz, fz};
+                    vertex.normal = {0, 0.8F, 0.6F};
+                    vertex.bones[0] = 0;
+                    model.vertices.push_back(vertex);
+                }
+            for (std::uint32_t z = 0; z < 4; ++z)
+                for (std::uint32_t x = 0; x < 4; ++x) {
+                    const auto a = z * 5 + x;
+                    model.indices.insert(model.indices.end(), {a, a + 5, a + 1, a + 1, a + 5, a + 6});
+                }
+            model.materials[0].indexCount = static_cast<std::int32_t>(model.indices.size());
+            const auto areaNormal = [](const mmd::PmxModel &m, std::size_t index) {
+                mmd::Float3 sum{};
+                for (std::size_t f = 0; f < m.indices.size(); f += 3) {
+                    if (m.indices[f] != index && m.indices[f + 1] != index && m.indices[f + 2] != index)
+                        continue;
+                    const auto a = m.vertices[m.indices[f]].position;
+                    const auto b = m.vertices[m.indices[f + 1]].position;
+                    const auto c = m.vertices[m.indices[f + 2]].position;
+                    for (std::size_t i = 0; i < 3; ++i) {
+                        const auto j = (i + 1) % 3, k = (i + 2) % 3;
+                        sum[i] += (b[j] - a[j]) * (c[k] - a[k]) - (b[k] - a[k]) * (c[j] - a[j]);
+                    }
+                }
+                const auto length = std::sqrt(sum[0] * sum[0] + sum[1] * sum[1] + sum[2] * sum[2]);
+                for (auto &v : sum)
+                    v /= length;
+                return sum;
+            };
+            DocumentSession mesh(model);
+            std::vector<std::size_t> faces(model.indices.size() / 3);
+            std::iota(faces.begin(), faces.end(), std::size_t{0});
+            Operation smooth;
+            smooth.type = OperationType::smooth;
+            smooth.amount = 0.3F;
+            require(applyEditPlan(mesh, captureFaces(mesh, faces), {"Bent surface", {smooth}}).success,
+                    "Bent surface smoothing failed");
+            bool rotated = false;
+            for (std::size_t i = 0; i < model.vertices.size(); ++i) {
+                const auto oldSurface = areaNormal(model, i);
+                const auto newSurface = areaNormal(mesh.document.model(), i);
+                const auto authored = model.vertices[i].normal;
+                const auto changed = mesh.document.model().vertices[i].normal;
+                if (authored == changed)
+                    continue;
+                rotated = true;
+                float oldOffset{}, newOffset{}, length{};
+                for (std::size_t k = 0; k < 3; ++k) {
+                    oldOffset += oldSurface[k] * authored[k];
+                    newOffset += newSurface[k] * changed[k];
+                    length += changed[k] * changed[k];
+                }
+                require(std::abs(oldOffset - newOffset) < 1e-5F && std::abs(length - 1) < 1e-5F,
+                        "Deformed surface lost its authored normal offset or unit length");
+            }
+            require(rotated, "Normals did not follow a changing surface");
         }
         {
             DocumentSession garment(sample());

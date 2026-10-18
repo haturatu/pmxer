@@ -159,6 +159,11 @@ int main(int argc, char **argv) {
             if (scenario == "gothic" &&
                 plan.operations.front().garment.style != pmxer::ai::GarmentStyle::gothicLolita)
                 throw std::runtime_error("Gothic outfit request was reduced to a plain dress");
+            if (scenario == "upscale" &&
+                std::any_of(plan.operations.begin(), plan.operations.end(), [](const auto &op) {
+                    return op.type != pmxer::ai::OperationType::subdivide;
+                }))
+                throw std::runtime_error("Resolution-only request changed the surface shape");
             const auto target = pmxer::ai::resolveTarget(session, region, plan.target);
             const std::set<mmd::FaceHandle> targets(target.faces.begin(), target.faces.end());
             std::map<mmd::FaceHandle, mmd::PmxFace> untouched;
