@@ -172,7 +172,8 @@ int main() {
                         source.ui.isolatedMaterials.size() == 2,
                     "Applied generation disappeared from isolated view");
         }
-        for (auto shape : {Shape::loafers, Shape::shirt, Shape::skirt}) {
+        for (auto shape : {Shape::loafers, Shape::shirt, Shape::skirt, Shape::dress, Shape::pants,
+                           Shape::boots, Shape::coat}) {
             DocumentSession generated(sample());
             auto chosen = captureFaces(generated, std::array<std::size_t, 1>{0});
             EditPlan plan{"Generate test", {}};
@@ -211,6 +212,210 @@ int main() {
             require(mmd::pmx::semanticCompare(model, mmd::pmx::load(path)).equal(),
                     "Saved generation did not round-trip");
             std::filesystem::remove(path);
+        }
+        {
+            auto model = sample();
+            model.materials[0].name = "髪";
+            model.materials[0].indexCount = 3;
+            auto clothing = model.materials[0];
+            clothing.name = "スカート";
+            model.materials.push_back(clothing);
+            DocumentSession mixed(model);
+            const auto capture = captureFaces(mixed, std::array<std::size_t, 2>{0, 1});
+            const auto context = regionContext(mixed, capture);
+            require(context["materials"].size() == 2 && context["materials"][1]["index"] == 1 &&
+                        context["materials"][1]["selectedFaces"] == 1 &&
+                        context["materials"][1].contains("influencingBones"),
+                    "Rough selection lacks per-material targeting context");
+            auto scoped = parsePlan(j.dump());
+            scoped.target.materialIndices = {1};
+            Operation subdivision;
+            subdivision.type = OperationType::subdivide;
+            scoped.operations.insert(scoped.operations.begin(), subdivision);
+            const auto protectedFace = mixed.document.faceHandle(0);
+            const auto protectedValue = *mixed.document.resolve(protectedFace);
+            const auto preview = makeEditPreview(mixed, capture, scoped);
+            require(preview->document.faces().size() == 5 && mixed.document.faces().size() == 2,
+                    "Scoped mesh preview changed the source");
+            require(applyEditPlan(mixed, capture, scoped).success, "Rough scoped edit failed");
+            require(mixed.document.faces().size() == 5 &&
+                        *mixed.document.resolve(protectedFace) == protectedValue,
+                    "Unrelated hair was edited during clothing change");
+            for (auto h : protectedValue.vertices)
+                require(mixed.document.resolve(h)->position == model.vertices[h.id - 1].position,
+                        "Unrelated vertex moved");
+            require(mixed.commands.undoCount() == 1 && mixed.undo() &&
+                        mmd::pmx::semanticCompare(model, mixed.document.model()).equal() &&
+                        mixed.redo(),
+                    "Combined edit did not undo atomically");
+            require(mixed.undo(), "Reset rough edit failed");
+            const auto fresh = captureFaces(mixed, std::array<std::size_t, 2>{0, 1});
+            auto invalid = scoped;
+            invalid.target.materialIndices = {99};
+            require(!applyEditPlan(mixed, fresh, invalid).success, "Nonexistent target accepted");
+            const auto single = captureFaces(mixed, std::array<std::size_t, 1>{0});
+            invalid.target.materialIndices = {1};
+            require(!applyEditPlan(mixed, single, invalid).success, "Target escaped capture");
+            invalid = scoped;
+            invalid.target.maximum[1] = 0;
+            require(!applyEditPlan(mixed, fresh, invalid).success, "Empty target accepted");
+            auto lateFailure = scoped;
+            lateFailure.operations[1].amount = 11;
+            require(!applyEditPlan(mixed, fresh, lateFailure).success &&
+                        mmd::pmx::semanticCompare(model, mixed.document.model()).equal(),
+                    "Failed combined plan partially modified the model");
+            auto replacement = scoped;
+            replacement.operations[0].type = OperationType::generate;
+            replacement.operations[0].shape = Shape::dress;
+            require(applyEditPlan(mixed, fresh, replacement).success &&
+                        *mixed.document.resolve(protectedFace) == protectedValue,
+                    "Generated dress edited unrelated parts");
+        }
+        {
+            auto model = sample();
+            model.vertices[0].uv = {0, 0};
+            model.vertices[1].uv = {1, 0};
+            model.metadata.additionalUvCount = 1;
+            model.vertices[1].additionalUv[0] = {1, 2, 3, 4};
+            mmd::PmxMorph morph;
+            morph.name = "Vertex morph";
+            morph.type = 1;
+            mmd::PmxMorphOffset offset;
+            offset.index = 0;
+            offset.vector3 = {0, 2, 0};
+            morph.offsets.push_back(offset);
+            model.morphs.push_back(morph);
+            morph.name = "UV morph";
+            morph.type = 3;
+            morph.offsets[0].vector4 = {0.4F, 0, 0, 0};
+            model.morphs.push_back(morph);
+            DocumentSession mesh(model);
+            const auto capture = captureFaces(mesh, std::array<std::size_t, 2>{0, 1});
+            Operation subdivide;
+            subdivide.type = OperationType::subdivide;
+            require(applyEditPlan(mesh, capture, EditPlan{"Upscale", {subdivide}}).success,
+                    "Subdivision failed");
+            require(mesh.document.faces().size() == 8 && mesh.document.model().vertices.size() == 9,
+                    "Subdivision did not reuse shared edge midpoints");
+            std::size_t midpointIndex = 0;
+            for (std::size_t i = 4; i < mesh.document.model().vertices.size(); ++i) {
+                const auto &v = mesh.document.model().vertices[i];
+                if (v.position == mmd::Float3{0, 0, -1})
+                    midpointIndex = i;
+            }
+            require(midpointIndex >= 4, "Expected midpoint missing");
+            const auto &middle = mesh.document.model().vertices[midpointIndex];
+            require(middle.uv == mmd::Float2{0.5F, 0} &&
+                        middle.additionalUv[0] == mmd::Float4{0.5F, 1, 1.5F, 2} &&
+                        middle.bones[0] != middle.bones[1] && middle.weights[0] == 0.5F &&
+                        middle.weights[1] == 0.5F,
+                    "Subdivision lost UVs or bone weights");
+            bool vertexMorph = false, uvMorph = false;
+            for (const auto &o : mesh.document.model().morphs[0].offsets)
+                if (o.index == static_cast<std::int32_t>(midpointIndex))
+                    vertexMorph = o.vector3 == mmd::Float3{0, 1, 0};
+            for (const auto &o : mesh.document.model().morphs[1].offsets)
+                if (o.index == static_cast<std::int32_t>(midpointIndex))
+                    uvMorph = o.vector4 == mmd::Float4{0.2F, 0, 0, 0};
+            require(vertexMorph && uvMorph && mesh.document.validate().valid(),
+                    "Subdivision lost morph interpolation");
+            require(mesh.undo() && mmd::pmx::semanticCompare(model, mesh.document.model()).equal(),
+                    "Subdivision undo lost original data");
+            subdivide.iterations = 2;
+            require(applyEditPlan(mesh, captureFaces(mesh, std::array<std::size_t, 2>{0, 1}),
+                                  EditPlan{"Upscale twice", {subdivide}})
+                            .success &&
+                        mesh.document.faces().size() == 32 && mesh.commands.undoCount() == 1,
+                    "Repeated subdivision failed");
+        }
+        {
+            auto model = sample();
+            model.vertices.clear();
+            for (const auto &p : std::array<mmd::Float3, 5>{
+                     {{-1, 0, -1}, {-1, 0, 1}, {1, 0, 1}, {1, 0, -1}, {0, 0.5F, 0}}}) {
+                mmd::PmxVertex vertex;
+                vertex.position = p;
+                vertex.normal = {0, 1, 0};
+                vertex.bones[0] = 0;
+                model.vertices.push_back(vertex);
+            }
+            model.indices = {0, 1, 4, 1, 2, 4, 2, 3, 4, 3, 0, 4};
+            model.materials[0].indexCount = 12;
+            DocumentSession mesh(model);
+            Operation smooth;
+            smooth.type = OperationType::smooth;
+            smooth.amount = 0.5F;
+            Operation inflate;
+            inflate.type = OperationType::inflate;
+            inflate.amount = 0.1F;
+            const auto chosen = captureFaces(mesh, std::array<std::size_t, 4>{0, 1, 2, 3});
+            require(applyEditPlan(mesh, chosen, EditPlan{"Smooth and inflate", {smooth, inflate}})
+                        .success,
+                    "Smoothing and inflation failed");
+            require(std::abs(mesh.document.model().vertices[4].position[1] - 0.35F) < 1e-5F,
+                    "Smoothing or inflation has no effect");
+            for (std::size_t i = 0; i < 4; ++i)
+                require(mesh.document.model().vertices[i] == model.vertices[i],
+                        "Deformation moved boundary vertices");
+            require(mesh.commands.undoCount() == 1 && mesh.undo() &&
+                        mmd::pmx::semanticCompare(model, mesh.document.model()).equal(),
+                    "Deformation undo failed");
+        }
+        {
+            DocumentSession garment(sample());
+            auto rough = captureFaces(garment, std::array<std::size_t, 1>{0});
+            auto plan = parsePlan(j.dump());
+            plan.target.materialIndices = {0};
+            plan.target.completeMaterials = true;
+            require(!applyEditPlan(garment, rough, plan).success,
+                    "Material completion escaped strict capture");
+            rough.allowMaterialExpansion = true;
+            require(resolveTarget(garment, rough, plan.target).faces.size() == 2,
+                    "Rough selection did not complete the garment");
+            const auto preview = makeEditPreview(garment, rough, plan);
+            require(preview->document.model().materials.size() == 2 &&
+                        garment.document.model().materials.size() == 1,
+                    "Completed preview modified the source");
+            require(applyEditPlan(garment, rough, plan).success, "Completed material edit failed");
+            for (const auto &face : garment.document.faces())
+                require(face.material != garment.document.materialHandle(0),
+                        "Garment back side was left unchanged");
+            plan.target.materialIndices.clear();
+            require(garment.undo() &&
+                        !applyEditPlan(garment,
+                                       captureFaces(garment, std::array<std::size_t, 1>{0}), plan)
+                             .success,
+                    "Material completion without explicit targets was accepted");
+        }
+        {
+            auto valid = j;
+            valid["target"] = {
+                {"materialIndices", {0}}, {"minimum", {0, 0, 0}}, {"maximum", {1, 1, 1}}};
+            valid["operations"][0]["type"] = "subdivide";
+            valid["operations"][0]["iterations"] = 2;
+            require(parsePlan(valid.dump()).target.materialIndices == std::vector<std::size_t>{0},
+                    "Target parsing failed");
+            auto invalid = valid;
+            invalid["target"]["materialIndices"] = {0, 0};
+            fails(invalid);
+            invalid = valid;
+            invalid["target"]["materialIndices"] = {-1};
+            fails(invalid);
+            invalid = valid;
+            invalid["target"]["minimum"] = {0, 2, 0};
+            fails(invalid);
+            invalid = valid;
+            invalid["operations"][0]["iterations"] = 4294967297LL;
+            fails(invalid);
+            invalid = valid;
+            invalid["operations"][0]["type"] = "smooth";
+            invalid["operations"][0]["amount"] = -0.1;
+            fails(invalid);
+            invalid = valid;
+            invalid["operations"][0]["type"] = "generate";
+            invalid["operations"][0]["shape"] = "dress";
+            invalid["operations"].push_back(invalid["operations"][0]);
+            fails(invalid);
         }
         DocumentSession changed(sample());
         auto frozen = captureFaces(changed, std::array<std::size_t, 1>{0});

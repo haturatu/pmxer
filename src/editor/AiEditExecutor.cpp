@@ -1,4 +1,5 @@
 #include "AiEditExecutor.hpp"
+#include "AiMeshOperations.hpp"
 #include "i18n/Language.hpp"
 #include <algorithm>
 #include <cmath>
@@ -73,8 +74,9 @@ class AiSnapshotCommand final : public EditorCommand {
     std::string description_;
 };
 
-// Face replacement can reorder tens of thousands of faces. Stable-handle snapshots
-// avoid quadratic patch-order replay while preserving the original document domain.
+// Face replacement can reorder tens of thousands of faces. Stable-handle
+// snapshots avoid quadratic patch-order replay while preserving the original
+// document domain.
 OperationResult
 commitAiTransaction(DocumentSession &session,
                     const std::function<bool(mmd::PmxDocument::Transaction &)> &edit) {
@@ -134,9 +136,9 @@ struct Mesh {
     }
 };
 
-void shoe(Mesh &mesh, V lo, V hi, int detail) {
+void shoe(Mesh &mesh, V lo, V hi, int detail, bool boot) {
     const auto width = std::max(hi[0] - lo[0], 0.01F), depth = std::max(hi[2] - lo[2], 0.01F);
-    const auto height = std::max(0.01F, std::min(hi[1] - lo[1], depth * 0.28F));
+    const auto height = std::max(0.01F, std::min(hi[1] - lo[1], depth * (boot ? 1.8F : 0.28F)));
     const auto cx = (lo[0] + hi[0]) * 0.5F, cz = (lo[2] + hi[2]) * 0.5F;
     const auto base = mesh.vertices.size();
     // Outsole, welt, vamp, and the open ankle rim. The toe faces -Z (MMD front).
@@ -146,13 +148,14 @@ void shoe(Mesh &mesh, V lo, V hi, int detail) {
             const auto t = static_cast<float>(segment) / static_cast<float>(detail);
             const auto angle = t * 2 * std::numbers::pi_v<float>;
             const bool opening = ring == levels.size() - 1;
-            const auto zRadius = opening ? 0.20F : 0.5F;
-            const auto xRadius = opening ? 0.33F : 0.5F;
+            const auto zRadius = opening ? 0.20F : (boot && ring >= 3 ? 0.24F : 0.5F);
+            const auto xRadius = opening ? 0.33F : (boot && ring >= 3 ? 0.34F : 0.5F);
             const auto z = std::sin(angle);
             const auto heelTaper = opening ? 1.0F : (z > 0 ? 0.82F : 1.0F);
             mesh.vertex({cx + std::cos(angle) * width * xRadius * heelTaper,
                          lo[1] + levels[ring] * height,
-                         cz + (opening ? 0.23F * depth : 0.0F) + z * depth * zRadius},
+                         cz + (opening || (boot && ring >= 3) ? 0.23F * depth : 0.0F) +
+                             z * depth * zRadius},
                         {t, levels[ring]});
         }
     }
@@ -164,7 +167,8 @@ void shoe(Mesh &mesh, V lo, V hi, int detail) {
     const auto bottom = mesh.vertex({cx, lo[1], cz});
     for (std::size_t s = 0; s < n; ++s)
         mesh.triangles.push_back({bottom, base + (s + 1) % n, base + s, true});
-    // Penny strap and heel are separate, intersecting solids, like sewn shoe parts.
+    // Penny strap and heel are separate, intersecting solids, like sewn shoe
+    // parts.
     mesh.box({cx - width * 0.44F, lo[1] + height * 0.55F, cz - depth * 0.12F},
              {cx + width * 0.44F, lo[1] + height * 0.60F, cz - depth * 0.02F});
     mesh.box({cx - width * 0.35F, lo[1] - height * 0.05F, cz + depth * 0.13F},
@@ -180,13 +184,16 @@ void garment(Mesh &mesh, const EditRegion &region, const Operation &op) {
     const auto base = mesh.vertices.size();
     constexpr std::size_t rings = 7;
     const bool skirt = op.shape == Shape::skirt;
+    const bool dress = op.shape == Shape::dress || op.shape == Shape::coat;
     const auto torso = (!skirt && w > h * 1.3F) ? 0.52F : 1.0F;
     for (std::size_t ring = 0; ring < rings; ++ring) {
         const auto t = static_cast<float>(ring) / static_cast<float>(rings - 1);
         const auto radius =
-            skirt ? (0.52F - 0.17F * t)
-                  : (ring == rings - 1 ? 0.18F
-                                       : 0.47F - 0.035F * std::sin(t * std::numbers::pi_v<float>));
+            dress ? (t < 0.5F ? 0.52F - 0.40F * t : (t > 0.9F ? 0.18F : 0.32F + 0.24F * (t - 0.5F)))
+            : skirt
+                ? (0.52F - 0.17F * t)
+                : (ring == rings - 1 ? 0.18F
+                                     : 0.47F - 0.035F * std::sin(t * std::numbers::pi_v<float>));
         for (std::size_t s = 0; s < n; ++s) {
             const auto u = static_cast<float>(s) / static_cast<float>(n);
             const auto a = u * 2 * std::numbers::pi_v<float>;
@@ -202,7 +209,7 @@ void garment(Mesh &mesh, const EditRegion &region, const Operation &op) {
         for (std::size_t s = 0; s < n; ++s)
             mesh.quad(base + ring * n + s, base + ring * n + (s + 1) % n,
                       base + (ring + 1) * n + (s + 1) % n, base + (ring + 1) * n + s);
-    if (skirt)
+    if (skirt || op.shape == Shape::dress)
         return;
     // Open sleeves extend from the shoulder to each side of the captured region.
     for (float side : {-1.0F, 1.0F}) {
@@ -213,7 +220,8 @@ void garment(Mesh &mesh, const EditRegion &region, const Operation &op) {
                 const auto u = static_cast<float>(s) / static_cast<float>(n),
                            a = u * 2 * std::numbers::pi_v<float>;
                 mesh.vertex({c[0] + side * w * (torso * 0.38F + (0.50F - torso * 0.38F) * t),
-                             region.minimum[1] + h * (0.80F - 0.055F * t) +
+                             region.minimum[1] +
+                                 h * (0.80F - (op.shape == Shape::coat ? 0.38F : 0.055F) * t) +
                                  std::cos(a) * h * (0.13F - 0.025F * t),
                              c[2] + std::sin(a) * d * (0.34F - 0.04F * t)},
                             {u, t});
@@ -232,9 +240,35 @@ void garment(Mesh &mesh, const EditRegion &region, const Operation &op) {
     }
 }
 
+void trousers(Mesh &mesh, const EditRegion &region, const Operation &op) {
+    const auto c = center(region);
+    const auto w = std::max(0.01F, region.maximum[0] - region.minimum[0]);
+    const auto h = std::max(0.01F, region.maximum[1] - region.minimum[1]);
+    const auto d = std::max(0.01F, region.maximum[2] - region.minimum[2]);
+    const auto n = static_cast<std::size_t>(op.detail);
+    for (float side : {-1.0F, 1.0F}) {
+        const auto base = mesh.vertices.size();
+        for (std::size_t ring = 0; ring < 7; ++ring) {
+            const auto t = static_cast<float>(ring) / 6;
+            for (std::size_t i = 0; i < n; ++i) {
+                const auto u = static_cast<float>(i) / static_cast<float>(n);
+                const auto angle = u * 2 * std::numbers::pi_v<float>;
+                mesh.vertex({c[0] + side * w * 0.25F + std::cos(angle) * w * (0.16F + 0.09F * t),
+                             region.minimum[1] + h * t,
+                             c[2] + std::sin(angle) * d * (0.30F + 0.20F * t)},
+                            {u, t});
+            }
+        }
+        for (std::size_t ring = 0; ring < 6; ++ring)
+            for (std::size_t i = 0; i < n; ++i)
+                mesh.quad(base + ring * n + i, base + ring * n + (i + 1) % n,
+                          base + (ring + 1) * n + (i + 1) % n, base + (ring + 1) * n + i);
+    }
+}
+
 Mesh generate(const DocumentSession &session, const EditRegion &region, const Operation &op) {
     Mesh mesh;
-    if (op.shape == Shape::loafers) {
+    if (op.shape == Shape::loafers || op.shape == Shape::boots) {
         std::array<std::vector<V>, 2> groups;
         const bool pair =
             region.minimum[0] < -0.01F && region.maximum[0] > 0.01F &&
@@ -252,9 +286,11 @@ Mesh generate(const DocumentSession &session, const EditRegion &region, const Op
                     lo[i] = std::min(lo[i], p[i]);
                     hi[i] = std::max(hi[i], p[i]);
                 }
-            shoe(mesh, lo, hi, op.detail);
+            shoe(mesh, lo, hi, op.detail, op.shape == Shape::boots);
         }
-    } else
+    } else if (op.shape == Shape::pants)
+        trousers(mesh, region, op);
+    else
         garment(mesh, region, op);
     const auto pivot = center(region);
     for (auto &v : mesh.vertices) {
@@ -368,38 +404,127 @@ EditRegion captureRegion(const DocumentSession &session) {
 
 nlohmann::json regionContext(const DocumentSession &session, const EditRegion &region) {
     nlohmann::json materials = nlohmann::json::array(), bones = nlohmann::json::array();
-    std::set<std::uint64_t> seenMaterials;
-    std::set<std::int32_t> seenBones;
-    for (auto face : region.faces) {
-        const auto *value = session.document.resolve(face);
-        if (!value)
+    std::map<mmd::MaterialHandle, std::vector<std::size_t>> groups;
+    for (auto index : region.faceIndices) {
+        const auto *face = session.document.resolve(session.document.faceHandle(index));
+        if (!face)
             throw std::runtime_error("Stale AI selection");
-        if (seenMaterials.insert(value->material.id).second && materials.size() < 64) {
-            const auto *material = session.document.resolve(value->material);
-            materials.push_back({{"name", namePrefix(material->name)},
-                                 {"englishName", namePrefix(material->englishName)},
-                                 {"color", material->diffuse}});
-        }
+        groups[face->material].push_back(index);
     }
-    for (auto vertex : region.vertices)
-        for (auto bone : session.document.resolve(vertex)->bones)
-            if (bone >= 0 &&
-                static_cast<std::size_t>(bone) < session.document.model().bones.size() &&
-                seenBones.insert(bone).second && bones.size() < 64) {
-                const auto &b = session.document.model().bones[static_cast<std::size_t>(bone)];
-                bones.push_back(
-                    {{"name", namePrefix(b.name)}, {"englishName", namePrefix(b.englishName)}});
-            }
+    const auto boneContext = [&](const EditRegion &part) {
+        std::map<std::int32_t, float> weights;
+        for (auto h : part.vertices) {
+            const auto *v = session.document.resolve(h);
+            for (std::size_t i = 0; i < 4; ++i)
+                if (v->weights[i] > 0 && v->bones[i] >= 0 &&
+                    static_cast<std::size_t>(v->bones[i]) < session.document.model().bones.size())
+                    weights[v->bones[i]] += v->weights[i];
+        }
+        std::vector<std::pair<std::int32_t, float>> ordered(weights.begin(), weights.end());
+        std::sort(ordered.begin(), ordered.end(),
+                  [](auto a, auto b) { return a.second > b.second; });
+        auto result = nlohmann::json::array();
+        for (const auto &[index, weight] : ordered) {
+            if (result.size() >= 16)
+                break;
+            const auto &bone = session.document.model().bones[static_cast<std::size_t>(index)];
+            result.push_back({{"name", namePrefix(bone.name)},
+                              {"englishName", namePrefix(bone.englishName)},
+                              {"weight", weight / static_cast<float>(part.vertices.size())}});
+        }
+        return result;
+    };
+    std::map<mmd::MaterialHandle, std::vector<std::size_t>> completeGroups;
+    for (std::size_t i = 0; i < session.document.faces().size(); ++i)
+        completeGroups[session.document.faces()[i].material].push_back(i);
+    for (std::size_t index = 0; index < session.document.model().materials.size(); ++index) {
+        const auto handle = session.document.materialHandle(index);
+        if (!groups.contains(handle) || materials.size() >= 256)
+            continue;
+        const auto part = captureFaces(session, groups.at(handle));
+        const auto complete = captureFaces(session, completeGroups.at(handle));
+        const auto *material = session.document.resolve(handle);
+        materials.push_back({{"index", index},
+                             {"name", namePrefix(material->name)},
+                             {"englishName", namePrefix(material->englishName)},
+                             {"color", material->diffuse},
+                             {"selectedFaces", part.faces.size()},
+                             {"completeFaces", complete.faces.size()},
+                             {"completeBoundsMin", complete.minimum},
+                             {"completeBoundsMax", complete.maximum},
+                             {"boundsMin", part.minimum},
+                             {"boundsMax", part.maximum},
+                             {"influencingBones", boneContext(part)}});
+    }
     return {{"selectedFaces", region.faces.size()},
             {"selectedVertices", region.vertices.size()},
             {"boundsMin", region.minimum},
             {"boundsMax", region.maximum},
             {"materials", materials},
-            {"influencingBones", bones}};
+            {"materialsTruncated", groups.size() > materials.size()},
+            {"allowMaterialExpansion", region.allowMaterialExpansion},
+            {"influencingBones", boneContext(region)}};
 }
 
-OperationResult applyEditPlan(DocumentSession &session, const EditRegion &region,
-                              const EditPlan &plan) {
+EditRegion resolveTarget(const DocumentSession &session, const EditRegion &region,
+                         const EditTarget &target) {
+    std::set<mmd::MaterialHandle> materials;
+    for (auto index : target.materialIndices) {
+        if (index >= session.document.model().materials.size())
+            throw std::runtime_error("AI target material does not exist");
+        const auto handle = session.document.materialHandle(index);
+        bool inside = false;
+        for (auto h : region.faces)
+            inside |= session.document.resolve(h)->material == handle;
+        if (!inside)
+            throw std::runtime_error("AI target material is outside the captured area");
+        if (!materials.insert(handle).second)
+            throw std::runtime_error("Duplicate AI target material");
+    }
+    for (std::size_t axis = 0; axis < 3; ++axis)
+        if (!std::isfinite(target.minimum[axis]) || !std::isfinite(target.maximum[axis]) ||
+            target.minimum[axis] < 0 || target.maximum[axis] > 1 ||
+            target.minimum[axis] >= target.maximum[axis])
+            throw std::runtime_error("Invalid AI target bounds");
+    if (target.completeMaterials && (!region.allowMaterialExpansion || materials.empty()))
+        throw std::runtime_error("Completing target materials was not enabled for this capture");
+    auto candidates = region.faceIndices;
+    auto bounds = region;
+    if (target.completeMaterials) {
+        candidates.clear();
+        for (std::size_t i = 0; i < session.document.faces().size(); ++i)
+            if (materials.contains(session.document.faces()[i].material))
+                candidates.push_back(i);
+        bounds = captureFaces(session, candidates);
+    }
+    std::vector<std::size_t> indices;
+    for (auto index : candidates) {
+        const auto &face = session.document.faces()[index];
+        if (!materials.empty() && !materials.contains(face.material))
+            continue;
+        V c{};
+        for (auto v : face.vertices)
+            for (std::size_t axis = 0; axis < 3; ++axis)
+                c[axis] += session.document.resolve(v)->position[axis] / 3.0F;
+        bool inside = true;
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            const auto extent = bounds.maximum[axis] - bounds.minimum[axis];
+            if (extent < 1e-6F)
+                continue;
+            const auto position = (c[axis] - bounds.minimum[axis]) / extent;
+            inside &= position >= target.minimum[axis] - 1e-5F &&
+                      position <= target.maximum[axis] + 1e-5F;
+        }
+        if (inside)
+            indices.push_back(index);
+    }
+    if (indices.empty())
+        throw std::runtime_error("The requested target has no faces in this area");
+    return captureFaces(session, indices);
+}
+
+static OperationResult applyBasicPlan(DocumentSession &session, const EditRegion &region,
+                                      const EditPlan &plan) {
     if (region.domain != session.document.domain() || region.documentId != session.recoveryId ||
         region.revision != session.revision)
         return {false, i18n::tr("The model changed. Capture the selection again.")};
@@ -416,7 +541,7 @@ OperationResult applyEditPlan(DocumentSession &session, const EditRegion &region
     const auto extent = std::max(0.01F, std::sqrt(squared(sub(region.maximum, region.minimum))));
     for (const auto &op : plan.operations) {
         for (std::size_t i = 0; i < 3; ++i)
-            if (!std::isfinite(op.scale[i]) || op.scale[i] < 0.25F || op.scale[i] > 4 ||
+            if (!std::isfinite(op.scale[i]) || op.scale[i] < 0.05F || op.scale[i] > 20 ||
                 !std::isfinite(op.translation[i]) || std::abs(op.translation[i]) > extent * 2 ||
                 !std::isfinite(op.rotation[i]) || std::abs(op.rotation[i]) > 180)
                 return {false, "AI transform is out of range"};
@@ -428,6 +553,13 @@ OperationResult applyEditPlan(DocumentSession &session, const EditRegion &region
              (op.shape == Shape::none || plan.operations.size() != 1)))
             return {false, "Invalid AI generation parameters"};
     }
+    const auto &first = plan.operations.front();
+    if (first.type == OperationType::subdivide || first.type == OperationType::smooth ||
+        first.type == OperationType::inflate)
+        return commitAiTransaction(session, [&](auto &tx) {
+            editMesh(session.document, tx, region, first);
+            return true;
+        });
     const bool generates = plan.operations.front().type == OperationType::generate;
     const bool transforms =
         std::any_of(plan.operations.begin(), plan.operations.end(),
@@ -448,6 +580,10 @@ OperationResult applyEditPlan(DocumentSession &session, const EditRegion &region
             mmd::PmxMaterial material;
             material.name = op.shape == Shape::loafers ? "AI Loafers"
                             : op.shape == Shape::shirt ? "AI Shirt"
+                            : op.shape == Shape::dress ? "AI Dress"
+                            : op.shape == Shape::pants ? "AI Pants"
+                            : op.shape == Shape::boots ? "AI Boots"
+                            : op.shape == Shape::coat  ? "AI Coat"
                                                        : "AI Skirt";
             material.englishName = material.name;
             material.diffuse = op.color;
@@ -457,7 +593,7 @@ OperationResult applyEditPlan(DocumentSession &session, const EditRegion &region
             material.shininess = 24;
             const auto main = tx.addMaterial(material);
             auto sole = main;
-            if (op.shape == Shape::loafers) {
+            if (op.shape == Shape::loafers || op.shape == Shape::boots) {
                 material.name = "AI Sole";
                 material.englishName = material.name;
                 material.diffuse = {0.025F, 0.025F, 0.025F, 1};
@@ -569,6 +705,112 @@ OperationResult applyEditPlan(DocumentSession &session, const EditRegion &region
     return result;
 }
 
+OperationResult applyEditPlan(DocumentSession &session, const EditRegion &region,
+                              const EditPlan &plan) {
+    if (region.domain != session.document.domain() || region.documentId != session.recoveryId ||
+        region.revision != session.revision)
+        return {false, i18n::tr("The model changed. Capture the selection again.")};
+    if (session.hasPendingTransformEdit())
+        return {false, i18n::tr("Finish or discard temporary transforms first.")};
+    if (plan.operations.empty() || plan.operations.size() > 8 || region.faces.empty())
+        return {false, i18n::tr("No supported edits were generated.")};
+    try {
+        // Verify the entire capture before interpreting its indices or requested
+        // targets.
+        for (std::size_t i = 0; i < region.faceIndices.size(); ++i)
+            if (region.faceIndices[i] >= session.document.faces().size() ||
+                i >= region.faces.size() ||
+                session.document.faceHandle(region.faceIndices[i]) != region.faces[i])
+                throw std::runtime_error("Stale AI face selection");
+        if (region.faceIndices.size() != region.faces.size())
+            throw std::runtime_error("Invalid AI capture");
+        const auto target = resolveTarget(session, region, plan.target);
+        DocumentSession staged;
+        staged.document.restoreSnapshot(session.document, session.document.domain());
+        auto current = captureFaces(staged, target.faceIndices);
+        bool generated = false;
+        for (const auto &operation : plan.operations) {
+            switch (operation.type) {
+            case OperationType::recolor:
+            case OperationType::transform:
+            case OperationType::generate:
+            case OperationType::subdivide:
+            case OperationType::smooth:
+            case OperationType::inflate:
+                break;
+            default:
+                throw std::runtime_error("Unsupported AI operation");
+            }
+            if ((operation.type == OperationType::generate) != (operation.shape != Shape::none) ||
+                operation.shape < Shape::none || operation.shape > Shape::coat)
+                throw std::runtime_error("Invalid AI operation shape");
+            if (operation.iterations < 1 || operation.iterations > 3 ||
+                !std::isfinite(operation.amount) || std::abs(operation.amount) > 10 ||
+                (operation.type == OperationType::smooth &&
+                 (operation.amount < 0 || operation.amount > 1)))
+                throw std::runtime_error("Invalid AI deformation parameters");
+            if (operation.type == OperationType::generate &&
+                (generated || &operation != &plan.operations.front()))
+                throw std::runtime_error("Generation must be the first operation");
+            generated |= operation.type == OperationType::generate;
+            const int repeats = operation.type == OperationType::subdivide ||
+                                        operation.type == OperationType::smooth ||
+                                        operation.type == OperationType::inflate
+                                    ? operation.iterations
+                                    : 1;
+            for (int iteration = 0; iteration < repeats; ++iteration) {
+                std::set<mmd::FaceHandle> outside;
+                const std::set<mmd::FaceHandle> selected(current.faces.begin(),
+                                                         current.faces.end());
+                for (std::size_t i = 0; i < staged.document.faces().size(); ++i) {
+                    const auto h = staged.document.faceHandle(i);
+                    if (!selected.contains(h) || operation.type == OperationType::generate)
+                        outside.insert(h);
+                }
+                auto op = operation;
+                op.iterations = 1;
+                const auto result =
+                    applyBasicPlan(staged, current, EditPlan{plan.summary, {op}, {}});
+                if (!result.success)
+                    throw std::runtime_error(result.message);
+                staged.commands.clear(); // Intermediate snapshots are private, never
+                                         // user undo entries.
+                std::vector<std::size_t> next;
+                for (std::size_t i = 0; i < staged.document.faces().size(); ++i)
+                    if (!outside.contains(staged.document.faceHandle(i)))
+                        next.push_back(i);
+                current = captureFaces(staged, next);
+            }
+        }
+        auto before = std::make_shared<mmd::PmxDocument>();
+        before->restoreSnapshot(session.document, session.document.domain());
+        auto after = std::make_shared<mmd::PmxDocument>();
+        after->restoreSnapshot(staged.document, session.document.domain());
+        const auto materialCount = session.document.model().materials.size();
+        session.document.restoreSnapshot(*after, session.document.domain());
+        session.commands.recordApplied(
+            std::make_unique<AiSnapshotCommand>(std::move(before), std::move(after)));
+        session.modified = session.commands.isModified();
+        ++session.revision;
+        session.validation = session.document.validate();
+        session.changes = staged.changes;
+        session.changes.topologyChanged = true;
+        session.changes.texturesChanged = true;
+        if (!session.ui.isolatedMaterials.empty())
+            for (auto i = materialCount; i < session.document.model().materials.size(); ++i) {
+                const auto h = session.document.materialHandle(i);
+                session.ui.isolatedMaterials.push_back(
+                    {SelectionKind::material, h.domain, h.id, h.generation});
+            }
+        session.selection.retainAlive(session.document);
+        session.ui.clearDrafts();
+        session.ui.viewportPickCache.clear();
+        return {true, {}};
+    } catch (const std::exception &error) {
+        return {false, error.what()};
+    }
+}
+
 std::unique_ptr<DocumentSession> makeEditPreview(const DocumentSession &source,
                                                  const EditRegion &captured, const EditPlan &plan) {
     if (captured.documentId != source.recoveryId || captured.domain != source.document.domain() ||
@@ -604,7 +846,8 @@ std::unique_ptr<DocumentSession> makeEditPreview(const DocumentSession &source,
     preview->preview.soloMorph.domain = domain;
     preview->previewIk = source.previewIk;
     preview->previewPhysics = false;
-    const auto region = captureFaces(*preview, captured.faceIndices);
+    auto region = captureFaces(*preview, captured.faceIndices);
+    region.allowMaterialExpansion = captured.allowMaterialExpansion;
     const auto result = applyEditPlan(*preview, region, plan);
     if (!result.success)
         throw std::runtime_error(result.message);

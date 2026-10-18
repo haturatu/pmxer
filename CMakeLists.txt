@@ -116,7 +116,7 @@ target_include_directories(pmxer_editor PUBLIC src)
 target_link_libraries(pmxer_editor PUBLIC mmd::core pmxer_platform pmxer_i18n)
 
 if(PMXER_BUILD_GUI OR BUILD_TESTING)
-  add_library(pmxer_ai src/ai/EditPlan.cpp src/editor/AiEditExecutor.cpp)
+  add_library(pmxer_ai src/ai/EditPlan.cpp src/editor/AiEditExecutor.cpp src/editor/AiMeshOperations.cpp)
   target_include_directories(pmxer_ai PUBLIC src)
   target_link_libraries(pmxer_ai PUBLIC pmxer_editor nlohmann_json::nlohmann_json)
 endif()
