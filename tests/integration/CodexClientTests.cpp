@@ -24,10 +24,13 @@ void environment(const char *key, const char *value) {
     require(SDL_SetEnvironmentVariable(SDL_GetEnvironment(), key, value, true),
             "Could not configure mock app-server environment");
 }
-void wait(pmxer::ai::CodexClient &client) {
+void wait(pmxer::ai::CodexClient &client, const char *phase) {
+    std::cout << "INFO " << phase << std::endl;
     const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     while (client.state().busy && std::chrono::steady_clock::now() < end)
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    if (client.state().busy)
+        std::cerr << "ERROR Codex client timed out during " << phase << std::endl;
     require(!client.state().busy, "Codex client did not finish");
 }
 int server() {
@@ -105,31 +108,31 @@ int main(int argc, char **argv) {
         environment("PMXER_TEST_CODEX_ACCOUNT", "chatgpt");
         pmxer::ai::CodexClient client;
         client.connect(false);
-        wait(client);
+        wait(client, "read account");
         require(client.state().connected, "Account read failed");
         client.generate("black color", "{}");
-        wait(client);
+        wait(client, "generate plan");
         require(client.state().error.empty(), client.state().error.c_str());
         auto plan = client.takePlan();
         require(plan.has_value(), "Missing structured plan");
         require(pmxer::ai::parsePlan(*plan).operations.size() == 1, "Unexpected plan");
         client.generate("invalid response", "{}");
-        wait(client);
+        wait(client, "reject malformed plan");
         require(!client.state().error.empty() && !client.takePlan(), "Malformed output accepted");
         client.generate("failed turn", "{}");
-        wait(client);
+        wait(client, "reject failed turn");
         require(!client.state().error.empty() && !client.takePlan(), "Failed turn accepted");
         client.generate("request tool", "{}");
-        wait(client);
+        wait(client, "reject tool request");
         require(!client.state().error.empty() && !client.takePlan(), "Tool request accepted");
         client.generate("wait forever", "{}");
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         client.cancel();
-        wait(client);
+        wait(client, "cancel turn");
         require(!client.takePlan(), "Canceled turn returned a plan");
         environment("PMXER_TEST_CODEX_ACCOUNT", "apiKey");
         client.generate("black color", "{}");
-        wait(client);
+        wait(client, "reject API key account");
         require(!client.state().connected && !client.state().error.empty() && !client.takePlan(),
                 "API key account bypassed ChatGPT sign-in");
         return 0;
