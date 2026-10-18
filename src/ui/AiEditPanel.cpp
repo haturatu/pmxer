@@ -32,9 +32,40 @@ struct AiEditState {
     bool completeMaterials{true};
     std::size_t targetFaceCount{};
     std::string targetNames;
+    int planningEffort{1}; // Balanced, independently of the user's CLI coding settings.
+    int waitMinutes{10};
 };
 
 namespace {
+ai::CodexOptions requestOptions(const AiEditState &state) {
+    ai::CodexOptions options;
+    options.planTimeout = std::chrono::minutes(state.waitMinutes);
+    options.effort = state.planningEffort == 0   ? "low"
+                     : state.planningEffort == 1 ? "medium"
+                     : state.planningEffort == 2 ? "high"
+                                                 : "";
+    return options;
+}
+const char *progressLabel(const ai::CodexClient::State &state) {
+    if (state.reconnecting)
+        return "Codex is reconnecting…";
+    using Phase = ai::CodexClient::Phase;
+    switch (state.phase) {
+    case Phase::connecting:
+        return "Connecting to Codex…";
+    case Phase::checkingAccount:
+        return "Checking ChatGPT sign-in…";
+    case Phase::signingIn:
+        return "Complete sign-in in your browser.";
+    case Phase::preparing:
+        return "Preparing the edit request…";
+    case Phase::planning:
+        return "Codex is planning the edit…";
+    case Phase::receiving:
+        return "Receiving the edit plan…";
+    }
+    return "Working…";
+}
 void copyCamera(DocumentSession &destination, const DocumentSession &source) {
     destination.ui.cameraTarget = source.ui.cameraTarget;
     destination.ui.cameraYaw = source.ui.cameraYaw;
@@ -154,14 +185,15 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
     ImGui::BeginDisabled(connection.busy || preparing);
     if (ImGui::Button(
             i18n::tr(connection.connected ? "Check connection" : "Continue with ChatGPT")))
-        state.client.connect(true);
+        state.client.connect(true, requestOptions(state));
     ImGui::EndDisabled();
     if (connection.busy) {
         ImGui::SameLine();
         if (ImGui::Button(i18n::tr("Cancel")))
             state.client.cancel();
-        ImGui::TextUnformatted(i18n::tr(
-            connection.authUrl.empty() ? "Working…" : "Complete sign-in in your browser."));
+        ImGui::TextUnformatted(i18n::tr(progressLabel(connection)));
+        ImGui::Text(i18n::tr("Elapsed: %d s / Last update: %d s ago"), connection.elapsedSeconds,
+                    connection.inactiveSeconds);
         if (!connection.authUrl.empty() && ImGui::Button(i18n::tr("Open sign-in browser")))
             (void)SDL_OpenURL(connection.authUrl.c_str());
     }
@@ -174,11 +206,10 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
         }
     }
     if (!connection.error.empty()) {
-        ImGui::TextColored({1, 0.6F, 0.4F, 1}, "%s", connection.error.c_str());
-        ImGui::TextDisabled(
-            "%s",
-            i18n::tr(
-                "Codex is needed for natural-language edits. Local clothing remains available."));
+        ImGui::TextColored({1, 0.6F, 0.4F, 1}, "%s", i18n::tr(connection.error.c_str()));
+        if (connection.unavailable)
+            ImGui::TextDisabled("%s", i18n::tr("Codex is needed for natural-language edits. Local "
+                                               "clothing remains available."));
     }
     ImGui::SeparatorText(i18n::tr("Selected region"));
     if (!session) {
@@ -285,9 +316,19 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
     ImGui::SetNextItemWidth(-1);
     ImGui::InputTextMultiline("##ai-prompt", state.prompt.data(), state.prompt.size(), {-1, 100});
     if (ImGui::CollapsingHeader(i18n::tr("Model settings"))) {
+        ImGui::BeginDisabled(connection.busy || preparing);
         ImGui::SetNextItemWidth(-1);
         ImGui::InputTextWithHint("##ai-model", i18n::tr("Use Codex default"), state.model.data(),
                                  state.model.size());
+        const std::array efforts{i18n::tr("Fast planning"), i18n::tr("Balanced planning"),
+                                 i18n::tr("Detailed planning"),
+                                 i18n::tr("Use Codex reasoning setting")};
+        ImGui::Combo(i18n::tr("Planning effort"), &state.planningEffort, efforts.data(),
+                     static_cast<int>(efforts.size()));
+        ImGui::SliderInt(i18n::tr("Maximum wait (minutes)"), &state.waitMinutes, 1, 30);
+        ImGui::TextDisabled("%s", i18n::tr("Faster planning can reduce the wait. The model stays "
+                                           "unchanged until you apply the preview."));
+        ImGui::EndDisabled();
     }
     ImGui::TextDisabled("%s", i18n::tr("Selection bounds, material and bone names are sent to "
                                        "Codex. The PMX file stays local."));
@@ -303,7 +344,7 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
             state.message.clear();
             state.client.generate(state.prompt.data(),
                                   ai::regionContext(*session, *state.region).dump(),
-                                  state.model.data());
+                                  state.model.data(), requestOptions(state));
         } catch (const std::exception &error) {
             state.message = error.what();
         }
