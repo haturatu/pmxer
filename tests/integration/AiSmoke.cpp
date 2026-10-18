@@ -1,6 +1,7 @@
 #include "ai/CodexClient.hpp"
 #include "editor/AiEditExecutor.hpp"
 #include "editor/SaveController.hpp"
+#include "editor/TailoredGarment.hpp"
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
@@ -16,10 +17,13 @@ int main(int argc, char **argv) {
     if ((argc != 4 && argc != 5) ||
         (std::string_view{argv[1]} != "--live" && std::string_view{argv[1]} != "--replay" &&
          std::string_view{argv[1]} != "--broad-live" &&
-         std::string_view{argv[1]} != "--broad-replay")) {
-        std::cerr << "Usage: pmxer_ai_smoke --live|--replay|--broad-live|--broad-replay INPUT.pmx "
-                     "OUTPUT_DIRECTORY\nUses the "
-                     "existing Codex ChatGPT account to generate three edit plans.\n";
+         std::string_view{argv[1]} != "--broad-replay" &&
+         std::string_view{argv[1]} != "--local-outfit")) {
+        std::cerr
+            << "Usage: pmxer_ai_smoke --live|--replay|--broad-live|--broad-replay|--local-outfit "
+               "INPUT.pmx "
+               "OUTPUT_DIRECTORY [SCENARIO]\nUses the "
+               "existing Codex ChatGPT account for live plans; --local-outfit works offline.\n";
         return 2;
     }
     try {
@@ -36,10 +40,13 @@ int main(int argc, char **argv) {
         const auto height = maxY - minY;
         if (height < 1e-5F)
             throw std::runtime_error("The smoke model has no vertical extent");
-        const bool broad = std::string_view{argv[1]}.starts_with("--broad-");
+        const bool local = std::string_view{argv[1]} == "--local-outfit";
+        const bool broad = local || std::string_view{argv[1]}.starts_with("--broad-");
         const std::vector<std::string> scenarios =
-            broad ? std::vector<std::string>{"rough-loafers", "dress", "pants", "upscale", "hair"}
-                  : std::vector<std::string>{"loafers", "shirt", "skirt"};
+            local   ? std::vector<std::string>{"gothic"}
+            : broad ? std::vector<std::string>{"rough-loafers", "dress", "pants",
+                                               "upscale",       "hair",  "gothic"}
+                    : std::vector<std::string>{"loafers", "shirt", "skirt"};
         if (argc == 5 && std::find(scenarios.begin(), scenarios.end(), argv[4]) == scenarios.end())
             throw std::runtime_error("Unknown smoke scenario");
         for (const auto &scenario : scenarios) {
@@ -67,7 +74,8 @@ int main(int argc, char **argv) {
             auto region = pmxer::ai::captureFaces(session, faces);
             region.allowMaterialExpansion = broad;
             const std::string prompt =
-                scenario == "rough-loafers"
+                scenario == "gothic" ? "ゴスロリ風の服にして。顔、髪、肌は変えないで。"
+                : scenario == "rough-loafers"
                     ? "顔や髪、スカートも入るくらいざっくり囲みました。この中の靴だけ黒いローファー"
                       "に変えて。他の部分は変えないで。"
                 : scenario == "dress" ? "この中の服装だけを青いワンピースに変えて。顔・髪・肌・靴は"
@@ -102,14 +110,25 @@ int main(int argc, char **argv) {
                 text = client.takePlan();
                 if (!text)
                     throw std::runtime_error("No live plan");
-            } else {
+            } else if (!local) {
                 std::ifstream file(directory / (scenario + ".json"));
                 if (!file)
                     throw std::runtime_error("No recorded plan");
                 text = std::string{std::istreambuf_iterator<char>{file},
                                    std::istreambuf_iterator<char>{}};
             }
-            auto plan = pmxer::ai::parsePlan(*text);
+            pmxer::ai::EditPlan plan;
+            if (local) {
+                pmxer::ai::Operation op;
+                op.type = pmxer::ai::OperationType::generate;
+                op.shape = pmxer::ai::Shape::dress;
+                op.color = {0.045F, 0.035F, 0.055F, 1};
+                op.garment.style = pmxer::ai::GarmentStyle::gothicLolita;
+                plan = {"Local Gothic Lolita construction",
+                        {op},
+                        pmxer::ai::suggestOutfitTarget(session, region)};
+            } else
+                plan = pmxer::ai::parsePlan(*text);
             const auto expected = scenario == "loafers" ? pmxer::ai::Shape::loafers
                                   : scenario == "shirt" ? pmxer::ai::Shape::shirt
                                                         : pmxer::ai::Shape::skirt;
@@ -117,7 +136,7 @@ int main(int argc, char **argv) {
                            plan.operations[0].type != pmxer::ai::OperationType::generate ||
                            plan.operations[0].shape != expected))
                 throw std::runtime_error("Live plan did not generate the requested shape");
-            {
+            if (text) {
                 std::ofstream file(directory / (scenario + ".json"));
                 file << *text;
             }
@@ -128,14 +147,18 @@ int main(int argc, char **argv) {
                                   : scenario == "hair"  ? pmxer::ai::OperationType::transform
                                                         : pmxer::ai::OperationType::generate;
                 const auto shape = scenario == "rough-loafers" ? pmxer::ai::Shape::loafers
-                                   : scenario == "dress"       ? pmxer::ai::Shape::dress
-                                                               : pmxer::ai::Shape::pants;
+                                   : (scenario == "dress" || scenario == "gothic")
+                                       ? pmxer::ai::Shape::dress
+                                       : pmxer::ai::Shape::pants;
                 if (plan.operations[0].type != type ||
                     (type == pmxer::ai::OperationType::generate &&
                      plan.operations[0].shape != shape))
                     throw std::runtime_error(
                         "Broad request did not produce the expected operation");
             }
+            if (scenario == "gothic" &&
+                plan.operations.front().garment.style != pmxer::ai::GarmentStyle::gothicLolita)
+                throw std::runtime_error("Gothic outfit request was reduced to a plain dress");
             const auto target = pmxer::ai::resolveTarget(session, region, plan.target);
             const std::set<mmd::FaceHandle> targets(target.faces.begin(), target.faces.end());
             std::map<mmd::FaceHandle, mmd::PmxFace> untouched;
@@ -167,6 +190,17 @@ int main(int argc, char **argv) {
                 if (!session.document.resolve(h) || *session.document.resolve(h) != vertex)
                     throw std::runtime_error("A vertex outside the target changed");
             const auto edited = session.document.model();
+            if (scenario == "gothic") {
+                auto parts = nlohmann::json::array();
+                for (const auto &material : edited.materials)
+                    if (material.name.starts_with("AI Gothic"))
+                        parts.push_back(
+                            {{"name", material.name}, {"triangles", material.indexCount / 3}});
+                std::ofstream report(directory / "gothic-parts.json");
+                report << parts.dump(2);
+                if (parts.size() < 7)
+                    throw std::runtime_error("Gothic outfit lacks separate garment components");
+            }
             const auto saved = pmxer::saveDocument(session, directory / (scenario + ".pmx"));
             if (!saved.success) {
                 for (const auto &difference : saved.verification.differences)

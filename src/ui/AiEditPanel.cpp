@@ -2,6 +2,7 @@
 #include "EditorPanels.hpp"
 #include "ai/CodexClient.hpp"
 #include "editor/AiEditExecutor.hpp"
+#include "editor/TailoredGarment.hpp"
 #include "editor/UiStatus.hpp"
 #include "i18n/Language.hpp"
 #include <SDL3/SDL.h>
@@ -23,6 +24,8 @@ struct AiEditState {
     std::unique_ptr<DocumentSession> preview;
     std::future<std::unique_ptr<DocumentSession>> previewTask;
     bool discardTask{};
+    ai::GarmentDesign garment;
+    mmd::Float4 garmentColor{0.045F, 0.035F, 0.055F, 1};
     std::string message;
     bool checkedAccount{};
     bool wholeModel{};
@@ -30,6 +33,32 @@ struct AiEditState {
     std::size_t targetFaceCount{};
     std::string targetNames;
 };
+
+namespace {
+void launchPreview(DocumentSession &session, AiEditState &state) {
+    const auto target = ai::resolveTarget(session, *state.region, state.plan->target);
+    state.targetFaceCount = target.faces.size();
+    state.targetNames.clear();
+    for (auto index : state.plan->target.materialIndices) {
+        if (!state.targetNames.empty())
+            state.targetNames += ", ";
+        state.targetNames += session.document.model().materials[index].name;
+    }
+    auto prepared = ai::prepareEditPreview(session);
+    auto region = ai::captureFaces(*prepared, state.region->faceIndices);
+    region.allowMaterialExpansion = state.region->allowMaterialExpansion;
+    state.discardTask = false;
+    state.previewTask =
+        std::async(std::launch::async, [prepared = std::move(prepared), region = std::move(region),
+                                        plan = *state.plan]() mutable {
+            const auto result = ai::applyEditPlan(*prepared, region, plan);
+            if (!result.success)
+                throw std::runtime_error(result.message);
+            return std::move(prepared);
+        });
+    state.message.clear();
+}
+} // namespace
 
 DocumentSession &aiDisplaySession(DocumentSession &session, WorkspaceUiState &workspace) {
     if (!workspace.showAi && workspace.ai)
@@ -72,27 +101,7 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
                 state.message = state.plan->summary;
                 state.preview.reset();
             } else {
-                const auto target = ai::resolveTarget(*session, *state.region, state.plan->target);
-                state.targetFaceCount = target.faces.size();
-                state.targetNames.clear();
-                for (auto index : state.plan->target.materialIndices) {
-                    if (!state.targetNames.empty())
-                        state.targetNames += ", ";
-                    state.targetNames += session->document.model().materials[index].name;
-                }
-                auto prepared = ai::prepareEditPreview(*session);
-                auto region = ai::captureFaces(*prepared, state.region->faceIndices);
-                region.allowMaterialExpansion = state.region->allowMaterialExpansion;
-                state.discardTask = false;
-                state.previewTask = std::async(std::launch::async, [prepared = std::move(prepared),
-                                                                    region = std::move(region),
-                                                                    plan = *state.plan]() mutable {
-                    const auto result = ai::applyEditPlan(*prepared, region, plan);
-                    if (!result.success)
-                        throw std::runtime_error(result.message);
-                    return std::move(prepared);
-                });
-                state.message.clear();
+                launchPreview(*session, state);
             }
         } catch (const std::exception &error) {
             state.message = error.what();
@@ -151,6 +160,10 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
     }
     if (!connection.error.empty()) {
         ImGui::TextColored({1, 0.6F, 0.4F, 1}, "%s", connection.error.c_str());
+        ImGui::TextDisabled(
+            "%s",
+            i18n::tr(
+                "Codex is needed for natural-language edits. Local clothing remains available."));
     }
     ImGui::SeparatorText(i18n::tr("Selected region"));
     if (!session) {
@@ -210,6 +223,47 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
     if (state.region && state.region->documentId == session->recoveryId)
         ImGui::Text(i18n::tr("Captured faces: %zu / vertices: %zu"), state.region->faces.size(),
                     state.region->vertices.size());
+    ImGui::SeparatorText(i18n::tr("Local clothing"));
+    ImGui::TextDisabled(
+        "%s", i18n::tr("Built locally. No sign-in, downloads or extra provider required."));
+    ImGui::BeginDisabled(connection.busy || preparing || state.preview != nullptr ||
+                         session->hasPendingTransformEdit());
+    if (ImGui::CollapsingHeader(i18n::tr("Garment settings"))) {
+        ImGui::ColorEdit3(i18n::tr("Fabric color"), state.garmentColor.data());
+        ImGui::ColorEdit3(i18n::tr("Trim color"), state.garment.trimColor.data());
+        ImGui::ColorEdit3(i18n::tr("Ribbon color"), state.garment.accentColor.data());
+        ImGui::SliderInt(i18n::tr("Skirt tiers"), &state.garment.tiers, 1, 4);
+        ImGui::SliderFloat(i18n::tr("Skirt length"), &state.garment.skirtLength, 0.5F, 1.5F);
+        float sleevePercent = state.garment.sleeveLength * 50;
+        if (ImGui::SliderFloat(i18n::tr("Sleeve length"), &sleevePercent, 0, 105, "%.0f%%"))
+            state.garment.sleeveLength = sleevePercent / 50;
+        ImGui::SliderFloat(i18n::tr("Skirt fullness"), &state.garment.fullness, 0.6F, 1.6F);
+        ImGui::SliderFloat(i18n::tr("Bow size"), &state.garment.bowSize, 0, 1.5F);
+        ImGui::Checkbox(i18n::tr("Openwork lace trim"), &state.garment.lace);
+    }
+    if (ImGui::Button(i18n::tr("Preview Gothic Lolita outfit"))) {
+        try {
+            state.region = capture();
+            ai::Operation operation;
+            operation.type = ai::OperationType::generate;
+            operation.shape = ai::Shape::dress;
+            operation.color = state.garmentColor;
+            operation.garment = state.garment;
+            operation.garment.style = ai::GarmentStyle::gothicLolita;
+            state.plan = ai::EditPlan{
+                i18n::tr("Local Gothic Lolita outfit with the selected garment settings."),
+                {operation},
+                ai::suggestOutfitTarget(*session, *state.region)};
+            workspace.active = EditorWorkspace::model;
+            workspace.showTransformView = false;
+            applyWorkspacePolicy(*session, workspacePolicy(workspace.active));
+            launchPreview(*session, state);
+        } catch (const std::exception &error) {
+            state.message = i18n::tr(error.what());
+            state.plan.reset();
+        }
+    }
+    ImGui::EndDisabled();
     ImGui::SeparatorText(i18n::tr("Describe the edit"));
     ImGui::TextUnformatted(i18n::tr(
         "Examples: upscale the mesh; change the outfit to a dress; lengthen only the hair."));

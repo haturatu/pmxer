@@ -766,3 +766,22 @@ PMXER_MESSAGE("Clothing targets are chosen within the captured area. Body surfac
 PMXER_MESSAGE("Include complete target materials", "対象の材質全体を補完する", "Include complete target materials", "补全目标材质的全部面", "Включать материал целиком")
 
 PMXER_MESSAGE("Preparing mesh preview…", "メッシュのプレビューを準備中…", "Preparing mesh preview…", "正在准备网格预览…", "Подготовка предпросмотра сетки…")
+
+PMXER_MESSAGE("Local clothing", "ローカル衣装作成", "Local clothing", "本地服装制作", "Локальное создание одежды")
+PMXER_MESSAGE("Built locally. No sign-in, downloads or extra provider required.", "衣装をローカルで作成します。ログイン・ダウンロード・追加サービスは不要です。", "Built locally. No sign-in, downloads or extra provider required.", "在本地制作服装，无需登录、下载或额外服务。", "Одежда создаётся локально, без входа в аккаунт, загрузок и дополнительных сервисов.")
+PMXER_MESSAGE("Garment settings", "衣装の設定", "Garment settings", "服装设置", "Настройки одежды")
+PMXER_MESSAGE("Fabric color", "布地の色", "Fabric color", "布料颜色", "Цвет ткани")
+PMXER_MESSAGE("Trim color", "縁飾りの色", "Trim color", "饰边颜色", "Цвет отделки")
+PMXER_MESSAGE("Ribbon color", "リボンの色", "Ribbon color", "丝带颜色", "Цвет лент")
+PMXER_MESSAGE("Skirt tiers", "スカートの段数", "Skirt tiers", "裙子层数", "Число ярусов юбки")
+PMXER_MESSAGE("Skirt length", "スカートの丈", "Skirt length", "裙长", "Длина юбки")
+PMXER_MESSAGE("Sleeve length", "袖の長さ", "Sleeve length", "袖长", "Длина рукава")
+PMXER_MESSAGE("Skirt fullness", "スカートの広がり", "Skirt fullness", "裙摆蓬松度", "Пышность юбки")
+PMXER_MESSAGE("Bow size", "リボンの大きさ", "Bow size", "蝴蝶结大小", "Размер бантов")
+PMXER_MESSAGE("Openwork lace trim", "透かし模様のレース", "Openwork lace trim", "镂空蕾丝饰边", "Ажурная кружевная отделка")
+PMXER_MESSAGE("Preview Gothic Lolita outfit", "ゴスロリ衣装をプレビュー", "Preview Gothic Lolita outfit", "预览哥特洛丽塔服装", "Предпросмотр готического платья")
+PMXER_MESSAGE("Locally fitted bodice, puff sleeves, tiered skirt, collar, ruffles and ribbons.", "体形に合わせた身頃・パフスリーブ・段スカート・襟・フリル・リボンをローカルで作成します。", "Locally fitted bodice, puff sleeves, tiered skirt, collar, ruffles and ribbons.", "在本地按体型制作上身、泡泡袖、层叠裙、衣领、褶边和蝴蝶结。", "Локальное создание лифа по фигуре, рукавов-фонариков, ярусной юбки, воротника, оборок и бантов.")
+PMXER_MESSAGE("Choose clothing materials for the local outfit preview", "ローカル衣装の対象となる衣服の材質を選択してください。モデル全体から探すこともできます。", "Choose clothing materials for the local outfit preview", "请选择服装材质以预览本地服装，也可从整个模型中查找。", "Выберите материалы одежды для локального предпросмотра или выполните поиск во всей модели.")
+
+PMXER_MESSAGE("Local Gothic Lolita outfit with the selected garment settings.", "指定した衣装設定でゴスロリ衣装をローカル作成します。", "Local Gothic Lolita outfit with the selected garment settings.", "根据所选设置在本地制作哥特洛丽塔服装。", "Локальное создание готического платья с выбранными настройками.")
+PMXER_MESSAGE("Codex is needed for natural-language edits. Local clothing remains available.", "自然言語での編集にはCodexが必要です。ローカル衣装作成はそのまま利用できます。", "Codex is needed for natural-language edits. Local clothing remains available.", "自然语言编辑需要Codex。本地服装制作仍可使用。", "Для редактирования по тексту нужен Codex. Локальное создание одежды по-прежнему доступно.")
