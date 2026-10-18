@@ -1,5 +1,6 @@
 #include "EditPlan.hpp"
 #include <cmath>
+#include <cstdint>
 #include <set>
 #include <stdexcept>
 
@@ -109,8 +110,9 @@ EditPlan parsePlan(std::string_view text) {
         require(value["replace"].is_boolean(), "Invalid replacement flag");
         op.replace = value["replace"].get<bool>();
         require(value["detail"].is_number_integer(), "Invalid detail level");
-        op.detail = value["detail"].get<int>();
-        require(op.detail >= 8 && op.detail <= 64, "Detail level is out of range");
+        const auto detail = value["detail"].get<std::int64_t>();
+        require(detail >= 8 && detail <= 64, "Detail level is out of range");
+        op.detail = static_cast<int>(detail);
         result.operations.push_back(op);
     }
     require(!generates || result.operations.size() == 1,

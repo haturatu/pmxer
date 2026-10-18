@@ -80,6 +80,8 @@ int main() {
         bad = j;
         bad["operations"][0]["detail"] = 256;
         fails(bad);
+        bad["operations"][0]["detail"] = std::uint64_t{4294967320};
+        fails(bad);
         bad = j;
         bad["version"] = 2;
         fails(bad);
