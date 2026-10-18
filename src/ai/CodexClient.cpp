@@ -256,7 +256,12 @@ void CodexClient::start(bool login, std::string prompt, std::string context, std
                                {"config",
                                 {{"mcp_servers", Json::object()},
                                  {"web_search", "disabled"},
-                                 {"features.shell_tool", false}}}};
+                                 {"features.shell_tool", false},
+                                 {"features.apps", false},
+                                 {"features.plugins", false},
+                                 {"features.hooks", false},
+                                 {"features.memories", false},
+                                 {"features.multi_agent", false}}}};
                 if (!model.empty())
                     params["model"] = model;
                 const auto thread = server.call("thread/start", params);

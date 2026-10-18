@@ -49,6 +49,11 @@ int server() {
             require(p["sandbox"] == "read-only" && p["approvalPolicy"] == "never" &&
                         p["ephemeral"] == true,
                     "Unsafe planner settings");
+            require(p["config"]["mcp_servers"].empty() &&
+                        p["config"]["features.apps"] == false &&
+                        p["config"]["features.shell_tool"] == false &&
+                        p["config"]["features.multi_agent"] == false,
+                    "Planner exposed external tools");
             result = {{"thread", {{"id", "thread-test"}}}};
         }
         if (method == "turn/start")
