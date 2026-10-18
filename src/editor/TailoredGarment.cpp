@@ -684,6 +684,8 @@ EditTarget suggestOutfitTarget(const DocumentSession &session, const EditRegion 
     for (auto h : region.faces)
         touched.insert(session.document.resolve(h)->material);
     EditTarget result;
+    std::vector<std::size_t> unclassified;
+    bool containsBodyParts = false;
     result.completeMaterials = region.allowMaterialExpansion;
     for (std::size_t i = 0; i < session.document.model().materials.size(); ++i) {
         if (!touched.contains(session.document.materialHandle(i)))
@@ -701,8 +703,18 @@ EditTarget suggestOutfitTarget(const DocumentSession &session, const EditRegion 
              {"cloth", "dress", "skirt", "shirt", "coat", "jacket", "bodice", "sleeve", "服",
               "スカート", "袖", "衣", "裙", "одеж", "юбк", "плать"})
             clothing |= name.find(word) != std::string::npos;
+        containsBodyParts |= excluded;
         if (clothing && !excluded)
             result.materialIndices.push_back(i);
+        if (!excluded)
+            unclassified.push_back(i);
+    }
+    if (result.materialIndices.empty() && !containsBodyParts && !unclassified.empty() &&
+        region.faces.size() < session.document.faces().size()) {
+        // Explicit clothing selections can have arbitrary names. Keep those
+        // selections strict rather than expanding an unknown shared material.
+        result.materialIndices = std::move(unclassified);
+        result.completeMaterials = false;
     }
     if (result.materialIndices.empty())
         throw std::runtime_error("Choose clothing materials for the local outfit preview");

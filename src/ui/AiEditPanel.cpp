@@ -35,6 +35,13 @@ struct AiEditState {
 };
 
 namespace {
+void copyCamera(DocumentSession &destination, const DocumentSession &source) {
+    destination.ui.cameraTarget = source.ui.cameraTarget;
+    destination.ui.cameraYaw = source.ui.cameraYaw;
+    destination.ui.cameraPitch = source.ui.cameraPitch;
+    destination.ui.cameraDistance = source.ui.cameraDistance;
+    destination.ui.orthographic = source.ui.orthographic;
+}
 void launchPreview(DocumentSession &session, AiEditState &state) {
     const auto target = ai::resolveTarget(session, *state.region, state.plan->target);
     state.targetFaceCount = target.faces.size();
@@ -61,8 +68,12 @@ void launchPreview(DocumentSession &session, AiEditState &state) {
 } // namespace
 
 DocumentSession &aiDisplaySession(DocumentSession &session, WorkspaceUiState &workspace) {
-    if (!workspace.showAi && workspace.ai)
+    if (!workspace.showAi && workspace.ai) {
+        if (workspace.ai->preview && workspace.ai->region &&
+            workspace.ai->region->documentId == session.recoveryId)
+            copyCamera(session, *workspace.ai->preview);
         workspace.ai->preview.reset();
+    }
     if (workspace.ai && workspace.ai->preview && workspace.ai->region) {
         const auto &region = *workspace.ai->region;
         if (region.documentId == session.recoveryId && region.revision == session.revision)
@@ -78,6 +89,9 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
             workspace.ai->client.cancel();
             (void)workspace.ai->client.takePlan();
             workspace.ai->discardTask = true;
+            if (session && workspace.ai->preview && workspace.ai->region &&
+                workspace.ai->region->documentId == session->recoveryId)
+                copyCamera(*session, *workspace.ai->preview);
             workspace.ai->preview.reset();
             workspace.ai->plan.reset();
         }
@@ -115,9 +129,10 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
             auto prepared = state.previewTask.get();
             if (!state.discardTask && session && state.region &&
                 state.region->documentId == session->recoveryId &&
-                state.region->revision == session->revision)
+                state.region->revision == session->revision) {
+                copyCamera(*prepared, *session);
                 state.preview = std::move(prepared);
-            else if (!state.discardTask)
+            } else if (!state.discardTask)
                 state.message = i18n::tr("The model changed. Capture the selection again.");
         } catch (const std::exception &error) {
             if (!state.discardTask)
@@ -318,6 +333,7 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
             state.message =
                 result.success ? i18n::tr("AI edit applied. Undo is available.") : result.message;
             if (result.success) {
+                copyCamera(*session, *state.preview);
                 state.preview.reset();
                 state.plan.reset();
                 state.region.reset();
@@ -326,6 +342,8 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
         ImGui::EndDisabled();
         ImGui::SameLine();
         if (ImGui::Button(i18n::tr("Discard preview"))) {
+            if (state.region->documentId == session->recoveryId)
+                copyCamera(*session, *state.preview);
             state.preview.reset();
             state.plan.reset();
             state.region.reset();

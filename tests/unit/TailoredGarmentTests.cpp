@@ -118,6 +118,20 @@ int main() {
         require(target.materialIndices == std::vector<std::size_t>{0},
                 "Local outfit scope includes the face");
         const auto region = resolveTarget(source, capture, target);
+        {
+            auto unnamed = mannequin();
+            unnamed.materials[0].name = "Material 01";
+            DocumentSession userSelection(unnamed);
+            auto indices = allFaces(userSelection);
+            indices.pop_back();
+            auto strict = captureFaces(userSelection, indices);
+            strict.allowMaterialExpansion = true;
+            const auto suggested = suggestOutfitTarget(userSelection, strict);
+            require(
+                suggested.materialIndices == std::vector<std::size_t>{0} &&
+                    !suggested.completeMaterials,
+                "Explicit unnamed clothing selection was rejected or expanded beyond its scope");
+        }
         Operation op;
         op.type = OperationType::generate;
         op.shape = Shape::dress;
