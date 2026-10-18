@@ -444,6 +444,25 @@ if(BUILD_TESTING)
   endif()
 endif()
 
+# Keep the SDL runtime beside Windows executables, including test children.
+# Link-time discovery does not put the dependency build directory on the DLL search path.
+if(WIN32 AND PMXER_BUILD_GUI)
+  get_target_property(PMXER_SDL_LIBRARY_TYPE SDL3::SDL3 TYPE)
+  if(PMXER_SDL_LIBRARY_TYPE STREQUAL "SHARED_LIBRARY")
+    add_custom_target(pmxer_sdl_runtime ALL
+      COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:pmxer>
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              $<TARGET_FILE:SDL3::SDL3> $<TARGET_FILE_DIR:pmxer>
+      VERBATIM)
+    foreach(target IN ITEMS pmxer pmxer_codex_tests pmxer_ai_smoke)
+      if(TARGET ${target})
+        add_dependencies(${target} pmxer_sdl_runtime)
+      endif()
+    endforeach()
+    install(FILES $<TARGET_FILE:SDL3::SDL3> DESTINATION bin)
+  endif()
+endif()
+
 install(TARGETS pmxer RUNTIME DESTINATION bin)
 install(DIRECTORY assets/ DESTINATION share/pmxer/assets)
 if(PMXER_SHADER_OUTPUTS)
