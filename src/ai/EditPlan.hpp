@@ -16,7 +16,8 @@ struct Operation {
     mmd::Float4 color{0.1F, 0.1F, 0.1F, 1.0F};
     mmd::Float3 translation{};
     mmd::Float3 scale{1.0F, 1.0F, 1.0F};
-    mmd::Float3 rotation{}; // Degrees, XYZ, about the captured selection center.
+    mmd::Float3 pivot{0.5F, 0.5F, 0.5F}; // Normalized target bounds; e.g. top for hair/hem length.
+    mmd::Float3 rotation{};              // Degrees, XYZ, about the normalized target pivot.
     bool replace{true};
     int detail{24};
     float amount{0.25F}; // Smoothing strength or normal displacement in PMX units.

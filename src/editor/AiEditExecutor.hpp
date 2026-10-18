@@ -23,6 +23,9 @@ struct EditRegion {
 [[nodiscard]] nlohmann::json regionContext(const DocumentSession &, const EditRegion &);
 [[nodiscard]] OperationResult applyEditPlan(DocumentSession &, const EditRegion &,
                                             const EditPlan &);
+[[nodiscard]] OperationResult acceptEditPreview(DocumentSession &, const EditRegion &,
+                                                const DocumentSession &);
+[[nodiscard]] std::unique_ptr<DocumentSession> prepareEditPreview(const DocumentSession &);
 [[nodiscard]] std::unique_ptr<DocumentSession>
 makeEditPreview(const DocumentSession &, const EditRegion &, const EditPlan &);
 } // namespace pmxer::ai

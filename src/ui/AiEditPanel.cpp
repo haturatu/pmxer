@@ -6,8 +6,11 @@
 #include "i18n/Language.hpp"
 #include <SDL3/SDL.h>
 #include <array>
+#include <chrono>
 #include <exception>
+#include <future>
 #include <imgui.h>
+#include <numeric>
 #include <optional>
 
 namespace pmxer {
@@ -18,8 +21,14 @@ struct AiEditState {
     std::optional<ai::EditRegion> region;
     std::optional<ai::EditPlan> plan;
     std::unique_ptr<DocumentSession> preview;
+    std::future<std::unique_ptr<DocumentSession>> previewTask;
+    bool discardTask{};
     std::string message;
     bool checkedAccount{};
+    bool wholeModel{};
+    bool completeMaterials{true};
+    std::size_t targetFaceCount{};
+    std::string targetNames;
 };
 
 DocumentSession &aiDisplaySession(DocumentSession &session, WorkspaceUiState &workspace) {
@@ -39,6 +48,7 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
         if (workspace.ai) {
             workspace.ai->client.cancel();
             (void)workspace.ai->client.takePlan();
+            workspace.ai->discardTask = true;
             workspace.ai->preview.reset();
             workspace.ai->plan.reset();
         }
@@ -62,7 +72,26 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
                 state.message = state.plan->summary;
                 state.preview.reset();
             } else {
-                state.preview = ai::makeEditPreview(*session, *state.region, *state.plan);
+                const auto target = ai::resolveTarget(*session, *state.region, state.plan->target);
+                state.targetFaceCount = target.faces.size();
+                state.targetNames.clear();
+                for (auto index : state.plan->target.materialIndices) {
+                    if (!state.targetNames.empty())
+                        state.targetNames += ", ";
+                    state.targetNames += session->document.model().materials[index].name;
+                }
+                auto prepared = ai::prepareEditPreview(*session);
+                auto region = ai::captureFaces(*prepared, state.region->faceIndices);
+                region.allowMaterialExpansion = state.region->allowMaterialExpansion;
+                state.discardTask = false;
+                state.previewTask = std::async(std::launch::async, [prepared = std::move(prepared),
+                                                                    region = std::move(region),
+                                                                    plan = *state.plan]() mutable {
+                    const auto result = ai::applyEditPlan(*prepared, region, plan);
+                    if (!result.success)
+                        throw std::runtime_error(result.message);
+                    return std::move(prepared);
+                });
                 state.message.clear();
             }
         } catch (const std::exception &error) {
@@ -71,6 +100,23 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
             state.plan.reset();
         }
     }
+    if (state.previewTask.valid() &&
+        state.previewTask.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        try {
+            auto prepared = state.previewTask.get();
+            if (!state.discardTask && session && state.region &&
+                state.region->documentId == session->recoveryId &&
+                state.region->revision == session->revision)
+                state.preview = std::move(prepared);
+            else if (!state.discardTask)
+                state.message = i18n::tr("The model changed. Capture the selection again.");
+        } catch (const std::exception &error) {
+            if (!state.discardTask)
+                state.message = error.what();
+            state.plan.reset();
+        }
+    }
+    const bool preparing = state.previewTask.valid();
     const auto connection = state.client.state();
     ImGui::SetNextWindowSize({460, 600}, ImGuiCond_FirstUseEver);
     if (!ImGui::Begin(i18n::windowTitle("AI edit"), &workspace.showAi)) {
@@ -81,7 +127,7 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
     ImGui::TextUnformatted(i18n::tr("ChatGPT account"));
     if (connection.connected)
         ImGui::Text("%s", connection.account.c_str());
-    ImGui::BeginDisabled(connection.busy);
+    ImGui::BeginDisabled(connection.busy || preparing);
     if (ImGui::Button(
             i18n::tr(connection.connected ? "Check connection" : "Continue with ChatGPT")))
         state.client.connect(true);
@@ -95,6 +141,14 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
         if (!connection.authUrl.empty() && ImGui::Button(i18n::tr("Open sign-in browser")))
             (void)SDL_OpenURL(connection.authUrl.c_str());
     }
+    if (preparing) {
+        ImGui::TextUnformatted(i18n::tr("Preparing mesh preview…"));
+        if (ImGui::Button(i18n::tr("Cancel"))) {
+            state.discardTask = true;
+            state.plan.reset();
+            state.message = i18n::tr("Discard preview");
+        }
+    }
     if (!connection.error.empty()) {
         ImGui::TextColored({1, 0.6F, 0.4F, 1}, "%s", connection.error.c_str());
     }
@@ -105,8 +159,29 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
         ImGui::End();
         return;
     }
-    ImGui::BeginDisabled(connection.busy || state.preview != nullptr);
+    const auto capture = [&]() {
+        if (!state.wholeModel) {
+            auto region = ai::captureRegion(*session);
+            region.allowMaterialExpansion = state.completeMaterials;
+            return region;
+        }
+        std::vector<std::size_t> indices(session->document.faces().size());
+        std::iota(indices.begin(), indices.end(), std::size_t{0});
+        return ai::captureFaces(*session, indices);
+    };
+    ImGui::BeginDisabled(connection.busy || preparing || state.preview != nullptr);
+    if (ImGui::Checkbox(i18n::tr("Use whole model as search area"), &state.wholeModel) &&
+        state.wholeModel) {
+        workspace.active = EditorWorkspace::model;
+        workspace.showTransformView = false;
+        applyWorkspacePolicy(*session, workspacePolicy(workspace.active));
+        session->ui.aiRegionSelection = false;
+    }
+    ImGui::Checkbox(i18n::tr("Include complete target materials"), &state.completeMaterials);
+    ImGui::TextUnformatted(i18n::tr("Roughly enclose the area. AI chooses the requested materials "
+                                    "and preserves unrelated parts."));
     if (ImGui::Button(i18n::tr("Select region in viewport"))) {
+        state.wholeModel = false;
         workspace.active = EditorWorkspace::model;
         workspace.showTransformView = false;
         applyWorkspacePolicy(*session, workspacePolicy(workspace.active));
@@ -123,7 +198,7 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
     }
     if (ImGui::Button(i18n::tr("Capture selection"))) {
         try {
-            state.region = ai::captureRegion(*session);
+            state.region = capture();
             state.message.clear();
             state.plan.reset();
         } catch (const std::exception &error) {
@@ -136,8 +211,8 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
         ImGui::Text(i18n::tr("Captured faces: %zu / vertices: %zu"), state.region->faces.size(),
                     state.region->vertices.size());
     ImGui::SeparatorText(i18n::tr("Describe the edit"));
-    ImGui::TextUnformatted(
-        i18n::tr("Examples: black loafers; a white shirt; a shorter pleated skirt."));
+    ImGui::TextUnformatted(i18n::tr(
+        "Examples: upscale the mesh; change the outfit to a dress; lengthen only the hair."));
     ImGui::SetNextItemWidth(-1);
     ImGui::InputTextMultiline("##ai-prompt", state.prompt.data(), state.prompt.size(), {-1, 100});
     if (ImGui::CollapsingHeader(i18n::tr("Model settings"))) {
@@ -147,13 +222,14 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
     }
     ImGui::TextDisabled("%s", i18n::tr("Selection bounds, material and bone names are sent to "
                                        "Codex. The PMX file stays local."));
-    ImGui::BeginDisabled(connection.busy || !connection.connected || state.prompt[0] == '\0' ||
-                         state.preview != nullptr || session->hasPendingTransformEdit());
+    ImGui::BeginDisabled(connection.busy || preparing || !connection.connected ||
+                         state.prompt[0] == '\0' || state.preview != nullptr ||
+                         session->hasPendingTransformEdit());
     if (ImGui::Button(i18n::tr("Generate preview"))) {
         try {
             // Freeze the current selection and revision at request time, never use later selection
             // changes.
-            state.region = ai::captureRegion(*session);
+            state.region = capture();
             state.plan.reset();
             state.message.clear();
             state.client.generate(state.prompt.data(),
@@ -171,6 +247,12 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
     if (state.plan) {
         ImGui::SeparatorText(i18n::tr("Proposed edit"));
         ImGui::Text("%s", state.plan->summary.c_str());
+        if (state.preview) {
+            ImGui::Text(i18n::tr("Edit target: %zu faces (captured: %zu)"), state.targetFaceCount,
+                        state.region->faces.size());
+            if (!state.targetNames.empty())
+                ImGui::Text("%s", state.targetNames.c_str());
+        }
     }
     if (state.preview && state.region) {
         ImGui::TextUnformatted(i18n::tr("Preview only. The original model has not changed."));
@@ -178,7 +260,7 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
                              state.region->revision == session->revision;
         ImGui::BeginDisabled(!current);
         if (ImGui::Button(i18n::tr("Apply edit"))) {
-            const auto result = ai::applyEditPlan(*session, *state.region, *state.plan);
+            const auto result = ai::acceptEditPreview(*session, *state.region, *state.preview);
             state.message =
                 result.success ? i18n::tr("AI edit applied. Undo is available.") : result.message;
             if (result.success) {
@@ -196,11 +278,13 @@ void drawAiEditPanel(DocumentSession *session, WorkspaceUiState &workspace) {
         }
     }
     ImGui::Separator();
+    ImGui::TextDisabled("%s", i18n::tr("Mesh subdivision, smoothing, inflation, transforms, solid "
+                                       "colors and basic clothing generation. "
+                                       "Texture upscaling and generation are not supported."));
     ImGui::TextDisabled(
-        "%s", i18n::tr("Procedural loafers, shirts and skirts; solid colors and transforms. Custom "
-                       "fashion and generated textures are not supported."));
-    ImGui::TextDisabled("%s", i18n::tr("Select only clothing or shoe faces. Body surfaces missing "
-                                      "beneath clothing are not reconstructed."));
+        "%s",
+        i18n::tr("Clothing targets are chosen within the captured area. Body surfaces missing "
+                 "beneath clothing are not reconstructed."));
     ImGui::PopTextWrapPos();
     ImGui::End();
 }

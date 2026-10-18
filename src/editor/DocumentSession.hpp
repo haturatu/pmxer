@@ -130,6 +130,8 @@ struct EditorUiState {
     bool aiRegionSelection{};
     bool aiSelectThrough{true};
     bool aiPreviewReadOnly{};
+    std::string aiPreviewSourceId;
+    std::uint64_t aiPreviewSourceDomain{}, aiPreviewSourceRevision{};
     int aiSelectionShape{};
     std::vector<mmd::Float2> aiLasso;
     float boxSelectStartX{};

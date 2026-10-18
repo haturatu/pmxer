@@ -46,6 +46,12 @@ V center(const EditRegion &region) {
         result[i] = (region.minimum[i] + region.maximum[i]) * 0.5F;
     return result;
 }
+V operationPivot(const EditRegion &region, const Operation &op) {
+    V result{};
+    for (std::size_t i = 0; i < 3; ++i)
+        result[i] = region.minimum[i] + (region.maximum[i] - region.minimum[i]) * op.pivot[i];
+    return result;
+}
 std::string namePrefix(const std::string &text) {
     auto length = std::min<std::size_t>(256, text.size());
     while (length < text.size() && length > 0 &&
@@ -292,7 +298,7 @@ Mesh generate(const DocumentSession &session, const EditRegion &region, const Op
         trousers(mesh, region, op);
     else
         garment(mesh, region, op);
-    const auto pivot = center(region);
+    const auto pivot = operationPivot(region, op);
     for (auto &v : mesh.vertices) {
         auto p = sub(v.position, pivot);
         for (std::size_t i = 0; i < 3; ++i)
@@ -403,7 +409,7 @@ EditRegion captureRegion(const DocumentSession &session) {
 }
 
 nlohmann::json regionContext(const DocumentSession &session, const EditRegion &region) {
-    nlohmann::json materials = nlohmann::json::array(), bones = nlohmann::json::array();
+    nlohmann::json materials = nlohmann::json::array();
     std::map<mmd::MaterialHandle, std::vector<std::size_t>> groups;
     for (auto index : region.faceIndices) {
         const auto *face = session.document.resolve(session.document.faceHandle(index));
@@ -434,6 +440,8 @@ nlohmann::json regionContext(const DocumentSession &session, const EditRegion &r
         }
         return result;
     };
+    const auto influencingBones = boneContext(region);
+    auto contextBytes = influencingBones.dump().size() + std::size_t{1024};
     std::map<mmd::MaterialHandle, std::vector<std::size_t>> completeGroups;
     for (std::size_t i = 0; i < session.document.faces().size(); ++i)
         completeGroups[session.document.faces()[i].material].push_back(i);
@@ -444,7 +452,7 @@ nlohmann::json regionContext(const DocumentSession &session, const EditRegion &r
         const auto part = captureFaces(session, groups.at(handle));
         const auto complete = captureFaces(session, completeGroups.at(handle));
         const auto *material = session.document.resolve(handle);
-        materials.push_back({{"index", index},
+        nlohmann::json entry{{"index", index},
                              {"name", namePrefix(material->name)},
                              {"englishName", namePrefix(material->englishName)},
                              {"color", material->diffuse},
@@ -454,7 +462,11 @@ nlohmann::json regionContext(const DocumentSession &session, const EditRegion &r
                              {"completeBoundsMax", complete.maximum},
                              {"boundsMin", part.minimum},
                              {"boundsMax", part.maximum},
-                             {"influencingBones", boneContext(part)}});
+                             {"influencingBones", boneContext(part)}};
+        contextBytes += entry.dump().size() + 1;
+        if (contextBytes > 62000)
+            break;
+        materials.push_back(std::move(entry));
     }
     return {{"selectedFaces", region.faces.size()},
             {"selectedVertices", region.vertices.size()},
@@ -463,11 +475,18 @@ nlohmann::json regionContext(const DocumentSession &session, const EditRegion &r
             {"materials", materials},
             {"materialsTruncated", groups.size() > materials.size()},
             {"allowMaterialExpansion", region.allowMaterialExpansion},
-            {"influencingBones", boneContext(region)}};
+            {"influencingBones", influencingBones}};
 }
 
 EditRegion resolveTarget(const DocumentSession &session, const EditRegion &region,
                          const EditTarget &target) {
+    if (region.domain != session.document.domain() || region.documentId != session.recoveryId ||
+        region.revision != session.revision || region.faceIndices.size() != region.faces.size())
+        throw std::runtime_error("Stale AI target capture");
+    for (std::size_t i = 0; i < region.faces.size(); ++i)
+        if (region.faceIndices[i] >= session.document.faces().size() ||
+            session.document.faceHandle(region.faceIndices[i]) != region.faces[i])
+            throw std::runtime_error("Stale AI target capture");
     std::set<mmd::MaterialHandle> materials;
     for (auto index : target.materialIndices) {
         if (index >= session.document.model().materials.size())
@@ -543,7 +562,8 @@ static OperationResult applyBasicPlan(DocumentSession &session, const EditRegion
         for (std::size_t i = 0; i < 3; ++i)
             if (!std::isfinite(op.scale[i]) || op.scale[i] < 0.05F || op.scale[i] > 20 ||
                 !std::isfinite(op.translation[i]) || std::abs(op.translation[i]) > extent * 2 ||
-                !std::isfinite(op.rotation[i]) || std::abs(op.rotation[i]) > 180)
+                !std::isfinite(op.rotation[i]) || std::abs(op.rotation[i]) > 180 ||
+                !std::isfinite(op.pivot[i]) || op.pivot[i] < 0 || op.pivot[i] > 1)
                 return {false, "AI transform is out of range"};
         for (auto value : op.color)
             if (!std::isfinite(value) || value < 0 || value > 1)
@@ -566,7 +586,7 @@ static OperationResult applyBasicPlan(DocumentSession &session, const EditRegion
                     [](const auto &op) { return op.type == OperationType::transform; });
     const auto mesh = generates ? generate(session, region, plan.operations.front()) : Mesh{};
     const auto originalMaterialCount = session.document.model().materials.size();
-    const auto pivot = center(region);
+    const auto pivot = operationPivot(region, plan.operations.front());
     const auto originalFaces = session.document.faces();
     const std::set<mmd::FaceHandle> chosen(region.faces.begin(), region.faces.end());
     std::set<std::uint64_t> outsideVertices;
@@ -782,40 +802,57 @@ OperationResult applyEditPlan(DocumentSession &session, const EditRegion &region
                 current = captureFaces(staged, next);
             }
         }
-        auto before = std::make_shared<mmd::PmxDocument>();
-        before->restoreSnapshot(session.document, session.document.domain());
-        auto after = std::make_shared<mmd::PmxDocument>();
-        after->restoreSnapshot(staged.document, session.document.domain());
-        const auto materialCount = session.document.model().materials.size();
-        session.document.restoreSnapshot(*after, session.document.domain());
-        session.commands.recordApplied(
-            std::make_unique<AiSnapshotCommand>(std::move(before), std::move(after)));
-        session.modified = session.commands.isModified();
-        ++session.revision;
-        session.validation = session.document.validate();
-        session.changes = staged.changes;
-        session.changes.topologyChanged = true;
-        session.changes.texturesChanged = true;
-        if (!session.ui.isolatedMaterials.empty())
-            for (auto i = materialCount; i < session.document.model().materials.size(); ++i) {
-                const auto h = session.document.materialHandle(i);
-                session.ui.isolatedMaterials.push_back(
-                    {SelectionKind::material, h.domain, h.id, h.generation});
-            }
-        session.selection.retainAlive(session.document);
-        session.ui.clearDrafts();
-        session.ui.viewportPickCache.clear();
-        return {true, {}};
+        staged.ui.aiPreviewReadOnly = true;
+        staged.ui.aiPreviewSourceId = session.recoveryId;
+        staged.ui.aiPreviewSourceDomain = session.document.domain();
+        staged.ui.aiPreviewSourceRevision = session.revision;
+        // Private staging performs one transaction per operation; the source
+        // receives exactly one validated snapshot and one undo entry.
+        return acceptEditPreview(session, region, staged);
     } catch (const std::exception &error) {
         return {false, error.what()};
     }
 }
 
-std::unique_ptr<DocumentSession> makeEditPreview(const DocumentSession &source,
-                                                 const EditRegion &captured, const EditPlan &plan) {
-    if (captured.documentId != source.recoveryId || captured.domain != source.document.domain() ||
-        captured.revision != source.revision)
-        throw std::runtime_error(i18n::tr("The model changed. Capture the selection again."));
+OperationResult acceptEditPreview(DocumentSession &session, const EditRegion &captured,
+                                  const DocumentSession &preview) {
+    if (captured.domain != session.document.domain() || captured.documentId != session.recoveryId ||
+        captured.revision != session.revision)
+        return {false, i18n::tr("The model changed. Capture the selection again.")};
+    if (session.hasPendingTransformEdit())
+        return {false, i18n::tr("Finish or discard temporary transforms first.")};
+    if (!preview.ui.aiPreviewReadOnly || preview.ui.aiPreviewSourceId != session.recoveryId ||
+        preview.ui.aiPreviewSourceDomain != session.document.domain() ||
+        preview.ui.aiPreviewSourceRevision != session.revision ||
+        !preview.document.validate().valid())
+        return {false, "Invalid AI preview"};
+    auto before = std::make_shared<mmd::PmxDocument>();
+    before->restoreSnapshot(session.document, session.document.domain());
+    auto after = std::make_shared<mmd::PmxDocument>();
+    after->restoreSnapshot(preview.document, session.document.domain());
+    const auto materialCount = session.document.model().materials.size();
+    session.document.restoreSnapshot(*after, session.document.domain());
+    session.commands.recordApplied(
+        std::make_unique<AiSnapshotCommand>(std::move(before), std::move(after)));
+    session.modified = session.commands.isModified();
+    ++session.revision;
+    session.validation = session.document.validate();
+    session.changes = preview.changes;
+    session.changes.topologyChanged = true;
+    session.changes.texturesChanged = true;
+    if (!session.ui.isolatedMaterials.empty())
+        for (auto i = materialCount; i < session.document.model().materials.size(); ++i) {
+            const auto h = session.document.materialHandle(i);
+            session.ui.isolatedMaterials.push_back(
+                {SelectionKind::material, h.domain, h.id, h.generation});
+        }
+    session.selection.retainAlive(session.document);
+    session.ui.clearDrafts();
+    session.ui.viewportPickCache.clear();
+    return {true, {}};
+}
+
+std::unique_ptr<DocumentSession> prepareEditPreview(const DocumentSession &source) {
     if (source.hasPendingTransformEdit())
         throw std::runtime_error(i18n::tr("Finish or discard temporary transforms first."));
     auto preview = std::make_unique<DocumentSession>();
@@ -831,6 +868,9 @@ std::unique_ptr<DocumentSession> makeEditPreview(const DocumentSession &source,
     preview->ui.boxSelecting = false;
     preview->ui.morphOffsetTarget = {};
     preview->ui.aiPreviewReadOnly = true;
+    preview->ui.aiPreviewSourceId = source.recoveryId;
+    preview->ui.aiPreviewSourceDomain = source.document.domain();
+    preview->ui.aiPreviewSourceRevision = source.revision;
     preview->ui.aiRegionSelection = false;
     // Snapshot handles retain IDs and generations, with an independent domain.
     for (auto *items : {&preview->ui.hiddenMaterials, &preview->ui.isolatedMaterials})
@@ -846,6 +886,17 @@ std::unique_ptr<DocumentSession> makeEditPreview(const DocumentSession &source,
     preview->preview.soloMorph.domain = domain;
     preview->previewIk = source.previewIk;
     preview->previewPhysics = false;
+    return preview;
+}
+
+std::unique_ptr<DocumentSession> makeEditPreview(const DocumentSession &source,
+                                                 const EditRegion &captured, const EditPlan &plan) {
+    if (captured.documentId != source.recoveryId || captured.domain != source.document.domain() ||
+        captured.revision != source.revision)
+        throw std::runtime_error(i18n::tr("The model changed. Capture the selection again."));
+    if (source.hasPendingTransformEdit())
+        throw std::runtime_error(i18n::tr("Finish or discard temporary transforms first."));
+    auto preview = prepareEditPreview(source);
     auto region = captureFaces(*preview, captured.faceIndices);
     region.allowMaterialExpansion = captured.allowMaterialExpansion;
     const auto result = applyEditPlan(*preview, region, plan);

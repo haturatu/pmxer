@@ -168,7 +168,7 @@ int main() {
             require(mmd::pmx::semanticCompare(model, source.document.model()).equal() &&
                         source.commands.undoCount() == 0 && source.ui.isolatedMaterials.size() == 1,
                     "Preview modified the source model or its view");
-            require(applyEditPlan(source, captured, plan).success &&
+            require(acceptEditPreview(source, captured, *preview).success &&
                         source.ui.isolatedMaterials.size() == 2,
                     "Applied generation disappeared from isolated view");
         }
@@ -416,6 +416,77 @@ int main() {
             invalid["operations"][0]["shape"] = "dress";
             invalid["operations"].push_back(invalid["operations"][0]);
             fails(invalid);
+        }
+        {
+            auto model = sample();
+            model.format.vertexIndexSize = 1;
+            model.vertices.resize(257, model.vertices[0]);
+            DocumentSession widened(model);
+            const auto path = std::filesystem::temp_directory_path() /
+                              ("pmxer-ai-width-" + widened.recoveryId + ".pmx");
+            const auto result = saveDocument(widened, path);
+            require(result.success && result.report.vertex.widened() && result.verification.equal(),
+                    "Index width growth prevented saving a denser mesh");
+            const auto loaded = mmd::pmx::load(path);
+            require(loaded.format.vertexIndexSize == 2 &&
+                        mmd::pmx::semanticCompare(model, loaded).equal(),
+                    "Widened PMX changed model semantics");
+            std::filesystem::remove(path);
+        }
+        {
+            DocumentSession hair(sample());
+            Operation lengthen;
+            lengthen.type = OperationType::transform;
+            lengthen.scale = {1, 2, 1};
+            lengthen.pivot = {0.5F, 1, 0.5F};
+            require(applyEditPlan(hair, captureFaces(hair, std::array<std::size_t, 2>{0, 1}),
+                                  EditPlan{"Lengthen from roots", {lengthen}})
+                        .success,
+                    "Anchored transform failed");
+            require(hair.document.model().vertices[2].position[1] == 1 &&
+                        hair.document.model().vertices[0].position[1] == -1,
+                    "Anchored transform moved the roots or waistband");
+        }
+        {
+            DocumentSession source(sample());
+            const auto captured = captureFaces(source, std::array<std::size_t, 2>{0, 1});
+            auto prepared = prepareEditPreview(source);
+            const auto privateRegion = captureFaces(*prepared, captured.faceIndices);
+            auto edit = parsePlan(j.dump());
+            require(applyEditPlan(source, captured, edit).success &&
+                        applyEditPlan(*prepared, privateRegion, edit).success,
+                    "Independent background preparation failed");
+            const auto changed = source.document.model();
+            require(!acceptEditPreview(source, captured, *prepared).success &&
+                        mmd::pmx::semanticCompare(changed, source.document.model()).equal(),
+                    "Stale background preview overwrote newer edits");
+            DocumentSession foreign(sample());
+            require(!acceptEditPreview(foreign,
+                                       captureFaces(foreign, std::array<std::size_t, 2>{0, 1}),
+                                       *prepared)
+                         .success,
+                    "Preview from another document was accepted");
+        }
+        {
+            auto many = sample();
+            many.indices.clear();
+            many.materials.clear();
+            many.bones[0].name = std::string(256, '\1');
+            many.bones[1].name = many.bones[0].name;
+            for (int i = 0; i < 256; ++i) {
+                auto material = sample().materials[0];
+                material.name = std::string(256, '\1');
+                material.englishName = material.name;
+                many.materials.push_back(material);
+                many.indices.insert(many.indices.end(), {0, 1, 2, 0, 2, 3});
+            }
+            DocumentSession session(many);
+            std::vector<std::size_t> indices;
+            for (std::size_t i = 0; i < session.document.faces().size(); ++i)
+                indices.push_back(i);
+            const auto context = regionContext(session, captureFaces(session, indices));
+            require(context.dump().size() <= 65536 && context["materialsTruncated"] == true,
+                    "Material context exceeds the Codex request budget");
         }
         DocumentSession changed(sample());
         auto frozen = captureFaces(changed, std::array<std::size_t, 1>{0});

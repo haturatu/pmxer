@@ -157,14 +157,16 @@ void editMesh(mmd::PmxDocument &doc, mmd::PmxDocument::Transaction &tx, const Ed
             }
             return h;
         };
-        // Stable handles survive reverse-order erasure. Copy faces before vector
-        // reallocation.
-        for (auto it = region.faces.rbegin(); it != region.faces.rend(); ++it) {
-            const auto face = *doc.resolve(*it);
-            const auto a = face.vertices[0], b = face.vertices[1], c = face.vertices[2];
-            const auto ab = middle(a, b), bc = middle(b, c), ca = middle(c, a);
+        // Delete before appending: interleaving would shift the growing output
+        // four times for every input triangle. The document still holds the
+        // immutable input while the transaction builds the new face graph.
+        for (auto it = region.faces.rbegin(); it != region.faces.rend(); ++it)
             if (!tx.eraseFace(*it))
                 throw std::runtime_error("AI subdivision lost a face");
+        for (auto h : region.faces) {
+            const auto face = *doc.resolve(h);
+            const auto a = face.vertices[0], b = face.vertices[1], c = face.vertices[2];
+            const auto ab = middle(a, b), bc = middle(b, c), ca = middle(c, a);
             (void)tx.addFace(a, ab, ca, face.material);
             (void)tx.addFace(ab, b, bc, face.material);
             (void)tx.addFace(ca, bc, c, face.material);
