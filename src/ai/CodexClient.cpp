@@ -82,7 +82,8 @@ class Server {
             if (n == 0)
                 SDL_Delay(10);
         }
-        SDL_FlushIO(input_);
+        // SDL process pipes are unbuffered. FlushFileBuffers on a Windows pipe can
+        // wait for the peer and deadlock an otherwise asynchronous RPC exchange.
     }
     Json next() {
         if (!pending_.empty()) {

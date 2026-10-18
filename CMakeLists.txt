@@ -431,6 +431,7 @@ if(BUILD_TESTING)
     add_executable(pmxer_codex_tests tests/integration/CodexClientTests.cpp)
     target_link_libraries(pmxer_codex_tests PRIVATE pmxer_codex)
     add_test(NAME pmxer_codex COMMAND pmxer_codex_tests)
+    set_tests_properties(pmxer_codex PROPERTIES TIMEOUT 45)
     add_executable(pmxer_ai_smoke tests/integration/AiSmoke.cpp)
     target_link_libraries(pmxer_ai_smoke PRIVATE pmxer_codex)
     add_executable(pmxer_image_decoder_tests
