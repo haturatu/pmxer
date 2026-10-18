@@ -74,7 +74,7 @@ Json planSchema() {
                   {"additionalProperties", false},
                   {"required",
                    {"type", "shape", "color", "translation", "scale", "rotation", "replace",
-                    "detail", "amount", "iterations", "pivot"}},
+                    "detail", "amount", "iterations", "pivot", "garment"}},
                   {"properties",
                    {{"type",
                      {{"type", "string"},
@@ -84,6 +84,22 @@ Json planSchema() {
                      {{"type", "string"},
                       {"enum",
                        {"none", "loafers", "shirt", "skirt", "dress", "pants", "boots", "coat"}}}},
+                    {"garment",
+                     {{"type", "object"},
+                      {"additionalProperties", false},
+                      {"required",
+                       {"style", "trimColor", "accentColor", "tiers", "skirtLength", "sleeveLength",
+                        "fullness", "bowSize", "lace"}},
+                      {"properties",
+                       {{"style", {{"type", "string"}, {"enum", {"plain", "gothic_lolita"}}}},
+                        {"trimColor", array(4, 0, 1)},
+                        {"accentColor", array(4, 0, 1)},
+                        {"tiers", {{"type", "integer"}, {"minimum", 1}, {"maximum", 4}}},
+                        {"skirtLength", {{"type", "number"}, {"minimum", 0.5}, {"maximum", 1.5}}},
+                        {"sleeveLength", {{"type", "number"}, {"minimum", 0}, {"maximum", 2.1}}},
+                        {"fullness", {{"type", "number"}, {"minimum", 0.6}, {"maximum", 1.6}}},
+                        {"bowSize", {{"type", "number"}, {"minimum", 0}, {"maximum", 1.5}}},
+                        {"lace", {{"type", "boolean"}}}}}}},
                     {"color", array(4, 0, 1)},
                     {"translation", array(3, -100, 100)},
                     {"scale", array(3, 0.05F, 20)},
@@ -134,7 +150,7 @@ EditPlan parsePlan(std::string_view text) {
         exactKeys(
             value,
             {"type", "shape", "color", "translation", "scale", "rotation", "replace", "detail"},
-            {"amount", "iterations", "pivot"});
+            {"amount", "iterations", "pivot", "garment"});
         const auto type = value.at("type").get<std::string>();
         const auto shape = value.at("shape").get<std::string>();
         Operation op;
@@ -202,6 +218,35 @@ EditPlan parsePlan(std::string_view text) {
         }
         if (op.type == OperationType::smooth)
             require(op.amount >= 0 && op.amount <= 1, "Smoothing strength is out of range");
+        if (value.contains("garment")) {
+            const auto &design = value["garment"];
+            exactKeys(design, {"style", "trimColor", "accentColor", "tiers", "skirtLength",
+                               "sleeveLength", "fullness", "bowSize", "lace"});
+            const auto style = design.at("style").get<std::string>();
+            require(style == "plain" || style == "gothic_lolita", "Unsupported garment style");
+            op.garment.style = style == "plain" ? GarmentStyle::plain : GarmentStyle::gothicLolita;
+            op.garment.trimColor = vector<4>(design["trimColor"], 0, 1);
+            op.garment.accentColor = vector<4>(design["accentColor"], 0, 1);
+            require(design["tiers"].is_number_integer() && design["tiers"] >= 1 &&
+                        design["tiers"] <= 4,
+                    "Invalid garment tiers");
+            op.garment.tiers = design["tiers"].get<int>();
+            const auto scalar = [&](const char *name, double lo, double hi) {
+                require(design[name].is_number(), "Invalid garment parameter");
+                const auto n = design[name].get<double>();
+                require(std::isfinite(n) && n >= lo && n <= hi,
+                        "Garment parameter is out of range");
+                return static_cast<float>(n);
+            };
+            op.garment.skirtLength = scalar("skirtLength", 0.5, 1.5);
+            op.garment.sleeveLength = scalar("sleeveLength", 0, 2.1);
+            op.garment.fullness = scalar("fullness", 0.6, 1.6);
+            op.garment.bowSize = scalar("bowSize", 0, 1.5);
+            require(design["lace"].is_boolean(), "Invalid garment lace flag");
+            op.garment.lace = design["lace"].get<bool>();
+            require(op.shape == Shape::dress || op.garment.style == GarmentStyle::plain,
+                    "Garment styles require a dress");
+        }
         result.operations.push_back(op);
     }
     return result;
@@ -216,7 +261,7 @@ Choose target.materialIndices from context.materials[].index using names, bounds
 Supported combinable operations (up to 8): recolor, transform, subdivide, smooth, inflate, generate.
 For upscale/high resolution/detail requests, use subdivide: each iteration splits each triangle into four, preserving UVs and interpolating weights/morphs. Default iterations=1, max=3. Add gentle smooth (amount=0.1..0.3) if requested. This increases mesh resolution, not texture pixels or invented fine detail. For explicit size enlargement use transform.scale (0.05..20). transform.pivot is a normalized [0..1] position in the target bounds, default [0.5,0.5,0.5]. For hair length or garment/skirt/pants length anchor to the top using pivot=[0.5,1,0.5] so roots/waist stay in place; for whole model size anchor to bottom [0.5,0,0.5]. If 'upscale' is ambiguous, default to mesh resolution and state that interpretation.
 For smooth use amount=0..1 and iterations=1..3; boundary vertices stay fixed. For inflate/slim/thicken/loosen use signed amount in PMX units along normals; use small amounts relative to target bounds. Hair length/width, clothing length/fit, proportions can use nonuniform transform, smooth and inflate while preserving existing textured geometry. Prefer editing existing geometry for a design that can be achieved that way.
-For clothing/footwear replacement generate supports shapes: loafers, boots, shirt (short sleeves), coat (long sleeves), skirt (pleated), dress (fitted upper body and flared skirt), pants (two tapered leg tubes). For general outfit requests choose the closest honest basic shape and explicitly describe the approximation in summary instead of refusing the entire request. Use dimensions, color and subsequent operations to reflect the request. Never claim exact fashion details, buttons, photorealism or generated textures that these shapes do not provide.
+For clothing/footwear replacement generate supports shapes: loafers, boots, shirt (short sleeves), coat (long sleeves), skirt (pleated), dress (locally fitted bodice, sleeves, rounded collar and bell skirt), pants (two tapered leg tubes). For Gothic Lolita/ゴスロリ/哥特洛丽塔/готическая лолита requests use shape=dress and garment.style=gothic_lolita. This constructs a fitted bodice, arm-aligned puff sleeves and cuffs, bell skirt with tiers, ruffles/openwork trim, rounded white collar, ribbon bows and corset lacing locally. Do not reduce Gothic Lolita to a plain black dress. garment has trimColor, accentColor, tiers=1..4, skirtLength=0.5..1.5 (relative to original hem-to-waist length), sleeveLength=0..2.1 (0=no sleeves, 1=elbow, 2=wrist; interpolate along shoulder/elbow/wrist bones), fullness=0.6..1.6, bowSize=0..1.5 (zero removes bows/lacing), and lace=true/false. Defaults: ivory trim, burgundy accents, tiers=3, skirtLength=1, sleeveLength=2, fullness=1, bowSize=1, lace=true. Default to long sleeves to keep coverage when the model omits skin beneath its original clothing. Short sleeves are available when explicitly requested; explain that missing arm/body surfaces are not reconstructed. Use requested colors and components. The body/arm fit uses source surface measurements and recognizable neck/arm/spine bones. For ordinary dresses use style=plain, which constructs a fitted dress without the Gothic decorations. For other operations keep neutral garment defaults with style=plain. If a requested style needs unsupported components, explicitly describe missing components and the actual construction; do not label an unrelated primitive as a finished fashion style. Use dimensions, color and subsequent operations to reflect the request. Never claim exact reference reproduction, arbitrary ornaments, buttons, photorealism, textures, physics simulation or collision-free fitting that this local construction does not provide.
 Generate must be the first operation and occur at most once. Subsequent operations affect the generated mesh only. Set replace=true unless asked to add an overlay. Use color for solid RGBA, scale relative to the TARGET bounding box, translation in PMX units, rotation in XYZ degrees. detail=8..64 (default 24) controls segments/pleats. Generation transfers existing bone weights but does not reconstruct missing body geometry.
 For non-generate operations shape=none. Neutral unused fields: color=[1,1,1,1], translation=[0,0,0], scale=[1,1,1], rotation=[0,0,0], replace=false, detail=24, amount=0.25, iterations=1, pivot=[0.5,0.5,0.5]. Recolor is solid color; transforms use the specified normalized pivot.
 Fulfil all representable parts of a request; if some parts (texture upscaling/generation, arbitrary new topology, physics, body reconstruction) cannot be represented, clearly state those limits in summary with the actual edits proposed. Return operations=[] only when no useful requested edit is possible or the target cannot be identified. Do not silently substitute unrelated actions.

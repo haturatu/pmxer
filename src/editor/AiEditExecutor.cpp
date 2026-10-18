@@ -1,5 +1,6 @@
 #include "AiEditExecutor.hpp"
 #include "AiMeshOperations.hpp"
+#include "TailoredGarment.hpp"
 #include "i18n/Language.hpp"
 #include <algorithm>
 #include <cmath>
@@ -584,7 +585,9 @@ static OperationResult applyBasicPlan(DocumentSession &session, const EditRegion
     const bool transforms =
         std::any_of(plan.operations.begin(), plan.operations.end(),
                     [](const auto &op) { return op.type == OperationType::transform; });
-    const auto mesh = generates ? generate(session, region, plan.operations.front()) : Mesh{};
+    const bool tailored = generates && first.shape == Shape::dress;
+    const auto outfit = tailored ? makeTailoredDress(session, region, first) : GarmentGeometry{};
+    const auto mesh = generates && !tailored ? generate(session, region, first) : Mesh{};
     const auto originalMaterialCount = session.document.model().materials.size();
     const auto pivot = operationPivot(region, plan.operations.front());
     const auto originalFaces = session.document.faces();
@@ -597,6 +600,22 @@ static OperationResult applyBasicPlan(DocumentSession &session, const EditRegion
     auto result = commitAiTransaction(session, [&](auto &tx) {
         if (generates) {
             const auto &op = plan.operations.front();
+            if (tailored) {
+                std::vector<mmd::MaterialHandle> materials;
+                for (const auto &material : outfit.materials)
+                    materials.push_back(tx.addMaterial(material));
+                std::vector<mmd::VertexHandle> vertices;
+                for (const auto &vertex : outfit.vertices)
+                    vertices.push_back(tx.addVertex(vertex));
+                for (const auto &face : outfit.triangles)
+                    (void)tx.addFace(vertices[face.a], vertices[face.b], vertices[face.c],
+                                     materials[face.material]);
+                if (op.replace)
+                    for (auto it = region.faces.rbegin(); it != region.faces.rend(); ++it)
+                        if (!tx.eraseFace(*it))
+                            return false;
+                return true;
+            }
             mmd::PmxMaterial material;
             material.name = op.shape == Shape::loafers ? "AI Loafers"
                             : op.shape == Shape::shirt ? "AI Shirt"
@@ -761,6 +780,9 @@ OperationResult applyEditPlan(DocumentSession &session, const EditRegion &region
             default:
                 throw std::runtime_error("Unsupported AI operation");
             }
+            if (operation.garment.style != GarmentStyle::plain &&
+                (operation.type != OperationType::generate || operation.shape != Shape::dress))
+                throw std::runtime_error("Garment styles require dress generation");
             if ((operation.type == OperationType::generate) != (operation.shape != Shape::none) ||
                 operation.shape < Shape::none || operation.shape > Shape::coat)
                 throw std::runtime_error("Invalid AI operation shape");

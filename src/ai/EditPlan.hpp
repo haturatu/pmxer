@@ -10,6 +10,20 @@ namespace pmxer::ai {
 enum class OperationType { recolor, transform, generate, subdivide, smooth, inflate };
 enum class Shape { none, loafers, shirt, skirt, dress, pants, boots, coat };
 
+enum class GarmentStyle { plain, gothicLolita };
+struct GarmentDesign {
+    GarmentStyle style{GarmentStyle::plain};
+    mmd::Float4 trimColor{0.94F, 0.92F, 0.86F, 1};
+    mmd::Float4 accentColor{0.32F, 0.025F, 0.07F, 1};
+    int tiers{3};
+    float skirtLength{1};
+    float sleeveLength{
+        2.0F}; // 1 = elbow; 2 = wrist. Preserve coverage when body geometry is missing.
+    float fullness{1};
+    float bowSize{1};
+    bool lace{true};
+};
+
 struct Operation {
     OperationType type{OperationType::recolor};
     Shape shape{Shape::none};
@@ -22,6 +36,7 @@ struct Operation {
     int detail{24};
     float amount{0.25F}; // Smoothing strength or normal displacement in PMX units.
     int iterations{1};
+    GarmentDesign garment{};
 };
 
 struct EditTarget {
