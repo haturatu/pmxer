@@ -45,7 +45,7 @@ make test
 ```
 
 Makefile は CMake preset を呼び出す薄い操作 UI です。初回の `make` では
-`external/libmmd` サブモジュールも自動初期化されます。CMakeを直接操作する場合は、
+`external/libmmd` サブモジュール（[libmmd v0.3.0](https://github.com/haturatu/libmmd/releases/tag/v0.3.0)）も自動初期化されます。CMakeを直接操作する場合は、
 `CMakePresets.json` の `linux-dev`、`linux-cli`、`linux-clang`、
 `linux-release` などを利用できます。
 
