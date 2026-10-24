@@ -42,6 +42,18 @@ option(PMXER_FETCH_LIBMMD_DEPENDENCIES "Allow the PMX library to fetch physics d
 option(PMXER_WARNINGS_AS_ERRORS "Treat project warnings as errors" OFF)
 option(PMXER_ENABLE_SANITIZERS "Enable address and undefined behavior sanitizers" OFF)
 
+if(PMXER_BUILD_GUI OR BUILD_TESTING)
+  find_package(nlohmann_json 3.11 CONFIG QUIET)
+  if(NOT TARGET nlohmann_json::nlohmann_json)
+    set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(nlohmann_json
+      URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+      URL_HASH SHA256=d6c65aca6b1ed68e7a182f4757257b107ae403032760ed6ef121c9d55e81757d
+      DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_MakeAvailable(nlohmann_json)
+  endif()
+endif()
+
 set(LIBMMD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(LIBMMD_INSTALL OFF CACHE BOOL "" FORCE)
 set(LIBMMD_ENABLE_PHYSICS ${PMXER_ENABLE_PHYSICS} CACHE BOOL "" FORCE)
@@ -102,6 +114,12 @@ add_library(pmxer_editor
 )
 target_include_directories(pmxer_editor PUBLIC src)
 target_link_libraries(pmxer_editor PUBLIC mmd::core pmxer_platform pmxer_i18n)
+
+if(PMXER_BUILD_GUI OR BUILD_TESTING)
+  add_library(pmxer_ai src/ai/EditPlan.cpp src/editor/AiEditExecutor.cpp src/editor/AiMeshOperations.cpp src/editor/TailoredGarment.cpp)
+  target_include_directories(pmxer_ai PUBLIC src)
+  target_link_libraries(pmxer_ai PUBLIC pmxer_editor nlohmann_json::nlohmann_json)
+endif()
 
 add_library(pmxer_command_line
   src/app/CommandLine.cpp
@@ -333,7 +351,12 @@ if(PMXER_BUILD_GUI)
     message(FATAL_ERROR "PMXER_BUILD_GUI requires PMXER_FETCH_GUI_DEPENDENCIES=ON in this source tree")
   endif()
 
+  find_package(Threads REQUIRED)
+  add_library(pmxer_codex src/ai/CodexClient.cpp)
+  target_include_directories(pmxer_codex PUBLIC src)
+  target_link_libraries(pmxer_codex PUBLIC pmxer_ai SDL3::SDL3 Threads::Threads)
   add_library(pmxer_ui
+    src/ui/AiEditPanel.cpp
     src/ui/TransformViewPanel.cpp
     src/ui/MainWindow.cpp
     src/ui/EditorPanels.cpp
@@ -350,7 +373,7 @@ if(PMXER_BUILD_GUI)
   )
   target_include_directories(pmxer_ui PUBLIC src)
   target_include_directories(pmxer_ui SYSTEM PRIVATE "${stb_image_SOURCE_DIR}" "${bcdec_SOURCE_DIR}")
-  target_link_libraries(pmxer_ui PUBLIC pmxer_render pmxer_imgui pmxer_gizmo SDL3::SDL3)
+  target_link_libraries(pmxer_ui PUBLIC pmxer_render pmxer_imgui pmxer_gizmo pmxer_codex SDL3::SDL3)
   target_compile_definitions(pmxer_ui PRIVATE PMXER_HAS_GUI=1 PMXER_SHADER_DIRECTORY="${PMXER_SHADER_OUTPUT_DIR}")
 endif()
 
@@ -368,8 +391,11 @@ endif()
 
 if(PMXER_WARNINGS_AS_ERRORS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   set(PMXER_WARNING_TARGETS pmxer_i18n pmxer_platform pmxer_editor pmxer_command_line pmxer_commands pmxer_preview pmxer_render pmxer)
+  if(TARGET pmxer_ai)
+    list(APPEND PMXER_WARNING_TARGETS pmxer_ai)
+  endif()
   if(TARGET pmxer_ui)
-    list(APPEND PMXER_WARNING_TARGETS pmxer_ui)
+    list(APPEND PMXER_WARNING_TARGETS pmxer_ui pmxer_codex)
   endif()
   foreach(target IN LISTS PMXER_WARNING_TARGETS)
     target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wformat-security -Werror)
@@ -377,6 +403,17 @@ if(PMXER_WARNINGS_AS_ERRORS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 if(BUILD_TESTING)
+  add_executable(pmxer_resources_tests tests/unit/ResourceLocatorTests.cpp)
+  target_link_libraries(pmxer_resources_tests PRIVATE pmxer_render pmxer_platform)
+  add_test(NAME pmxer_resources COMMAND pmxer_resources_tests)
+  add_executable(pmxer_ai_tests tests/unit/AiEditTests.cpp)
+  target_link_libraries(pmxer_ai_tests PRIVATE pmxer_ai)
+  add_test(NAME pmxer_ai COMMAND pmxer_ai_tests)
+  add_executable(pmxer_mesh_smoke tests/integration/MeshQualitySmoke.cpp)
+  target_link_libraries(pmxer_mesh_smoke PRIVATE pmxer_ai)
+  add_executable(pmxer_tailored_tests tests/unit/TailoredGarmentTests.cpp)
+  target_link_libraries(pmxer_tailored_tests PRIVATE pmxer_ai)
+  add_test(NAME pmxer_tailored COMMAND pmxer_tailored_tests)
   add_executable(pmxer_i18n_tests tests/unit/I18nTests.cpp)
   target_link_libraries(pmxer_i18n_tests PRIVATE pmxer_editor)
   add_test(NAME pmxer_i18n COMMAND pmxer_i18n_tests)
@@ -396,6 +433,15 @@ if(BUILD_TESTING)
   target_link_libraries(pmxer_command_line_tests PRIVATE pmxer_command_line)
   add_test(NAME pmxer_command_line COMMAND pmxer_command_line_tests)
   if(PMXER_BUILD_GUI)
+    add_executable(pmxer_ai_picking_tests tests/unit/AiPickingTests.cpp src/ui/ViewportPicking.cpp)
+    target_link_libraries(pmxer_ai_picking_tests PRIVATE pmxer_editor pmxer_imgui)
+    add_test(NAME pmxer_ai_picking COMMAND pmxer_ai_picking_tests)
+    add_executable(pmxer_codex_tests tests/integration/CodexClientTests.cpp)
+    target_link_libraries(pmxer_codex_tests PRIVATE pmxer_codex)
+    add_test(NAME pmxer_codex COMMAND pmxer_codex_tests)
+    set_tests_properties(pmxer_codex PROPERTIES TIMEOUT 45)
+    add_executable(pmxer_ai_smoke tests/integration/AiSmoke.cpp)
+    target_link_libraries(pmxer_ai_smoke PRIVATE pmxer_codex)
     add_executable(pmxer_image_decoder_tests
       tests/unit/ImageDecoderTests.cpp
       src/render/ImageDecoder.cpp
@@ -403,6 +449,25 @@ if(BUILD_TESTING)
     target_include_directories(pmxer_image_decoder_tests PRIVATE src)
     target_include_directories(pmxer_image_decoder_tests SYSTEM PRIVATE "${stb_image_SOURCE_DIR}" "${bcdec_SOURCE_DIR}")
     add_test(NAME pmxer_image_decoder COMMAND pmxer_image_decoder_tests)
+  endif()
+endif()
+
+# Keep the SDL runtime beside Windows executables, including test children.
+# Link-time discovery does not put the dependency build directory on the DLL search path.
+if(WIN32 AND PMXER_BUILD_GUI)
+  get_target_property(PMXER_SDL_LIBRARY_TYPE SDL3::SDL3 TYPE)
+  if(PMXER_SDL_LIBRARY_TYPE STREQUAL "SHARED_LIBRARY")
+    add_custom_target(pmxer_sdl_runtime ALL
+      COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:pmxer>
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              $<TARGET_FILE:SDL3::SDL3> $<TARGET_FILE_DIR:pmxer>
+      VERBATIM)
+    foreach(target IN ITEMS pmxer pmxer_codex_tests pmxer_ai_smoke)
+      if(TARGET ${target})
+        add_dependencies(${target} pmxer_sdl_runtime)
+      endif()
+    endforeach()
+    install(FILES $<TARGET_FILE:SDL3::SDL3> DESTINATION bin)
   endif()
 endif()
 

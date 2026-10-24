@@ -20,6 +20,8 @@ bool insideTriangle(ImVec2 point, ImVec2 a, ImVec2 b, ImVec2 c) {
     const auto first = sign(point, a, b);
     const auto second = sign(point, b, c);
     const auto third = sign(point, c, a);
+    if (std::abs(sign(a, b, c)) < 1e-6F)
+        return false;
     return !((first < 0.0F || second < 0.0F || third < 0.0F) &&
              (first > 0.0F || second > 0.0F || third > 0.0F));
 }
@@ -209,7 +211,18 @@ pickViewport(const DocumentSession &session,
             const auto &third = cache.vertices[thirdIndex];
             if (!first.inFront || !second.inFront || !third.inFront)
                 continue;
-            const auto depth = (first.depth + second.depth + third.depth) / 3.0F;
+            const auto area = (second.x - first.x) * (third.y - first.y) -
+                              (second.y - first.y) * (third.x - first.x);
+            if (std::abs(area) < 1e-6F)
+                continue;
+            const auto wa = ((second.x - mouse.x) * (third.y - mouse.y) -
+                             (second.y - mouse.y) * (third.x - mouse.x)) /
+                            area;
+            const auto wb = ((third.x - mouse.x) * (first.y - mouse.y) -
+                             (third.y - mouse.y) * (first.x - mouse.x)) /
+                            area;
+            const auto depth =
+                wa * first.depth + wb * second.depth + (1.0F - wa - wb) * third.depth;
             if (depth < hitDepth &&
                 insideTriangle(mouse, {first.x, first.y}, {second.x, second.y},
                                {third.x, third.y})) {
@@ -359,6 +372,103 @@ pickViewportRectangle(const DocumentSession &session,
                     result.push_back({itemFor(session, SelectionKind::material, material), material, face, center});
                 }
             }
+        }
+    }
+    return result;
+}
+
+std::vector<ViewportPickResult> pickViewportRegion(const DocumentSession &session,
+                                                   const std::vector<mmd::PmxVertex> &vertices,
+                                                   const CameraState &camera, ImVec2 origin,
+                                                   ImVec2 size, const std::vector<ImVec2> &polygon,
+                                                   bool through) {
+    if (polygon.size() < 3)
+        return {};
+    const auto &cache = ensurePickCache(session, vertices, camera, origin, size);
+    const auto contains = [&](ImVec2 p) {
+        bool inside = false;
+        for (std::size_t i = 0, j = polygon.size() - 1; i < polygon.size(); j = i++) {
+            const auto a = polygon[i], b = polygon[j];
+            if ((a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)
+                inside = !inside;
+        }
+        return inside;
+    };
+    const auto intersection = [](ImVec2 a, ImVec2 b, ImVec2 c, ImVec2 d) -> std::optional<ImVec2> {
+        const auto rx = b.x - a.x, ry = b.y - a.y, sx = d.x - c.x, sy = d.y - c.y;
+        const auto denominator = rx * sy - ry * sx;
+        if (std::abs(denominator) < 1e-6F)
+            return std::nullopt;
+        const auto t = ((c.x - a.x) * sy - (c.y - a.y) * sx) / denominator;
+        const auto u = ((c.x - a.x) * ry - (c.y - a.y) * rx) / denominator;
+        if (t < 0 || t > 1 || u < 0 || u > 1)
+            return std::nullopt;
+        return ImVec2{a.x + t * rx, a.y + t * ry};
+    };
+    float minX = polygon[0].x, maxX = minX, minY = polygon[0].y, maxY = minY;
+    for (auto p : polygon) {
+        minX = std::min(minX, p.x);
+        maxX = std::max(maxX, p.x);
+        minY = std::min(minY, p.y);
+        maxY = std::max(maxY, p.y);
+    }
+    std::vector<ViewportPickResult> result;
+    const auto &model = session.document.model();
+    for (std::size_t face = 0; face < model.indices.size() / 3U; ++face) {
+        if (!materialVisible(session, cache.faceMaterial[face]))
+            continue;
+        std::array<ImVec2, 3> points;
+        bool valid = true;
+        for (std::size_t v = 0; v < 3; ++v) {
+            const auto index = model.indices[face * 3 + v];
+            if (index >= cache.vertices.size() || !cache.vertices[index].inFront) {
+                valid = false;
+                break;
+            }
+            points[v] = {cache.vertices[index].x, cache.vertices[index].y};
+        }
+        if (!valid || std::max({points[0].x, points[1].x, points[2].x}) < minX ||
+            std::min({points[0].x, points[1].x, points[2].x}) > maxX ||
+            std::max({points[0].y, points[1].y, points[2].y}) < minY ||
+            std::min({points[0].y, points[1].y, points[2].y}) > maxY)
+            continue;
+        const ImVec2 center{(points[0].x + points[1].x + points[2].x) / 3,
+                            (points[0].y + points[1].y + points[2].y) / 3};
+        std::vector<ImVec2> samples;
+        if (contains(center))
+            samples.push_back(center);
+        for (auto p : points)
+            if (contains(p))
+                samples.push_back(p);
+        for (auto p : polygon)
+            if (insideTriangle(p, points[0], points[1], points[2]))
+                samples.push_back(p);
+        for (std::size_t edge = 0; edge < 3; ++edge)
+            for (std::size_t i = 0; i < polygon.size(); ++i)
+                if (auto p = intersection(points[edge], points[(edge + 1) % 3], polygon[i],
+                                          polygon[(i + 1) % polygon.size()]))
+                    samples.push_back(*p);
+        if (samples.empty())
+            continue;
+        bool visible = through;
+        if (!through)
+            for (auto sample : samples) {
+                // Inset boundary samples to avoid choosing the neighboring triangle on a shared
+                // edge.
+                sample.x = sample.x * 0.999F + center.x * 0.001F;
+                sample.y = sample.y * 0.999F + center.y * 0.001F;
+                const auto hit = pickViewport(session, vertices, camera, origin, size, sample);
+                if (hit && hit->face == face) {
+                    visible = true;
+                    break;
+                }
+            }
+        if (visible) {
+            mmd::Float3 world{};
+            for (std::size_t v = 0; v < 3; ++v)
+                for (std::size_t axis = 0; axis < 3; ++axis)
+                    world[axis] += vertices[model.indices[face * 3 + v]].position[axis] / 3;
+            result.push_back({itemFor(session, SelectionKind::face, face), face, face, world});
         }
     }
     return result;

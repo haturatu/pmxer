@@ -35,8 +35,18 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
         pmxOptions.indexWidths = mmd::PmxIndexWidthPolicy::preserveAndWiden;
         result.report = mmd::pmx::save(temporary, session.document.model(), pmxOptions);
         auto written = mmd::pmx::load(temporary);
+        // Preservation mode may widen indices after edits exceed the source
+        // format's capacity. Verify all preserved fields against precisely the
+        // widths reported by the writer, without relaxing the comparison.
+        auto expected = session.document.model();
+        expected.format.vertexIndexSize = result.report.vertex.newWidth;
+        expected.format.textureIndexSize = result.report.texture.newWidth;
+        expected.format.materialIndexSize = result.report.material.newWidth;
+        expected.format.boneIndexSize = result.report.bone.newWidth;
+        expected.format.morphIndexSize = result.report.morph.newWidth;
+        expected.format.rigidBodyIndexSize = result.report.rigidBody.newWidth;
         result.verification = mmd::pmx::semanticCompare(
-            session.document.model(), written, mmd::PmxComparisonProfile::preservation);
+            expected, written, mmd::PmxComparisonProfile::preservation);
         if (!result.verification.equal()) {
             std::filesystem::remove(temporary);
             result.message = i18n::tr("保存後の意味比較に失敗しました");

@@ -5,6 +5,7 @@
 #include "PreviewTextureFallbacks.hpp"
 
 #include "../platform/Log.hpp"
+#include "../platform/ResourceLocator.hpp"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
@@ -363,7 +364,7 @@ struct GpuModelRenderer::Impl {
         textureStatus.assign(model.textures.size(), {});
         for (std::size_t index = 0; index < model.textures.size(); ++index) {
             textureStatus[index].textureIndex = index;
-            const auto path = mmd::pmx::resolveTexturePath(model, index);
+            const auto path = resolveFileCase(mmd::pmx::resolveTexturePath(model, index));
             textureStatus[index].resolvedPath = path;
             if (path.empty() || !std::filesystem::exists(path)) {
                 textureStatus[index].state = TextureResourceState::missing;
@@ -410,7 +411,8 @@ struct GpuModelRenderer::Impl {
                 modelRoot.empty() ? std::filesystem::path{} : modelRoot / filename,
                 resourceDirectory / "toon" / filename,
             }};
-            for (const auto &candidate : candidates) {
+            for (const auto &stored : candidates) {
+                const auto candidate = resolveFileCase(stored);
                 if (candidate.empty() || !std::filesystem::exists(candidate))
                     continue;
                 const auto image = decodeImage(candidate);

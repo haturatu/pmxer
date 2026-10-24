@@ -93,6 +93,8 @@ void applyWorkspacePolicy(DocumentSession &session, const WorkspacePolicy &polic
         if (policy.allows(item.kind))
             retained.push_back(item);
     session.selection.set(std::move(retained));
+    session.ui.aiRegionSelection = false;
+    session.ui.aiLasso.clear();
     session.ui.clearDrafts();
     session.ui.morphOffsetTarget = {};
     session.ui.viewportHover.reset();
