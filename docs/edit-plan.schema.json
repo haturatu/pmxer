@@ -336,6 +336,7 @@
       "additionalProperties": false,
       "properties": {
         "output_sha256": {
+          "description": "Best-effort verification before publication; not an atomic compare-and-swap or writer lock.",
           "pattern": "^[0-9a-f]{64}$",
           "type": "string"
         },

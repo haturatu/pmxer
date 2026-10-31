@@ -117,6 +117,9 @@ Json editSchema() {
       }
     })");
     result["properties"]["operations"]["items"] = operationSchema();
+    result["properties"]["preconditions"]["properties"]["output_sha256"]["description"] =
+        "Best-effort verification before publication; not an atomic compare-and-swap or writer "
+        "lock.";
     for (const char *name :
          {"preserve_unselected", "preserve_uv", "preserve_weights", "preserve_morphs"})
         result["properties"]["guards"]["properties"][name] = {{"type", "boolean"},
