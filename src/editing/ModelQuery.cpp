@@ -78,7 +78,8 @@ std::vector<std::size_t> findComponents(const mmd::PmxModel &m, const Query &q) 
             for (std::size_t a = 0; a < 4; ++a)
                 if (v.bones[a] >= 0 && static_cast<std::size_t>(v.bones[a]) < m.bones.size() &&
                     v.weights[a] > 0 &&
-                    globMatch(q.bone, m.bones[static_cast<std::size_t>(v.bones[a])].name))
+                    (globMatch(q.bone, m.bones[static_cast<std::size_t>(v.bones[a])].name) ||
+                     globMatch(q.bone, m.bones[static_cast<std::size_t>(v.bones[a])].englishName)))
                     influenced = true;
             if (inside && influenced)
                 result.push_back(i);
