@@ -17,6 +17,7 @@ mmd::PmxModel fixture() {
     m.metadata.version = 2.1F;
     mmd::PmxBone bone;
     bone.name = "左腕";
+    bone.englishName = "LeftArm";
     m.bones.push_back(bone);
     for (int t = 0; t < 2; ++t) {
         mmd::PmxMaterial material;
@@ -110,6 +111,8 @@ int main() {
         q.bone = "左腕";
         q.includeWeights = true;
         require(editing::inspect(original, q)["total"] == 3, "Combined vertex filters failed");
+        q.bone = "LeftArm";
+        require(editing::inspect(original, q)["total"] == 3, "English bone weight query failed");
         auto p = plan();
         auto edit = editing::prepareEdit(s, p);
         require(s.commands.undoCount() == 0, "Preview modified history");
@@ -135,7 +138,8 @@ int main() {
         rejected(s, p, "unknown_field");
         p = plan();
         p["operations"] = {{{"type", "subdivide"}}};
-        rejected(s, p, "guard_failed");
+        require(editing::prepareEdit(s, p).report["topology_changed"] == true,
+                "Guarded subdivision failed");
         p = plan();
         p["operations"][1].erase("strength");
         p["operations"][1]["type"] = "unsupported";
@@ -159,7 +163,8 @@ int main() {
         auto shared = fixture();
         shared.indices[3] = 0;
         DocumentSession sharedSession(shared);
-        rejected(sharedSession, plan(), "guard_failed");
+        require(editing::prepareEdit(sharedSession, plan()).report["valid"] == true,
+                "Split seam did not preserve unselected geometry");
         dir = std::filesystem::temp_directory_path() /
               ("pmxer editing-" +
                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -236,6 +241,31 @@ int main() {
         require(mmd::pmx::validate(mmd::pmx::load(output)).valid(), "Saved output invalid");
         require(mmd::pmx::semanticCompare(original, mmd::pmx::load(input)).equal(),
                 "CLI overwrote source");
+        const auto existingHash = sha256File(output);
+        const auto apply =
+            "apply " + quote(input) + " --plan " + quote(planFile) + " --output " + quote(output);
+        require(run(apply + " --json") != 0 && read()["error"]["code"] == "output_exists",
+                "Existing output was not refused");
+        require(sha256File(output) == existingHash, "Refused output was modified");
+        filePlan["preconditions"]["output_sha256"] = std::string(64, '0');
+        {
+            std::ofstream f(planFile);
+            f << filePlan;
+        }
+        require(run(apply + " --overwrite --json") != 0 &&
+                    read()["error"]["code"] == "stale_output",
+                "Stale output precondition accepted");
+        require(sha256File(output) == existingHash, "Stale output was modified");
+        filePlan["preconditions"]["output_sha256"] = existingHash;
+        filePlan["operations"][0]["scale"] = {1, 0.7, 1};
+        {
+            std::ofstream f(planFile);
+            f << filePlan;
+        }
+        require(run(apply + " --overwrite --json") == 0,
+                "Explicit overwrite with matching SHA failed");
+        require(sha256File(output) != existingHash,
+                "Explicit overwrite did not publish the new edit");
         require(run("apply " + quote(input) + " --plan " + quote(planFile) + " --output " +
                     quote(input) + " --json") != 0,
                 "Source overwrite accepted");

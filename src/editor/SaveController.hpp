@@ -14,6 +14,7 @@ struct SaveResult {
     std::string message;
     mmd::PmxSaveReport report;
     mmd::SemanticCompareResult verification;
+    bool destinationChanged{};
 };
 
 struct SaveOptions {
@@ -24,6 +25,8 @@ struct SaveOptions {
     bool quietSuccess{};
     // Batch saves do not own recovery files from another GUI session.
     bool preserveRecoveryFiles{};
+    bool failIfDestinationExists{};
+    std::string expectedDestinationSha256{};
 };
 
 [[nodiscard]] SaveResult saveDocument(

@@ -87,7 +87,24 @@ int runModelCommand(const ModelCommand &c) {
         if (text.size() > 65536)
             throw editing::PlanError("invalid_plan", "Plan exceeds 64 KiB");
         DocumentSession session(std::move(model), c.model);
-        auto prepared = editing::prepareEdit(session, Json::parse(text), sha);
+        const auto plan = Json::parse(text);
+        std::string outputSha;
+        const bool hasOutputHash =
+            plan.contains("preconditions") && plan["preconditions"].contains("output_sha256");
+        if (!c.output.empty()) {
+            if (std::filesystem::weakly_canonical(c.output) ==
+                    std::filesystem::weakly_canonical(c.model) ||
+                (std::filesystem::exists(c.output) &&
+                 std::filesystem::equivalent(c.output, c.model)))
+                throw editing::PlanError("source_overwrite", "Output must differ from input");
+            const bool exists = std::filesystem::exists(std::filesystem::symlink_status(c.output));
+            if (exists && !c.overwrite)
+                throw editing::PlanError("output_exists",
+                                         "Output already exists; use --overwrite to replace it");
+            if (exists && hasOutputHash)
+                outputSha = sha256File(c.output);
+        }
+        auto prepared = editing::prepareEdit(session, plan, sha, outputSha);
         const bool write = c.action == "apply" && !c.dryRun;
         prepared.report["dry_run"] = !write;
         if (write) {
@@ -98,13 +115,27 @@ int runModelCommand(const ModelCommand &c) {
                 throw editing::PlanError("source_overwrite", "Output must differ from input");
             if (sha256File(c.model) != sha)
                 throw editing::PlanError("stale_source", "Source changed before commit");
+            if (hasOutputHash && sha256File(c.output) != outputSha)
+                throw editing::PlanError("stale_output", "Output changed before commit");
             const auto accepted =
                 ai::acceptEditPreview(session, prepared.region, *prepared.preview);
             if (!accepted.success)
                 throw editing::PlanError("apply_failed", accepted.message);
-            const auto saved = saveDocument(session, c.output, SaveOptions{false, true, true});
-            if (!saved.success)
+            SaveOptions options;
+            options.quietSuccess = true;
+            options.preserveRecoveryFiles = true;
+            options.failIfDestinationExists = !c.overwrite;
+            options.expectedDestinationSha256 = outputSha;
+            const auto saved = saveDocument(session, c.output, options);
+            if (!saved.success) {
+                if (saved.destinationChanged)
+                    throw editing::PlanError("stale_output", saved.message);
+                if (!c.overwrite &&
+                    std::filesystem::exists(std::filesystem::symlink_status(c.output)))
+                    throw editing::PlanError("output_exists",
+                                             "Output was created before publication");
                 throw std::runtime_error(saved.message);
+            }
             prepared.report["output"] = c.output.string();
         }
         emit(prepared.report);

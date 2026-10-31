@@ -1,4 +1,5 @@
 #include "EditPipeline.hpp"
+#include "EditGuards.hpp"
 #include <algorithm>
 #include <cmath>
 #include <set>
@@ -16,14 +17,79 @@ void keys(const Json &j, std::initializer_list<const char *> allowed) {
             throw PlanError("unknown_field", "Unknown field: " + k);
     }
 }
+Json operationSchema() {
+    auto properties = ai::planSchema()["properties"]["operations"]["items"]["properties"];
+    properties["pivot"] = {
+        {"oneOf", Json::array({properties["pivot"],
+                               Json{{"enum", {"center", "top-center", "bottom-center"}}}})}};
+    properties["strength"] = {{"type", "number"}, {"minimum", 0}, {"maximum", 1}};
+    Json variants = Json::array();
+    auto add = [&](const char *type, std::initializer_list<const char *> fields,
+                   std::initializer_list<const char *> required) {
+        Json branch = {{"type", "object"},
+                       {"additionalProperties", false},
+                       {"required", Json::array()},
+                       {"properties", {{"type", {{"const", type}}}}}};
+        branch["required"].push_back("type");
+        for (auto field : fields)
+            branch["properties"][field] = properties.at(field);
+        for (auto field : required)
+            branch["required"].push_back(field);
+        variants.push_back(std::move(branch));
+    };
+    add("recolor", {"color"}, {"color"});
+    add("transform", {"translation", "scale", "rotation", "pivot"}, {});
+    variants.back()["anyOf"] =
+        Json::array({Json{{"required", {"translation"}}}, Json{{"required", {"scale"}}},
+                     Json{{"required", {"rotation"}}}});
+    add("smooth", {"amount", "strength", "iterations"}, {});
+    variants.back()["properties"]["amount"] = properties["strength"];
+    variants.back()["oneOf"] =
+        Json::array({Json{{"required", {"amount"}}}, Json{{"required", {"strength"}}}});
+    add("inflate", {"amount", "iterations"}, {"amount"});
+    add("subdivide", {"iterations"}, {});
+    add("generate", {"shape", "color", "replace", "detail", "garment"},
+        {"shape", "color", "replace"});
+    variants.back()["properties"]["shape"]["enum"] = {"loafers", "shirt", "skirt", "dress",
+                                                      "pants",   "boots", "coat"};
+    return {{"oneOf", variants}};
+}
+void validateOperation(const Json &op) {
+    if (!op.is_object() || !op.contains("type") || !op["type"].is_string())
+        throw PlanError("invalid_operation", "Operation requires a string type");
+    const auto schema = operationSchema();
+    for (const auto &branch : schema["oneOf"])
+        if (branch["properties"]["type"]["const"] == op["type"]) {
+            for (const auto &[field, value] : op.items()) {
+                (void)value;
+                if (!branch["properties"].contains(field))
+                    throw PlanError("unknown_field",
+                                    "Field is not supported by this operation: " + field);
+            }
+            auto containsRequired = [&](const Json &rule) {
+                for (const auto &field : rule["required"])
+                    if (!op.contains(field.get<std::string>()))
+                        return false;
+                return true;
+            };
+            if (!containsRequired(branch))
+                throw PlanError("invalid_operation", "Missing required operation parameter");
+            for (const char *combination : {"anyOf", "oneOf"})
+                if (branch.contains(combination)) {
+                    std::size_t matches = 0;
+                    for (const auto &rule : branch[combination])
+                        if (containsRequired(rule))
+                            ++matches;
+                    if (matches == 0 || (std::string_view(combination) == "oneOf" && matches != 1))
+                        throw PlanError("invalid_operation",
+                                        "Specify the required operation parameters unambiguously");
+                }
+            return;
+        }
+    throw PlanError("invalid_operation", "Unsupported operation type");
+}
 } // namespace
 Json editSchema() {
-    auto op = ai::planSchema()["properties"]["operations"]["items"];
-    op["required"] = {"type"};
-    op["properties"]["strength"] = {{"type", "number"}, {"minimum", 0}, {"maximum", 1}};
-    op["properties"]["pivot"] = {
-        {"oneOf", Json::array({op["properties"]["pivot"],
-                               Json{{"enum", {"center", "top-center", "bottom-center"}}}})}};
     auto result = Json::parse(R"({
       "$schema":"https://json-schema.org/draft/2020-12/schema",
       "type":"object", "additionalProperties":false,
@@ -44,17 +110,19 @@ Json editSchema() {
         "guards":{"type":"object","additionalProperties":false,"properties":{}},
         "preconditions":{"type":"object","additionalProperties":false,"properties":{
           "sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+          "output_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
           "revision":{"type":"integer","minimum":0}}}
       }
     })");
-    result["properties"]["operations"]["items"] = op;
+    result["properties"]["operations"]["items"] = operationSchema();
     for (const char *name :
          {"preserve_unselected", "preserve_uv", "preserve_weights", "preserve_morphs"})
         result["properties"]["guards"]["properties"][name] = {{"type", "boolean"},
                                                               {"default", true}};
     return result;
 }
-PreparedEdit prepareEdit(const DocumentSession &source, const Json &root, std::string_view sha) {
+PreparedEdit prepareEdit(const DocumentSession &source, const Json &root, std::string_view sha,
+                         std::string_view outputSha) {
     if (!source.document.validate().valid())
         throw PlanError("invalid_model", "Source model failed validation");
     keys(root, {"schema_version", "summary", "selection", "operations", "guards", "preconditions"});
@@ -63,19 +131,23 @@ PreparedEdit prepareEdit(const DocumentSession &source, const Json &root, std::s
         throw PlanError("unsupported_version", "Expected schema_version 1");
     if (root.contains("preconditions")) {
         const auto &p = root.at("preconditions");
-        keys(p, {"sha256", "revision"});
-        if (p.contains("sha256")) {
-            if (!p["sha256"].is_string())
-                throw PlanError("invalid_plan", "SHA-256 must be a string");
-            const auto hash = p["sha256"].get<std::string>();
-            if (hash.size() != 64 || !std::all_of(hash.begin(), hash.end(), [](char c) {
-                    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
-                }))
-                throw PlanError("invalid_plan",
-                                "SHA-256 must contain 64 lowercase hexadecimal digits");
-        }
+        keys(p, {"sha256", "output_sha256", "revision"});
+        for (const char *field : {"sha256", "output_sha256"})
+            if (p.contains(field)) {
+                if (!p[field].is_string())
+                    throw PlanError("invalid_plan", "SHA-256 must be a string");
+                const auto hash = p[field].get<std::string>();
+                if (hash.size() != 64 || !std::all_of(hash.begin(), hash.end(), [](char c) {
+                        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+                    }))
+                    throw PlanError("invalid_plan",
+                                    "SHA-256 must contain 64 lowercase hexadecimal digits");
+            }
         if (p.contains("sha256") && (sha.empty() || p.at("sha256") != sha))
             throw PlanError("stale_source", "Source SHA-256 does not match");
+        if (p.contains("output_sha256") &&
+            (outputSha.empty() || p.at("output_sha256") != outputSha))
+            throw PlanError("stale_output", "Output SHA-256 does not match");
         if (p.contains("revision") &&
             (!p["revision"].is_number_unsigned() && !p["revision"].is_number_integer()))
             throw PlanError("invalid_plan", "Revision must be an integer");
@@ -140,8 +212,7 @@ PreparedEdit prepareEdit(const DocumentSession &source, const Json &root, std::s
     if (!ops.is_array() || ops.empty() || ops.size() > 8)
         throw PlanError("invalid_plan", "Expected 1 to 8 operations");
     for (auto op : ops) {
-        keys(op, {"type", "shape", "color", "translation", "scale", "rotation", "pivot", "replace",
-                  "detail", "amount", "strength", "iterations", "garment"});
+        validateOperation(op);
         Json full = {
             {"type", op.at("type")},    {"shape", "none"},    {"color", {0.1, 0.1, 0.1, 1}},
             {"translation", {0, 0, 0}}, {"scale", {1, 1, 1}}, {"rotation", {0, 0, 0}},
@@ -172,60 +243,28 @@ PreparedEdit prepareEdit(const DocumentSession &source, const Json &root, std::s
     if (faces.empty())
         throw PlanError("empty_selection", "Selected materials contain no faces");
     auto region = ai::captureFaces(source, faces);
+    ai::EditTrace trace;
     std::unique_ptr<DocumentSession> preview;
     try {
-        preview = ai::makeEditPreview(source, region, plan);
+        preview = ai::makeEditPreview(source, region, plan, &trace);
     } catch (const std::exception &e) {
         throw PlanError("edit_failed", e.what());
     }
     const auto &before = source.document.model(), &after = preview->document.model();
-    auto reject = [](std::string message) { throw PlanError("guard_failed", std::move(message)); };
-    const bool sameTopology =
-        before.indices == after.indices && before.vertices.size() == after.vertices.size();
-    std::set<std::size_t> vertices;
-    for (auto f : faces)
-        for (std::size_t a = 0; a < 3; ++a)
-            vertices.insert(before.indices.at(f * 3 + a));
-    if (guards.value("preserve_unselected", true)) {
-        if (!sameTopology)
-            reject("preserve_unselected requires unchanged topology; disable "
-                   "explicitly for topology edits");
-        std::set<std::size_t> outside;
-        for (std::size_t f = 0; f < before.indices.size() / 3; ++f)
-            if (!std::binary_search(faces.begin(), faces.end(), f))
-                for (std::size_t a = 0; a < 3; ++a)
-                    outside.insert(before.indices[f * 3 + a]);
-        for (std::size_t i = 0; i < before.vertices.size(); ++i)
-            if ((!vertices.contains(i) || outside.contains(i)) &&
-                before.vertices[i] != after.vertices[i])
-                reject("An unselected or shared boundary vertex changed");
-        for (std::size_t i = 0; i < before.materials.size(); ++i)
-            if (!selected.contains(i) && before.materials[i] != after.materials.at(i))
-                reject("An unselected material changed");
-    }
-    if (guards.value("preserve_morphs", true) && before.morphs != after.morphs)
-        reject("Morphs changed");
-    if (guards.value("preserve_uv", true) || guards.value("preserve_weights", true)) {
-        if (!sameTopology)
-            reject("UV and weight preservation requires unchanged topology");
-        for (std::size_t i = 0; i < before.vertices.size(); ++i) {
-            const auto &a = before.vertices[i], &b = after.vertices[i];
-            if (guards.value("preserve_uv", true) &&
-                (a.uv != b.uv || a.additionalUv != b.additionalUv))
-                reject("UV changed");
-            if (guards.value("preserve_weights", true) &&
-                (a.weightType != b.weightType || a.bones != b.bones || a.weights != b.weights ||
-                 a.sdefC != b.sdefC || a.sdefR0 != b.sdefR0 || a.sdefR1 != b.sdefR1))
-                reject("Weights changed");
-        }
-    }
+    const bool sameTopology = sameConnectivity(source.document, preview->document);
+    validateEditGuards(source, *preview, region, guards, trace);
     std::size_t moved = 0;
     double maxDistance = 0;
     for (std::size_t i = 0; i < std::min(before.vertices.size(), after.vertices.size()); ++i) {
         double d = 0;
         for (std::size_t a = 0; a < 3; ++a) {
+            auto handle = source.document.vertexHandle(i);
+            handle.domain = preview->document.domain();
+            const auto *vertex = preview->document.resolve(handle);
+            if (!vertex)
+                continue;
             const double x =
-                static_cast<double>(after.vertices[i].position[a]) - before.vertices[i].position[a];
+                static_cast<double>(vertex->position[a]) - before.vertices[i].position[a];
             d += x * x;
         }
         if (d > 0)

@@ -1,7 +1,7 @@
 #include "AiEditExecutor.hpp"
 #include "AiMeshOperations.hpp"
-#include "editing/ModelQuery.hpp"
 #include "TailoredGarment.hpp"
+#include "editing/ModelQuery.hpp"
 #include "i18n/Language.hpp"
 #include <algorithm>
 #include <cmath>
@@ -400,8 +400,10 @@ EditRegion captureRegion(const DocumentSession &session) {
     }
     std::vector<std::size_t> materialIndices;
     for (std::size_t i = 0; i < session.document.model().materials.size(); ++i)
-        if (materials.contains(session.document.materialHandle(i).id)) materialIndices.push_back(i);
-    const auto materialSelection = editing::materialFaces(session.document.model(), materialIndices);
+        if (materials.contains(session.document.materialHandle(i).id))
+            materialIndices.push_back(i);
+    const auto materialSelection =
+        editing::materialFaces(session.document.model(), materialIndices);
     std::vector<std::size_t> indices;
     for (std::size_t i = 0; i < session.document.faces().size(); ++i) {
         const auto &face = session.document.faces()[i];
@@ -549,7 +551,7 @@ EditRegion resolveTarget(const DocumentSession &session, const EditRegion &regio
 }
 
 static OperationResult applyBasicPlan(DocumentSession &session, const EditRegion &region,
-                                      const EditPlan &plan) {
+                                      const EditPlan &plan, EditTrace *trace) {
     if (region.domain != session.document.domain() || region.documentId != session.recoveryId ||
         region.revision != session.revision)
         return {false, i18n::tr("The model changed. Capture the selection again.")};
@@ -583,7 +585,7 @@ static OperationResult applyBasicPlan(DocumentSession &session, const EditRegion
     if (first.type == OperationType::subdivide || first.type == OperationType::smooth ||
         first.type == OperationType::inflate)
         return commitAiTransaction(session, [&](auto &tx) {
-            editMesh(session.document, tx, region, first);
+            editMesh(session.document, tx, region, first, trace);
             return true;
         });
     const bool generates = plan.operations.front().type == OperationType::generate;
@@ -673,6 +675,8 @@ static OperationResult applyBasicPlan(DocumentSession &session, const EditRegion
                 if (outsideVertices.contains(h.id)) {
                     const auto replacement = tx.addVertex(vertex);
                     moved[h.id] = replacement;
+                    if (trace)
+                        trace->vertexSources[replacement.id] = {{h.id, 1.0F}};
                     // Preserve vertex/UV morph deformation on split seam vertices.
                     for (std::size_t m = 0; m < session.document.model().morphs.size(); ++m) {
                         const auto &morph = session.document.model().morphs[m];
@@ -709,14 +713,28 @@ static OperationResult applyBasicPlan(DocumentSession &session, const EditRegion
             auto material = face.material;
             if (color) {
                 if (!recolored.contains(material.id)) {
-                    auto copy = *session.document.resolve(material);
-                    copy.name = "AI " + copy.name;
-                    copy.englishName = "AI " + copy.englishName;
-                    copy.diffuse = color->color;
-                    copy.textureIndex = -1;
-                    copy.sphereTextureIndex = -1;
-                    copy.sphereMode = 0;
-                    recolored[material.id] = tx.addMaterial(copy);
+                    const auto *original = session.document.resolve(material);
+                    const bool complete = std::none_of(
+                        originalFaces.begin(), originalFaces.end(), [&](const auto &other) {
+                            const auto index =
+                                static_cast<std::size_t>(&other - originalFaces.data());
+                            return other.material == material &&
+                                   !chosen.contains(session.document.faceHandle(index));
+                        });
+                    if (complete) {
+                        if (!tx.setMaterialDiffuse(material, color->color))
+                            return false;
+                        recolored[material.id] = material;
+                    } else {
+                        auto copy = *original;
+                        copy.name = "AI " + copy.name;
+                        copy.englishName = "AI " + copy.englishName;
+                        copy.diffuse = color->color;
+                        const auto added = tx.addMaterial(copy);
+                        recolored[material.id] = added;
+                        if (trace)
+                            trace->materialSources[added.id] = material.id;
+                    }
                 }
                 material = recolored.at(material.id);
             }
@@ -731,6 +749,29 @@ static OperationResult applyBasicPlan(DocumentSession &session, const EditRegion
                                  get(face.vertices[2]), material);
             } else if (color && !tx.setFaceMaterial(h, material))
                 return false;
+        }
+        // Insert targeted clones next to their source offset. Appending all
+        // clones at the end would reorder multiply/add relative to wildcards.
+        for (std::size_t m = 0; m < session.document.model().morphs.size(); ++m) {
+            const auto &morph = session.document.model().morphs[m];
+            if (morph.type != 8)
+                continue;
+            std::size_t inserted = 0;
+            for (std::size_t i = 0; i < morph.offsets.size(); ++i) {
+                const auto &offset = morph.offsets[i];
+                if (offset.index < 0)
+                    continue;
+                const auto original =
+                    session.document.materialHandle(static_cast<std::size_t>(offset.index));
+                if (!recolored.contains(original.id) || recolored.at(original.id) == original)
+                    continue;
+                const auto handle = session.document.morphHandle(m);
+                if (!tx.addMaterialMorphOffset(handle, recolored.at(original.id), offset.operation,
+                                               offset.materialVectors) ||
+                    !tx.moveMorphOffset(handle, morph.offsets.size() + inserted, i + inserted + 1))
+                    return false;
+                ++inserted;
+            }
         }
         return true;
     });
@@ -750,7 +791,7 @@ static OperationResult applyBasicPlan(DocumentSession &session, const EditRegion
 }
 
 OperationResult applyEditPlan(DocumentSession &session, const EditRegion &region,
-                              const EditPlan &plan) {
+                              const EditPlan &plan, EditTrace *trace) {
     if (region.domain != session.document.domain() || region.documentId != session.recoveryId ||
         region.revision != session.revision)
         return {false, i18n::tr("The model changed. Capture the selection again.")};
@@ -817,7 +858,7 @@ OperationResult applyEditPlan(DocumentSession &session, const EditRegion &region
                 auto op = operation;
                 op.iterations = 1;
                 const auto result =
-                    applyBasicPlan(staged, current, EditPlan{plan.summary, {op}, {}});
+                    applyBasicPlan(staged, current, EditPlan{plan.summary, {op}, {}}, trace);
                 if (!result.success)
                     throw std::runtime_error(result.message);
                 staged.commands.clear(); // Intermediate snapshots are private, never
@@ -932,7 +973,8 @@ std::unique_ptr<DocumentSession> prepareEditPreview(const DocumentSession &sourc
 }
 
 std::unique_ptr<DocumentSession> makeEditPreview(const DocumentSession &source,
-                                                 const EditRegion &captured, const EditPlan &plan) {
+                                                 const EditRegion &captured, const EditPlan &plan,
+                                                 EditTrace *trace) {
     if (captured.documentId != source.recoveryId || captured.domain != source.document.domain() ||
         captured.revision != source.revision)
         throw std::runtime_error(i18n::tr("The model changed. Capture the selection again."));
@@ -941,7 +983,7 @@ std::unique_ptr<DocumentSession> makeEditPreview(const DocumentSession &source,
     auto preview = prepareEditPreview(source);
     auto region = captureFaces(*preview, captured.faceIndices);
     region.allowMaterialExpansion = captured.allowMaterialExpansion;
-    const auto result = applyEditPlan(*preview, region, plan);
+    const auto result = applyEditPlan(*preview, region, plan, trace);
     if (!result.success)
         throw std::runtime_error(result.message);
     return preview;

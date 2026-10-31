@@ -15,5 +15,5 @@ struct PreparedEdit {
 };
 nlohmann::json editSchema();
 PreparedEdit prepareEdit(const DocumentSession &, const nlohmann::json &plan,
-                         std::string_view sourceSha256 = {});
+                         std::string_view sourceSha256 = {}, std::string_view outputSha256 = {});
 } // namespace pmxer::editing

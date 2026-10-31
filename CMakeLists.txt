@@ -115,7 +115,7 @@ add_library(pmxer_editor
 target_include_directories(pmxer_editor PUBLIC src)
 target_link_libraries(pmxer_editor PUBLIC mmd::core pmxer_platform pmxer_i18n)
 
-add_library(pmxer_edit_engine src/editing/ModelQuery.cpp src/editing/EditPipeline.cpp src/ai/EditPlan.cpp src/editor/AiEditExecutor.cpp src/editor/AiMeshOperations.cpp src/editor/TailoredGarment.cpp)
+add_library(pmxer_edit_engine src/editing/ModelQuery.cpp src/editing/EditGuards.cpp src/editing/EditPipeline.cpp src/ai/EditPlan.cpp src/editor/AiEditExecutor.cpp src/editor/AiMeshOperations.cpp src/editor/TailoredGarment.cpp)
 add_library(pmxer_ai ALIAS pmxer_edit_engine)
 target_include_directories(pmxer_edit_engine PUBLIC src)
 target_link_libraries(pmxer_edit_engine PUBLIC pmxer_editor nlohmann_json::nlohmann_json)
@@ -418,6 +418,9 @@ if(PMXER_WARNINGS_AS_ERRORS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 if(BUILD_TESTING)
+  add_executable(pmxer_edit_guard_tests tests/unit/EditGuardTests.cpp)
+  target_link_libraries(pmxer_edit_guard_tests PRIVATE pmxer_edit_engine pmxer_preview)
+  add_test(NAME pmxer_edit_guards COMMAND pmxer_edit_guard_tests)
   add_executable(pmxer_editing_cli_tests tests/integration/EditingCliTests.cpp)
   target_link_libraries(pmxer_editing_cli_tests PRIVATE pmxer_commands)
   target_compile_definitions(pmxer_editing_cli_tests PRIVATE PMXER_TEST_SOFTWARE_RENDERER=$<BOOL:${PMXER_ENABLE_SOFTWARE_RENDERER}> PMXER_BINARY_PATH="$<TARGET_FILE:pmxer>")
