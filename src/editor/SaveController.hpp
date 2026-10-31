@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DocumentSession.hpp"
+#include "TextureResources.hpp"
 
 #include <mmd/pmx.hpp>
 
@@ -15,6 +16,7 @@ struct SaveResult {
     mmd::PmxSaveReport report;
     mmd::SemanticCompareResult verification;
     bool destinationChanged{};
+    std::vector<TextureResource> resources{};
 };
 
 struct SaveOptions {
@@ -26,6 +28,8 @@ struct SaveOptions {
     // Batch saves do not own recovery files from another GUI session.
     bool preserveRecoveryFiles{};
     bool failIfDestinationExists{};
+    bool copyResources{};
+    // Best effort: verification and publication are separate filesystem operations.
     std::string expectedDestinationSha256{};
 };
 

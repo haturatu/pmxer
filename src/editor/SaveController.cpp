@@ -36,15 +36,18 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
         session.path.empty() ? recoveryPath({}, session.recoveryId) : recoveryPath(session.path));
     SaveResult result;
     try {
+        auto resources =
+            prepareSaveResources(session.document.model(), destination, saveOptions.copyResources);
+        result.resources = resources->resources;
         mmd::PmxSaveOptions pmxOptions;
         pmxOptions.mode = mmd::PmxSaveMode::preserve;
         pmxOptions.indexWidths = mmd::PmxIndexWidthPolicy::preserveAndWiden;
-        result.report = mmd::pmx::save(temporary, session.document.model(), pmxOptions);
+        result.report = mmd::pmx::save(temporary, resources->model, pmxOptions);
         auto written = mmd::pmx::load(temporary);
         // Preservation mode may widen indices after edits exceed the source
         // format's capacity. Verify all preserved fields against precisely the
         // widths reported by the writer, without relaxing the comparison.
-        auto expected = session.document.model();
+        auto expected = resources->model;
         expected.format.vertexIndexSize = result.report.vertex.newWidth;
         expected.format.textureIndexSize = result.report.texture.newWidth;
         expected.format.materialIndexSize = result.report.material.newWidth;
@@ -82,10 +85,13 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
             log::error(result.message.c_str());
             return result;
         }
+        resources->published = true;
         const auto sourceChanged = session.document.model().sourcePath != destination;
         session.path = destination;
-        session.document.setSourcePath(destination);
-        written.sourcePath = destination;
+        // sourcePath is the live resource origin, independent of the save path.
+        // Do not rebase undo commands or their paired snapshots implicitly.
+        written.sourcePath = session.document.model().sourcePath;
+        written.textures = session.document.model().textures;
         if (sourceChanged) {
             ++session.resourceRevision;
             session.derived.diagnosticsRevision = std::numeric_limits<std::uint64_t>::max();

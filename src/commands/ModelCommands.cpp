@@ -11,6 +11,10 @@
 #include <streambuf>
 namespace pmxer {
 namespace {
+std::string pathUtf8(const std::filesystem::path &path) {
+    const auto value = path.u8string();
+    return {value.begin(), value.end()};
+}
 // libmmd diagnostics use cout. Keep the CLI JSON channel free of library
 // progress messages; WARN and ERROR continue to use stderr.
 class QuietLibraryOutput : private std::streambuf {
@@ -31,7 +35,9 @@ class QuietLibraryOutput : private std::streambuf {
 int runModelCommand(const ModelCommand &c) {
     QuietLibraryOutput quiet(c.json);
     using Json = nlohmann::json;
-    auto emit = [&](const Json &j) { std::puts(j.dump(c.json ? -1 : 2).c_str()); };
+    auto emit = [&](const Json &j) {
+        std::puts(j.dump(c.json ? -1 : 2, ' ', false, Json::error_handler_t::replace).c_str());
+    };
     try {
         if (c.schema) {
             emit(editing::editSchema());
@@ -107,6 +113,8 @@ int runModelCommand(const ModelCommand &c) {
         auto prepared = editing::prepareEdit(session, plan, sha, outputSha);
         const bool write = c.action == "apply" && !c.dryRun;
         prepared.report["dry_run"] = !write;
+        if (hasOutputHash)
+            prepared.report["output_precondition_atomic"] = false;
         if (write) {
             if (std::filesystem::weakly_canonical(c.output) ==
                     std::filesystem::weakly_canonical(c.model) ||
@@ -125,6 +133,7 @@ int runModelCommand(const ModelCommand &c) {
             options.quietSuccess = true;
             options.preserveRecoveryFiles = true;
             options.failIfDestinationExists = !c.overwrite;
+            options.copyResources = c.copyResources;
             options.expectedDestinationSha256 = outputSha;
             const auto saved = saveDocument(session, c.output, options);
             if (!saved.success) {
@@ -136,7 +145,15 @@ int runModelCommand(const ModelCommand &c) {
                                              "Output was created before publication");
                 throw std::runtime_error(saved.message);
             }
-            prepared.report["output"] = c.output.string();
+            prepared.report["output"] = pathUtf8(c.output);
+            prepared.report["resources"] = Json::array();
+            for (const auto &resource : saved.resources)
+                prepared.report["resources"].push_back(
+                    {{"texture_index", resource.index},
+                     {"source", pathUtf8(resource.source)},
+                     {"destination", pathUtf8(resource.destination)},
+                     {"exists", resource.exists},
+                     {"copied", resource.copied}});
         }
         emit(prepared.report);
         return 0;

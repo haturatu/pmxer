@@ -61,7 +61,7 @@ struct ModelCommand {
     std::optional<mmd::Float3> minimum, maximum;
     int width{1024}, height{1024};
     float frame{};
-    bool json{}, dryRun{}, schema{}, overwrite{}, includeBones{}, includeWeights{};
+    bool json{}, dryRun{}, schema{}, overwrite{}, copyResources{}, includeBones{}, includeWeights{};
 };
 
 struct HelpCommand {

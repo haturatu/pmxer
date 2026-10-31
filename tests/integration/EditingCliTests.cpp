@@ -3,6 +3,7 @@
 #include "platform/Paths.hpp"
 #include "render/SoftwareRenderer.hpp"
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -332,6 +333,33 @@ int main() {
         }
         require(colored > 100, "Software rendering produced an empty image");
 #endif
+        {
+            const auto modelDir = dir / "textured", targetDir = dir / "packaged";
+            std::filesystem::create_directories(modelDir / "textures");
+            std::filesystem::create_directories(targetDir);
+            {
+                std::ofstream asset(modelDir / "textures" / "body.png");
+                asset << "texture fixture payload";
+            }
+            auto textured = original;
+            textured.textures = {{"textures/body.png"}};
+            textured.materials[0].textureIndex = 0;
+            const auto texturedInput = modelDir / "model.pmx",
+                       texturedOutput = targetDir / "model.pmx",
+                       resourcePlan = dir / "resources.json";
+            (void)mmd::pmx::save(texturedInput, textured);
+            {
+                std::ofstream f(resourcePlan);
+                f << plan();
+            }
+            require(run("apply " + quote(texturedInput) + " --plan " + quote(resourcePlan) +
+                        " --output " + quote(texturedOutput) + " --copy-resources --json") == 0,
+                    "CLI copy-resources failed");
+            require(read()["resources"][0]["copied"] == true, "CLI did not report copied textures");
+            const auto packaged = mmd::pmx::load(texturedOutput);
+            require(std::filesystem::is_regular_file(mmd::pmx::resolveTexturePath(packaged, 0)),
+                    "CLI packaged texture cannot be resolved");
+        }
         require(run("plan --schema --json") == 0 && read()["properties"].contains("guards"),
                 "Schema export failed");
         std::filesystem::remove_all(dir);

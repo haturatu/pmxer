@@ -312,7 +312,15 @@ void configureModelParser(Parser &parser, const std::string &action) {
     } else {
         parser.add_argument("--file", "--plan").default_value(std::string{});
         parser.add_argument("-o", "--output").default_value(std::string{});
-        parser.add_argument("--overwrite").help("replace an existing output file").default_value(false).implicit_value(true);
+        parser.add_argument("--copy-resources")
+            .help("copy textures into a new directory beside the output")
+            .default_value(false)
+            .implicit_value(true);
+        parser.add_argument("--overwrite")
+            .help(
+                "replace an existing output; SHA-256 checks are best effort, not compare-and-swap")
+            .default_value(false)
+            .implicit_value(true);
         parser.add_argument("--dry-run").default_value(false).implicit_value(true);
         parser.add_argument("--schema").default_value(false).implicit_value(true);
     }
@@ -379,6 +387,7 @@ ParseResult parseModel(int argc, char *const argv[], const std::string &action) 
             c.schema = parser.get<bool>("--schema");
             c.dryRun = parser.get<bool>("--dry-run");
             c.overwrite = parser.get<bool>("--overwrite");
+            c.copyResources = parser.get<bool>("--copy-resources");
             if (!c.schema && c.plan.empty())
                 throw std::runtime_error("--plan FILE is required");
             if (action == "apply" && !c.schema && !c.dryRun && c.output.empty())

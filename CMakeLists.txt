@@ -82,6 +82,7 @@ add_library(pmxer_editor
   src/editor/CommandStack.cpp
   src/editor/Selection.cpp
   src/editor/SaveController.cpp
+  src/editor/TextureResources.cpp
   src/editor/ValidationController.cpp
   src/editor/DiffController.cpp
   src/editor/ReferenceInspector.cpp
@@ -418,6 +419,9 @@ if(PMXER_WARNINGS_AS_ERRORS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 if(BUILD_TESTING)
+  add_executable(pmxer_texture_save_tests tests/unit/TextureSaveTests.cpp)
+  target_link_libraries(pmxer_texture_save_tests PRIVATE pmxer_editor)
+  add_test(NAME pmxer_texture_save COMMAND pmxer_texture_save_tests)
   add_executable(pmxer_edit_guard_tests tests/unit/EditGuardTests.cpp)
   target_link_libraries(pmxer_edit_guard_tests PRIVATE pmxer_edit_engine pmxer_preview)
   add_test(NAME pmxer_edit_guards COMMAND pmxer_edit_guard_tests)

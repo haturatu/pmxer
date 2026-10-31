@@ -1464,11 +1464,12 @@ int main() {
   const auto secondRecovery = pmxer::writeRecovery(session);
   assert(secondRecovery.success);
   const auto resourceRevision = session.resourceRevision;
+  const auto resourceOrigin = session.document.model().sourcePath;
   const auto saved = pmxer::saveDocument(session);
   assert(saved.success);
   assert(!std::filesystem::exists(secondRecovery.path));
-  assert(session.document.model().sourcePath == path);
-  assert(session.baseline->sourcePath == path);
+  assert(session.document.model().sourcePath == resourceOrigin);
+  assert(session.baseline->sourcePath == resourceOrigin);
   assert(session.resourceRevision == resourceRevision + 1);
   pmxer::DocumentSession untitled(sampleModel());
   untitled.commands.markDirty();
