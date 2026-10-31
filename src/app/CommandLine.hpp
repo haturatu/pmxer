@@ -52,11 +52,23 @@ struct NormalizeCommand {
     OutputFormat format{OutputFormat::text};
 };
 
+struct ModelCommand {
+    std::string action, kind{"materials"}, name{"*"}, material, bone;
+    std::filesystem::path model, plan, output, motion;
+    std::string views{"front,back,left,right"}, overlay;
+    std::vector<std::string> morphs;
+    std::size_t offset{}, limit{100};
+    std::optional<mmd::Float3> minimum, maximum;
+    int width{1024}, height{1024};
+    float frame{};
+    bool json{}, dryRun{}, schema{}, includeBones{}, includeWeights{};
+};
+
 struct HelpCommand {
     std::string command;
 };
 
-using Command = std::variant<EditCommand, InfoCommand, ValidateCommand, DiffCommand, NormalizeCommand, HelpCommand>;
+using Command = std::variant<EditCommand, InfoCommand, ValidateCommand, DiffCommand, NormalizeCommand, ModelCommand, HelpCommand>;
 
 struct Invocation {
     GlobalOptions global;

@@ -21,6 +21,9 @@ struct SaveOptions {
     // pending. The caller owns the overlay and must discard it only after a
     // successful save.
     bool allowPendingTransformEdit{};
+    bool quietSuccess{};
+    // Batch saves do not own recovery files from another GUI session.
+    bool preserveRecoveryFiles{};
 };
 
 [[nodiscard]] SaveResult saveDocument(

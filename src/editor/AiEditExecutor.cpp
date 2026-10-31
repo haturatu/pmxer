@@ -1,5 +1,6 @@
 #include "AiEditExecutor.hpp"
 #include "AiMeshOperations.hpp"
+#include "editing/ModelQuery.hpp"
 #include "TailoredGarment.hpp"
 #include "i18n/Language.hpp"
 #include <algorithm>
@@ -397,11 +398,15 @@ EditRegion captureRegion(const DocumentSession &session) {
             vertices.insert(item.id);
         }
     }
+    std::vector<std::size_t> materialIndices;
+    for (std::size_t i = 0; i < session.document.model().materials.size(); ++i)
+        if (materials.contains(session.document.materialHandle(i).id)) materialIndices.push_back(i);
+    const auto materialSelection = editing::materialFaces(session.document.model(), materialIndices);
     std::vector<std::size_t> indices;
     for (std::size_t i = 0; i < session.document.faces().size(); ++i) {
         const auto &face = session.document.faces()[i];
         if (faces.contains(session.document.faceHandle(i).id) ||
-            materials.contains(face.material.id) ||
+            std::binary_search(materialSelection.begin(), materialSelection.end(), i) ||
             (vertices.contains(face.vertices[0].id) && vertices.contains(face.vertices[1].id) &&
              vertices.contains(face.vertices[2].id)))
             indices.push_back(i);

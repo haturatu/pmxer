@@ -35,6 +35,7 @@ if(MSVC)
   add_compile_options(/utf-8)
 endif()
 
+option(PMXER_ENABLE_SOFTWARE_RENDERER "Build the CPU-only PNG preview backend" ON)
 option(PMXER_BUILD_GUI "Build the SDL3 desktop application" ON)
 option(PMXER_FETCH_GUI_DEPENDENCIES "Fetch GUI source dependencies when missing" OFF)
 option(PMXER_ENABLE_PHYSICS "Build the optional physics preview" ON)
@@ -42,16 +43,14 @@ option(PMXER_FETCH_LIBMMD_DEPENDENCIES "Allow the PMX library to fetch physics d
 option(PMXER_WARNINGS_AS_ERRORS "Treat project warnings as errors" OFF)
 option(PMXER_ENABLE_SANITIZERS "Enable address and undefined behavior sanitizers" OFF)
 
-if(PMXER_BUILD_GUI OR BUILD_TESTING)
-  find_package(nlohmann_json 3.11 CONFIG QUIET)
-  if(NOT TARGET nlohmann_json::nlohmann_json)
-    set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(nlohmann_json
-      URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
-      URL_HASH SHA256=d6c65aca6b1ed68e7a182f4757257b107ae403032760ed6ef121c9d55e81757d
-      DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
-    FetchContent_MakeAvailable(nlohmann_json)
-  endif()
+find_package(nlohmann_json 3.11 CONFIG QUIET)
+if(NOT TARGET nlohmann_json::nlohmann_json)
+  set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(nlohmann_json
+    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+    URL_HASH SHA256=d6c65aca6b1ed68e7a182f4757257b107ae403032760ed6ef121c9d55e81757d
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+  FetchContent_MakeAvailable(nlohmann_json)
 endif()
 
 set(LIBMMD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -71,6 +70,7 @@ target_include_directories(pmxer_i18n PUBLIC src)
 
 add_library(pmxer_platform
   src/platform/AtomicFile.cpp
+  src/platform/FileDigest.cpp
   src/platform/Paths.cpp
   src/platform/ResourceLocator.cpp
 )
@@ -115,11 +115,10 @@ add_library(pmxer_editor
 target_include_directories(pmxer_editor PUBLIC src)
 target_link_libraries(pmxer_editor PUBLIC mmd::core pmxer_platform pmxer_i18n)
 
-if(PMXER_BUILD_GUI OR BUILD_TESTING)
-  add_library(pmxer_ai src/ai/EditPlan.cpp src/editor/AiEditExecutor.cpp src/editor/AiMeshOperations.cpp src/editor/TailoredGarment.cpp)
-  target_include_directories(pmxer_ai PUBLIC src)
-  target_link_libraries(pmxer_ai PUBLIC pmxer_editor nlohmann_json::nlohmann_json)
-endif()
+add_library(pmxer_edit_engine src/editing/ModelQuery.cpp src/editing/EditPipeline.cpp src/ai/EditPlan.cpp src/editor/AiEditExecutor.cpp src/editor/AiMeshOperations.cpp src/editor/TailoredGarment.cpp)
+add_library(pmxer_ai ALIAS pmxer_edit_engine)
+target_include_directories(pmxer_edit_engine PUBLIC src)
+target_link_libraries(pmxer_edit_engine PUBLIC pmxer_editor nlohmann_json::nlohmann_json)
 
 add_library(pmxer_command_line
   src/app/CommandLine.cpp
@@ -129,9 +128,19 @@ target_link_libraries(pmxer_command_line PUBLIC mmd::core pmxer_i18n PRIVATE arg
 
 add_library(pmxer_commands
   src/commands/CommandOutput.cpp
+  src/commands/ModelCommands.cpp
 )
 target_include_directories(pmxer_commands PUBLIC src)
-target_link_libraries(pmxer_commands PUBLIC pmxer_editor mmd::core)
+target_link_libraries(pmxer_commands PUBLIC pmxer_edit_engine mmd::core)
+if(PMXER_ENABLE_SOFTWARE_RENDERER)
+  add_library(pmxer_software_render src/render/SoftwareRenderer.cpp)
+  target_include_directories(pmxer_software_render PUBLIC src)
+  target_link_libraries(pmxer_software_render PUBLIC pmxer_preview pmxer_platform nlohmann_json::nlohmann_json)
+  target_link_libraries(pmxer_commands PRIVATE pmxer_software_render)
+  target_compile_definitions(pmxer_commands PRIVATE PMXER_HAS_SOFTWARE_RENDERER=1)
+else()
+  target_compile_definitions(pmxer_commands PRIVATE PMXER_HAS_SOFTWARE_RENDERER=0)
+endif()
 
 add_library(pmxer_preview
   src/preview/PreviewController.cpp
@@ -140,6 +149,9 @@ target_include_directories(pmxer_preview PUBLIC src)
 target_link_libraries(pmxer_preview PUBLIC mmd::animation)
 if(TARGET mmd::physics)
   target_link_libraries(pmxer_preview PUBLIC mmd::physics)
+  target_compile_definitions(pmxer_preview PRIVATE PMXER_HAS_PHYSICS=1)
+else()
+  target_compile_definitions(pmxer_preview PRIVATE PMXER_HAS_PHYSICS=0)
 endif()
 
 add_library(pmxer_render
@@ -392,10 +404,13 @@ endif()
 if(PMXER_WARNINGS_AS_ERRORS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   set(PMXER_WARNING_TARGETS pmxer_i18n pmxer_platform pmxer_editor pmxer_command_line pmxer_commands pmxer_preview pmxer_render pmxer)
   if(TARGET pmxer_ai)
-    list(APPEND PMXER_WARNING_TARGETS pmxer_ai)
+    list(APPEND PMXER_WARNING_TARGETS pmxer_edit_engine)
   endif()
   if(TARGET pmxer_ui)
     list(APPEND PMXER_WARNING_TARGETS pmxer_ui pmxer_codex)
+  endif()
+  if(TARGET pmxer_software_render)
+    list(APPEND PMXER_WARNING_TARGETS pmxer_software_render)
   endif()
   foreach(target IN LISTS PMXER_WARNING_TARGETS)
     target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wformat-security -Werror)
@@ -403,6 +418,11 @@ if(PMXER_WARNINGS_AS_ERRORS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 if(BUILD_TESTING)
+  add_executable(pmxer_editing_cli_tests tests/integration/EditingCliTests.cpp)
+  target_link_libraries(pmxer_editing_cli_tests PRIVATE pmxer_commands)
+  target_compile_definitions(pmxer_editing_cli_tests PRIVATE PMXER_TEST_SOFTWARE_RENDERER=$<BOOL:${PMXER_ENABLE_SOFTWARE_RENDERER}> PMXER_BINARY_PATH="$<TARGET_FILE:pmxer>")
+  add_dependencies(pmxer_editing_cli_tests pmxer)
+  add_test(NAME pmxer_editing_cli COMMAND pmxer_editing_cli_tests)
   add_executable(pmxer_resources_tests tests/unit/ResourceLocatorTests.cpp)
   target_link_libraries(pmxer_resources_tests PRIVATE pmxer_render pmxer_platform)
   add_test(NAME pmxer_resources COMMAND pmxer_resources_tests)

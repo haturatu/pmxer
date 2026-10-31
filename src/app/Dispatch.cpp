@@ -1,6 +1,7 @@
 #include "Dispatch.hpp"
 
 #include "../commands/CommandOutput.hpp"
+#include "../commands/ModelCommands.hpp"
 #include "../platform/Log.hpp"
 
 #if PMXER_HAS_GUI
@@ -39,6 +40,8 @@ struct CommandVisitor {
     int operator()(const NormalizeCommand &command) const {
         return runNormalizeCommand(command);
     }
+
+    int operator()(const ModelCommand &command) const { return runModelCommand(command); }
 
     int operator()(const HelpCommand &command) const {
         const auto text = usage(command.command);
