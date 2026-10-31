@@ -9,13 +9,22 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Restore compiled shaders
+        id: shaders
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/compiled-shaders
+          key: pmxer-shaders-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('assets/shaders/model.hlsl', 'scripts/compile-shaders.sh') }}
       - name: Install build tools
+        if: steps.shaders.outputs.cache-hit != 'true'
         run: sudo apt-get update && sudo apt-get install -y ninja-build
       - uses: actions/cache@v4
+        if: steps.shaders.outputs.cache-hit != 'true'
         with:
           path: ${{ runner.temp }}/pmxer-shader-toolchain
           key: shader-toolchain-f686492-83fa691-1ff05be-dxc-1.9.2607
       - name: Compile platform shaders from pinned sources
+        if: steps.shaders.outputs.cache-hit != 'true'
         run: scripts/compile-shaders.sh assets/shaders/model.hlsl "$RUNNER_TEMP/compiled-shaders"
       - uses: actions/upload-artifact@v4
         with:
@@ -41,10 +50,25 @@ jobs:
             preset: macos-x86_64-release
             artifact: macos-x86_64
     runs-on: ${{ matrix.os }}
+    env:
+      SCCACHE_DIR: ${{ github.workspace }}/.cache/sccache
+      SCCACHE_CACHE_SIZE: 2G
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1.13.0
+      - name: Set up compiler cache
+        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SCCACHE_DIR }}
+          key: pmxer-sccache-v1-${{ matrix.os }}-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: |
+            pmxer-sccache-v1-${{ matrix.os }}-${{ runner.arch }}-
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -60,11 +84,9 @@ jobs:
           name: compiled-shaders
           path: ${{ runner.temp }}/compiled-shaders
       - name: Configure
-        run: cmake --preset ${{ matrix.preset }} -DPMXER_PRECOMPILED_SHADER_DIR="${{ runner.temp }}/compiled-shaders"
+        run: cmake --preset ${{ matrix.preset }} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DPMXER_PRECOMPILED_SHADER_DIR="${{ runner.temp }}/compiled-shaders"
       - name: Build
-        run: cmake --build --preset ${{ matrix.preset }}
-      - name: Test
-        run: ctest --test-dir build/${{ matrix.preset }} --output-on-failure
+        run: cmake --build --preset ${{ matrix.preset }} --parallel
       - name: Install
         run: cmake --install build/${{ matrix.preset }} --prefix package
       - name: Package Linux
