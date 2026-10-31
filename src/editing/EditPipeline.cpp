@@ -2,6 +2,8 @@
 #include "EditGuards.hpp"
 #include <algorithm>
 #include <cmath>
+#include <functional>
+#include <map>
 #include <set>
 namespace pmxer::editing {
 using Json = nlohmann::json;
@@ -253,23 +255,48 @@ PreparedEdit prepareEdit(const DocumentSession &source, const Json &root, std::s
     const auto &before = source.document.model(), &after = preview->document.model();
     const bool sameTopology = sameConnectivity(source.document, preview->document);
     validateEditGuards(source, *preview, region, guards, trace);
-    std::size_t moved = 0;
-    double maxDistance = 0;
-    for (std::size_t i = 0; i < std::min(before.vertices.size(), after.vertices.size()); ++i) {
-        double d = 0;
-        for (std::size_t a = 0; a < 3; ++a) {
-            auto handle = source.document.vertexHandle(i);
-            handle.domain = preview->document.domain();
-            const auto *vertex = preview->document.resolve(handle);
-            if (!vertex)
-                continue;
-            const double x =
-                static_cast<double>(vertex->position[a]) - before.vertices[i].position[a];
-            d += x * x;
+    std::map<std::uint64_t, std::optional<mmd::Float3>> restPositions;
+    for (std::size_t i = 0; i < before.vertices.size(); ++i)
+        restPositions[source.document.vertexHandle(i).id] = before.vertices[i].position;
+    std::set<std::uint64_t> visiting;
+    std::function<std::optional<mmd::Float3>(std::uint64_t)> restPosition =
+        [&](std::uint64_t id) -> std::optional<mmd::Float3> {
+        if (restPositions.contains(id))
+            return restPositions.at(id);
+        if (!trace.vertexSources.contains(id) || !visiting.insert(id).second)
+            return std::nullopt;
+        mmd::Float3 value{};
+        for (const auto &[parent, weight] : trace.vertexSources.at(id)) {
+            const auto original = restPosition(parent);
+            if (!original) {
+                visiting.erase(id);
+                restPositions[id] = std::nullopt;
+                return std::nullopt;
+            }
+            for (std::size_t axis = 0; axis < 3; ++axis)
+                value[axis] += (*original)[axis] * weight;
         }
-        if (d > 0)
+        visiting.erase(id);
+        restPositions[id] = value;
+        return value;
+    };
+    std::size_t moved = 0, withoutSources = 0;
+    double maxDistance = 0;
+    for (std::size_t i = 0; i < after.vertices.size(); ++i) {
+        const auto original = restPosition(preview->document.vertexHandle(i).id);
+        if (!original) {
+            ++withoutSources;
+            continue;
+        }
+        double distance = 0;
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            const double delta =
+                static_cast<double>(after.vertices[i].position[axis]) - (*original)[axis];
+            distance += delta * delta;
+        }
+        if (distance > 0)
             ++moved;
-        maxDistance = std::max(maxDistance, std::sqrt(d));
+        maxDistance = std::max(maxDistance, std::sqrt(distance));
     }
     Json changedMaterials = Json::array();
     for (std::size_t i = 0; i < after.materials.size(); ++i)
@@ -287,6 +314,7 @@ PreparedEdit prepareEdit(const DocumentSession &source, const Json &root, std::s
                    {"vertices_before", before.vertices.size()},
                    {"vertices_after", after.vertices.size()},
                    {"moved_vertices", moved},
+                   {"new_vertices_without_sources", withoutSources},
                    {"maximum_displacement", maxDistance},
                    {"undo_entries", 1}};
     return {std::move(region), std::move(preview), std::move(report)};

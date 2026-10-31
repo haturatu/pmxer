@@ -165,6 +165,31 @@ int main() {
         DocumentSession sharedSession(shared);
         require(editing::prepareEdit(sharedSession, plan()).report["valid"] == true,
                 "Split seam did not preserve unselected geometry");
+        auto move = plan();
+        move["operations"] = {{{"type", "transform"}, {"translation", {0, 0, 1}}}};
+        auto split = editing::prepareEdit(sharedSession, move);
+        require(split.report["moved_vertices"] == 3 &&
+                    std::abs(split.report["maximum_displacement"].get<double>() - 1) < 1e-6,
+                "Split vertices were omitted from displacement report");
+        require(split.report["new_vertices_without_sources"] == 0,
+                "Split vertices lost their rest provenance");
+        auto allShared = fixture();
+        allShared.indices = {0, 1, 2, 0, 1, 2};
+        DocumentSession allSharedSession(allShared);
+        const auto onlyCopies = editing::prepareEdit(allSharedSession, move);
+        require(onlyCopies.report["moved_vertices"] == 3 &&
+                    std::abs(onlyCopies.report["maximum_displacement"].get<double>() - 1) < 1e-6,
+                "Displacement entirely on split copies was omitted");
+        move["operations"].push_back({{"type", "subdivide"}});
+        auto splitAndSubdivide = editing::prepareEdit(sharedSession, move);
+        require(splitAndSubdivide.report["moved_vertices"] == 6 &&
+                    std::abs(splitAndSubdivide.report["maximum_displacement"].get<double>() - 1) <
+                        1e-6,
+                "Nested vertex provenance was omitted from displacement report");
+        auto unchanged = plan();
+        unchanged["operations"] = {{{"type", "subdivide"}}};
+        require(editing::prepareEdit(sharedSession, unchanged).report["moved_vertices"] == 0,
+                "Pure subdivision reported movement");
         dir = std::filesystem::temp_directory_path() /
               ("pmxer editing-" +
                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
