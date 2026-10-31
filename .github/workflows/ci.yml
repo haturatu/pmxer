@@ -2,11 +2,51 @@ name: ci
 
 on:
   push:
-    branches: [main, 'feat/**', 'fix/**', 'chore/**', 'refactor/**', 'tests/**']
+    branches: [main]
   pull_request:
 
 jobs:
+  changes:
+    name: Detect affected components
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      build: ${{ steps.filter.outputs.build }}
+      quality: ${{ steps.filter.outputs.quality }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          base: ${{ github.ref }}
+          filters: |
+            build:
+              - 'src/**'
+              - 'tests/**'
+              - 'assets/**'
+              - 'scripts/**'
+              - 'cmake/**'
+              - 'external/**'
+              - 'packaging/**'
+              - 'CMakeLists.txt'
+              - 'CMakePresets.json'
+              - 'Makefile'
+              - '.gitmodules'
+              - '.github/workflows/ci.yml'
+            quality:
+              - 'src/**'
+              - 'tests/**'
+              - 'scripts/**'
+              - 'cmake/**'
+              - 'external/**'
+              - 'CMakeLists.txt'
+              - 'CMakePresets.json'
+              - '.github/workflows/ci.yml'
   shaders:
+    needs: changes
+    if: needs.changes.outputs.build == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -24,7 +64,8 @@ jobs:
           path: ${{ runner.temp }}/compiled-shaders
 
   build:
-    needs: shaders
+    needs: [changes, shaders]
+    if: needs.changes.outputs.build == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -74,6 +115,8 @@ jobs:
         run: ctest --test-dir build/${{ matrix.preset }} --output-on-failure
 
   linux-quality:
+    needs: changes
+    if: needs.changes.outputs.quality == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
