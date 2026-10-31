@@ -33,4 +33,9 @@ pickViewportRectangle(const DocumentSession &session,
                       const CameraState &camera, ImVec2 origin, ImVec2 size,
                       ImVec2 first, ImVec2 second);
 
+[[nodiscard]] std::vector<ViewportPickResult>
+pickViewportRegion(const DocumentSession &session, const std::vector<mmd::PmxVertex> &vertices,
+                   const CameraState &camera, ImVec2 origin, ImVec2 size,
+                   const std::vector<ImVec2> &polygon, bool through);
+
 } // namespace pmxer

@@ -4,6 +4,7 @@
 #include "../editor/ViewportLighting.hpp"
 
 #include <array>
+#include <memory>
 #include <string>
 
 namespace pmxer {
@@ -11,6 +12,7 @@ namespace pmxer {
 struct DocumentSession;
 class FileDialog;
 class GpuModelRenderer;
+struct AiEditState;
 
 struct WorkspaceUiState {
     EditorWorkspace active{EditorWorkspace::model};
@@ -19,6 +21,8 @@ struct WorkspaceUiState {
     bool showOutliner{true};
     bool showInspector{true};
     bool showTransformView{true};
+    bool showAi{};
+    std::shared_ptr<AiEditState> ai;
     bool showModel{};
     bool showVertex{};
     bool showMaterial{};

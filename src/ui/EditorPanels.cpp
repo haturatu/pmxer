@@ -1,6 +1,7 @@
 #include "i18n/Language.hpp"
 
 #include "EditorPanels.hpp"
+#include "AiEditPanel.hpp"
 #include "InspectorPanel.hpp"
 #include "MorphOffsetBrowser.hpp"
 #include "OutlinerPanel.hpp"
@@ -1617,6 +1618,10 @@ void drawMainMenu(DocumentSession *session, FileDialog &fileDialog,
     ImGui::EndMenu();
   }
   ImGui::Separator();
+  if (ImGui::MenuItem(i18n::tr("AI edit"), "Ctrl+J", workspace.showAi))
+    workspace.showAi = !workspace.showAi;
+  if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_J, ImGuiInputFlags_RouteGlobal))
+    workspace.showAi = !workspace.showAi;
   workspaceButton(i18n::tr("モデル"), EditorWorkspace::model,
                   ui::UiSemanticId::workspaceModel, session, workspace);
   ImGui::SameLine();
@@ -1652,10 +1657,11 @@ void drawEditorPanels(DocumentSession &session, FileDialog &fileDialog,
       session.lastRecovery = now;
     }
   }
-  auto &preview = updatePreview(session);
+  auto &display = aiDisplaySession(session, workspace);
+  auto &preview = updatePreview(display);
   if (workspace.showViewport)
     drawViewportPanel(
-        session, preview.frame ? &*preview.frame : nullptr, renderer,
+        display, preview.frame ? &*preview.frame : nullptr, renderer,
         &workspace.showDiagnostics, &workspace.showViewport, workspace.active,
         &workspace.viewportProfiles[workspaceIndex(workspace.active)],
         workspace.viewportLighting);

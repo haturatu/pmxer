@@ -8,6 +8,7 @@ source distributions.
 - Dear ImGui
 - ImGuizmo - MIT
 - argparse (p-ranav/argparse) - MIT
+- nlohmann/json - MIT
 - stb_image - Public Domain or MIT
 - bcdec - MIT or Unlicense
 - libmmd
