@@ -12,6 +12,7 @@
       "binaryDir": "${sourceDir}/build/linux-dev",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_TESTING": "ON",
         "PMXER_BUILD_GUI": "ON",
         "PMXER_FETCH_GUI_DEPENDENCIES": "ON",
         "PMXER_FETCH_LIBMMD_DEPENDENCIES": "ON",
@@ -24,6 +25,7 @@
       "binaryDir": "${sourceDir}/build/linux-cli",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_TESTING": "ON",
         "PMXER_BUILD_GUI": "OFF",
         "PMXER_FETCH_LIBMMD_DEPENDENCIES": "ON",
         "PMXER_WARNINGS_AS_ERRORS": "ON"
@@ -35,6 +37,7 @@
       "binaryDir": "${sourceDir}/build/linux-clang",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_TESTING": "ON",
         "CMAKE_CXX_COMPILER": "clang++",
         "PMXER_BUILD_GUI": "OFF",
         "PMXER_FETCH_LIBMMD_DEPENDENCIES": "ON",
@@ -48,6 +51,7 @@
       "binaryDir": "${sourceDir}/build/linux-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "OFF",
         "PMXER_BUILD_GUI": "ON",
         "PMXER_FETCH_GUI_DEPENDENCIES": "ON",
         "PMXER_FETCH_LIBMMD_DEPENDENCIES": "ON",
@@ -60,6 +64,7 @@
       "binaryDir": "${sourceDir}/build/windows-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "OFF",
         "PMXER_BUILD_GUI": "ON",
         "PMXER_FETCH_GUI_DEPENDENCIES": "ON",
         "PMXER_FETCH_LIBMMD_DEPENDENCIES": "ON"
@@ -71,6 +76,7 @@
       "binaryDir": "${sourceDir}/build/macos-arm64-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "OFF",
         "CMAKE_OSX_ARCHITECTURES": "arm64",
         "PMXER_BUILD_GUI": "ON",
         "PMXER_FETCH_GUI_DEPENDENCIES": "ON",
@@ -83,10 +89,43 @@
       "binaryDir": "${sourceDir}/build/macos-x86_64-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "OFF",
         "CMAKE_OSX_ARCHITECTURES": "x86_64",
         "PMXER_BUILD_GUI": "ON",
         "PMXER_FETCH_GUI_DEPENDENCIES": "ON",
         "PMXER_FETCH_LIBMMD_DEPENDENCIES": "ON"
+      }
+    },
+    {
+      "name": "linux-release-ci",
+      "inherits": "linux-release",
+      "binaryDir": "${sourceDir}/build/linux-release-ci",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON"
+      }
+    },
+    {
+      "name": "windows-release-ci",
+      "inherits": "windows-release",
+      "binaryDir": "${sourceDir}/build/windows-release-ci",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON"
+      }
+    },
+    {
+      "name": "macos-arm64-release-ci",
+      "inherits": "macos-arm64-release",
+      "binaryDir": "${sourceDir}/build/macos-arm64-release-ci",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON"
+      }
+    },
+    {
+      "name": "macos-x86_64-release-ci",
+      "inherits": "macos-x86_64-release",
+      "binaryDir": "${sourceDir}/build/macos-x86_64-release-ci",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON"
       }
     }
   ],
@@ -97,12 +136,19 @@
     { "name": "linux-release", "configurePreset": "linux-release" },
     { "name": "windows-release", "configurePreset": "windows-release" },
     { "name": "macos-arm64-release", "configurePreset": "macos-arm64-release" },
-    { "name": "macos-x86_64-release", "configurePreset": "macos-x86_64-release" }
+    { "name": "macos-x86_64-release", "configurePreset": "macos-x86_64-release" },
+    { "name": "linux-release-ci", "configurePreset": "linux-release-ci" },
+    { "name": "windows-release-ci", "configurePreset": "windows-release-ci" },
+    { "name": "macos-arm64-release-ci", "configurePreset": "macos-arm64-release-ci" },
+    { "name": "macos-x86_64-release-ci", "configurePreset": "macos-x86_64-release-ci" }
   ],
   "testPresets": [
     { "name": "linux-dev", "configurePreset": "linux-dev", "output": { "outputOnFailure": true } },
     { "name": "linux-cli", "configurePreset": "linux-cli", "output": { "outputOnFailure": true } },
     { "name": "linux-clang", "configurePreset": "linux-clang", "output": { "outputOnFailure": true } },
-    { "name": "linux-release", "configurePreset": "linux-release", "output": { "outputOnFailure": true } }
+    { "name": "linux-release-ci", "configurePreset": "linux-release-ci", "output": { "outputOnFailure": true } },
+    { "name": "windows-release-ci", "configurePreset": "windows-release-ci", "output": { "outputOnFailure": true } },
+    { "name": "macos-arm64-release-ci", "configurePreset": "macos-arm64-release-ci", "output": { "outputOnFailure": true } },
+    { "name": "macos-x86_64-release-ci", "configurePreset": "macos-x86_64-release-ci", "output": { "outputOnFailure": true } }
   ]
 }
