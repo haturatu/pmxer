@@ -217,6 +217,19 @@ int main() {
             std::ifstream f(report);
             return Json::parse(f);
         };
+        require(run("apply " + quote(input) + " --plan " + quote(planFile) + " --json") != 0 &&
+                    read()["error"]["code"] == "invalid_arguments",
+                "Missing output did not return JSON arguments error");
+        require(run("inspect " + quote(input) + " materials --limit -1 --json") != 0 &&
+                    read()["error"]["code"] == "invalid_arguments",
+                "Invalid numeric option did not return JSON");
+        require(run("inspect " + quote(input) + " --unknown-option --json") != 0 &&
+                    read()["error"]["code"] == "invalid_arguments",
+                "Unknown option did not return JSON");
+        require(run("apply --help --json") == 0 && read()["help"].is_string(),
+                "JSON help was not a single object");
+        require(run("--version --json") == 0 && read()["version"].is_string(),
+                "JSON version was not a single object");
         require(run("inspect " + quote(input) + " materials --json --limit 1") == 0,
                 "CLI inspect failed");
         const auto sha = read()["source_sha256"].get<std::string>();

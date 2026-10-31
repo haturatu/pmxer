@@ -80,6 +80,7 @@ struct ParseResult {
     std::string error;
 };
 
+[[nodiscard]] bool requestsJsonOutput(int argc, char *const argv[]);
 [[nodiscard]] ParseResult parseInvocation(int argc, char *const argv[]);
 [[nodiscard]] std::string usage(std::string_view command = {});
 [[nodiscard]] std::string applicationVersion();

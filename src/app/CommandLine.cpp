@@ -394,6 +394,17 @@ ParseResult parseModel(int argc, char *const argv[], const std::string &action) 
 
 } // namespace
 
+bool requestsJsonOutput(int argc, char *const argv[]) {
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view value = argv[i] ? argv[i] : "";
+        if (value == "--")
+            break;
+        if (value == "--json")
+            return true;
+    }
+    return false;
+}
+
 ParseResult parseInvocation(int argc, char *const argv[]) {
     if (argc <= 1) {
         return ParseResult{Invocation{{}, EditCommand{}}, {}};
