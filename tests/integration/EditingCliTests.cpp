@@ -161,7 +161,7 @@ int main() {
         DocumentSession sharedSession(shared);
         rejected(sharedSession, plan(), "guard_failed");
         dir = std::filesystem::temp_directory_path() /
-              ("pmxer-editing-" +
+              ("pmxer editing-" +
                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
         std::filesystem::create_directories(dir);
         const auto hashFile = dir / "hash.txt";
@@ -200,8 +200,13 @@ int main() {
         }
         auto quote = [](const std::filesystem::path &path) { return "\"" + path.string() + "\""; };
         auto run = [&](std::string args) {
-            return std::system(
-                (quote(PMXER_BINARY_PATH) + " " + args + " > " + quote(report)).c_str());
+            auto command = quote(PMXER_BINARY_PATH) + " " + args + " > " + quote(report);
+#ifdef _WIN32
+            // cmd /C strips the outermost quotes. Protect the quoted executable
+            // and redirected paths by quoting the complete command once more.
+            command = "\"" + command + "\"";
+#endif
+            return std::system(command.c_str());
         };
         auto read = [&]() {
             std::ifstream f(report);
