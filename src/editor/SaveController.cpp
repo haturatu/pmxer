@@ -71,12 +71,14 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
         session.commands.markClean();
         session.modified = session.commands.isModified();
         session.baseline = std::move(written);
-        (void)discardRecoveryFile(oldRecovery);
-        session.recoveryFile.reset();
-        (void)discardRecovery(destination);
+        if (!saveOptions.preserveRecoveryFiles) {
+            (void)discardRecoveryFile(oldRecovery);
+            session.recoveryFile.reset();
+            (void)discardRecovery(destination);
+        }
         result.success = true;
         result.message = i18n::tr("保存しました");
-        log::info(result.message.c_str());
+        if (!saveOptions.quietSuccess) log::info(result.message.c_str());
         return result;
     } catch (const std::exception &error) {
         std::filesystem::remove(temporary);

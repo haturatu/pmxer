@@ -50,7 +50,9 @@ class PreviewController {
     const mmd::PmxDocument *document_{};
     const mmd::PmxModel *model_{};
     std::unique_ptr<mmd::MmdAnimator> animator_;
-    std::unique_ptr<mmd::MmdPhysics> physics_;
+    // Type-erased destruction keeps physics-disabled builds independent of the
+    // optional physics module, with one consistent public class layout.
+    std::shared_ptr<mmd::MmdPhysics> physics_;
     const mmd::VmdMotion *motion_{};
     std::vector<MorphPreview> morphPreviews_;
     std::vector<mmd::PmxMorphOffset> vertexPreviewOffsets_;
