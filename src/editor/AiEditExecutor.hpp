@@ -2,9 +2,16 @@
 #include "DocumentSession.hpp"
 #include "EditorOperations.hpp"
 #include "ai/EditPlan.hpp"
+#include <map>
 #include <span>
 
 namespace pmxer::ai {
+struct EditTrace {
+    // IDs survive private snapshot domain remapping. New vertices inherit from
+    // existing vertices or earlier entries in this acyclic interpolation graph.
+    std::map<std::uint64_t, std::vector<std::pair<std::uint64_t, float>>> vertexSources;
+    std::map<std::uint64_t, std::uint64_t> materialSources;
+};
 struct EditRegion {
     std::string documentId;
     std::uint64_t domain{};
@@ -21,11 +28,12 @@ struct EditRegion {
 [[nodiscard]] EditRegion resolveTarget(const DocumentSession &, const EditRegion &,
                                        const EditTarget &);
 [[nodiscard]] nlohmann::json regionContext(const DocumentSession &, const EditRegion &);
-[[nodiscard]] OperationResult applyEditPlan(DocumentSession &, const EditRegion &,
-                                            const EditPlan &);
+[[nodiscard]] OperationResult applyEditPlan(DocumentSession &, const EditRegion &, const EditPlan &,
+                                            EditTrace *trace = nullptr);
 [[nodiscard]] OperationResult acceptEditPreview(DocumentSession &, const EditRegion &,
                                                 const DocumentSession &);
 [[nodiscard]] std::unique_ptr<DocumentSession> prepareEditPreview(const DocumentSession &);
-[[nodiscard]] std::unique_ptr<DocumentSession>
-makeEditPreview(const DocumentSession &, const EditRegion &, const EditPlan &);
+[[nodiscard]] std::unique_ptr<DocumentSession> makeEditPreview(const DocumentSession &,
+                                                               const EditRegion &, const EditPlan &,
+                                                               EditTrace *trace = nullptr);
 } // namespace pmxer::ai

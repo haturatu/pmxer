@@ -18,6 +18,10 @@ int main() {
     char jsonOption[] = "--json";
     char model[] = "model.pmx";
     char *infoArguments[] = {name, infoCommand, jsonOption, model};
+    assert(pmxer::requestsJsonOutput(4, infoArguments));
+    char jsonSeparator[] = "--";
+    char *literalJsonArguments[] = {name, jsonSeparator, jsonOption};
+    assert(!pmxer::requestsJsonOutput(3, literalJsonArguments));
     const auto info = pmxer::parseInvocation(4, infoArguments);
     assert(info.error.empty());
     assert(std::holds_alternative<pmxer::InfoCommand>(info.invocation->command));

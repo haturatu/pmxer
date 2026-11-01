@@ -283,7 +283,136 @@ ParseResult parseHelp(int argc, char *const argv[], int first) {
     });
 }
 
+void configureModelParser(Parser &parser, const std::string &action) {
+    addHelp(parser, "show this help message");
+    addJson(parser);
+    parser.add_argument("model").nargs(argparse::nargs_pattern::optional);
+    if (action == "inspect" || action == "query") {
+        parser.add_argument("kind")
+            .default_value(std::string("materials"))
+            .nargs(argparse::nargs_pattern::optional);
+        for (const char *name : {"--name", "--material", "--bone"})
+            parser.add_argument(name).default_value(
+                std::string(name == std::string("--name") ? "*" : ""));
+        for (const char *name : {"--min", "--max"})
+            parser.add_argument(name).nargs(3).scan<'g', float>();
+        parser.add_argument("--offset").default_value(0).scan<'i', int>();
+        parser.add_argument("--limit").default_value(100).scan<'i', int>();
+        for (const char *name : {"--include-bones", "--include-weights"})
+            parser.add_argument(name).default_value(false).implicit_value(true);
+    } else if (action == "render") {
+        parser.add_argument("--output-dir").required();
+        parser.add_argument("--views").default_value(std::string("front,back,left,right"));
+        parser.add_argument("--width").default_value(1024).scan<'i', int>();
+        parser.add_argument("--height").default_value(1024).scan<'i', int>();
+        parser.add_argument("--overlay").default_value(std::string{});
+        parser.add_argument("--motion").default_value(std::string{});
+        parser.add_argument("--frame").default_value(0.0F).scan<'g', float>();
+        parser.add_argument("--morph").append().default_value(std::vector<std::string>{});
+    } else {
+        parser.add_argument("--file", "--plan").default_value(std::string{});
+        parser.add_argument("-o", "--output").default_value(std::string{});
+        parser.add_argument("--copy-resources")
+            .help("copy textures into a new directory beside the output")
+            .default_value(false)
+            .implicit_value(true);
+        parser.add_argument("--overwrite")
+            .help(
+                "replace an existing output; SHA-256 checks are best effort, not compare-and-swap")
+            .default_value(false)
+            .implicit_value(true);
+        parser.add_argument("--dry-run").default_value(false).implicit_value(true);
+        parser.add_argument("--schema").default_value(false).implicit_value(true);
+    }
+}
+
+ParseResult parseModel(int argc, char *const argv[], const std::string &action) {
+    Parser parser("pmxer " + action, applicationVersion(), argparse::default_arguments::none,
+                  false);
+    configureModelParser(parser, action);
+    try {
+        if (hasHelpArgument(argc, argv, 2))
+            return {Invocation{{}, HelpCommand{action}}, {}};
+        parser.parse_args(tailArguments(argc, argv, 2));
+        ModelCommand c;
+        c.action = action;
+        c.json = parser.get<bool>("--json");
+        if (parser.is_used("model"))
+            c.model = parser.get<std::string>("model");
+        if (action == "inspect" || action == "query") {
+            c.kind = parser.get<std::string>("kind");
+            c.name = parser.get<std::string>("--name");
+            c.material = parser.get<std::string>("--material");
+            c.bone = parser.get<std::string>("--bone");
+            const int offset = parser.get<int>("--offset"), limit = parser.get<int>("--limit");
+            if (offset < 0 || limit < 1 || limit > 1000)
+                throw std::runtime_error("offset must be nonnegative; limit must be 1..1000");
+            for (const char *option : {"--min", "--max"})
+                if (parser.is_used(option)) {
+                    const auto v = parser.get<std::vector<float>>(option);
+                    mmd::Float3 bounds{};
+                    for (std::size_t i = 0; i < 3; ++i) {
+                        if (!std::isfinite(v[i]))
+                            throw std::runtime_error("Bounds must be finite");
+                        bounds[i] = v[i];
+                    }
+                    if (std::string(option) == "--min")
+                        c.minimum = bounds;
+                    else
+                        c.maximum = bounds;
+                }
+            if (c.minimum && c.maximum)
+                for (std::size_t i = 0; i < 3; ++i)
+                    if ((*c.minimum)[i] > (*c.maximum)[i])
+                        throw std::runtime_error("Inverted bounds");
+            c.offset = static_cast<std::size_t>(offset);
+            c.limit = static_cast<std::size_t>(limit);
+            c.includeBones = parser.get<bool>("--include-bones");
+            c.includeWeights = parser.get<bool>("--include-weights");
+        } else if (action == "render") {
+            c.output = parser.get<std::string>("--output-dir");
+            c.views = parser.get<std::string>("--views");
+            c.width = parser.get<int>("--width");
+            c.height = parser.get<int>("--height");
+            c.overlay = parser.get<std::string>("--overlay");
+            c.motion = parser.get<std::string>("--motion");
+            c.frame = parser.get<float>("--frame");
+            c.morphs = parser.get<std::vector<std::string>>("--morph");
+            if (c.width < 16 || c.height < 16 || c.width > 4096 || c.height > 4096 ||
+                !std::isfinite(c.frame) || c.frame < 0)
+                throw std::runtime_error("Invalid render dimensions or frame");
+        } else {
+            c.plan = parser.get<std::string>("--file");
+            c.output = parser.get<std::string>("--output");
+            c.schema = parser.get<bool>("--schema");
+            c.dryRun = parser.get<bool>("--dry-run");
+            c.overwrite = parser.get<bool>("--overwrite");
+            c.copyResources = parser.get<bool>("--copy-resources");
+            if (!c.schema && c.plan.empty())
+                throw std::runtime_error("--plan FILE is required");
+            if (action == "apply" && !c.schema && !c.dryRun && c.output.empty())
+                throw std::runtime_error("--output FILE is required");
+        }
+        if (c.model.empty() && !c.schema)
+            throw std::runtime_error("A model path is required");
+        return {Invocation{{}, std::move(c)}, {}};
+    } catch (const std::exception &e) {
+        return {std::nullopt, e.what()};
+    }
+}
+
 } // namespace
+
+bool requestsJsonOutput(int argc, char *const argv[]) {
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view value = argv[i] ? argv[i] : "";
+        if (value == "--")
+            break;
+        if (value == "--json")
+            return true;
+    }
+    return false;
+}
 
 ParseResult parseInvocation(int argc, char *const argv[]) {
     if (argc <= 1) {
@@ -302,6 +431,7 @@ ParseResult parseInvocation(int argc, char *const argv[]) {
     if (first == "--") {
         return parseEdit(argc, argv, 1);
     }
+    if (first == "inspect" || first == "query" || first == "plan" || first == "apply" || first == "render") return parseModel(argc,argv,first);
     if (first == "edit") {
         return parseEdit(argc, argv, 2);
     }
@@ -327,6 +457,10 @@ ParseResult parseInvocation(int argc, char *const argv[]) {
 }
 
 std::string usage(std::string_view command) {
+    if (command == "inspect" || command == "query" || command == "plan" || command == "apply" || command == "render") {
+        Parser parser("pmxer "+std::string(command),applicationVersion(),argparse::default_arguments::none,false);
+        configureModelParser(parser,std::string(command)); return parser.help().str();
+    }
     if (command == "edit") {
         Parser parser("pmxer edit", applicationVersion(), argparse::default_arguments::none, false);
         configureEditParser(parser);
@@ -366,6 +500,11 @@ std::string usage(std::string_view command) {
            "  validate    Validate PMX files\n"
            "  diff        Compare PMX models\n"
            "  normalize   Normalize model weights\n"
+           "  inspect     Inspect paginated model components\n"
+           "  query       Search model components\n"
+           "  plan        Validate and preview a JSON edit plan\n"
+           "  apply       Apply a JSON edit plan atomically\n"
+           "  render      Render headless PNG views\n"
            "  help        Show command help\n\n"
            "Use: pmxer help <command>\n";
 }

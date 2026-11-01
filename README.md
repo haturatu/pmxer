@@ -188,6 +188,9 @@ PMX ファイル、頂点配列、テクスチャ画像は送信しません。C
 
 ## コマンドライン
 
+`inspect`、`query`、`plan`、`apply`、`render` による検索・一括編集・画像出力は、
+[CLI 編集ガイド](docs/agent-editing.md)を参照してください。
+
 ビルドに使用した preset に応じて、以下の `./build/linux-cli/pmxer` を `./build/linux-dev/pmxer` などに置き換えられます。
 
 ### 情報表示・検証・比較

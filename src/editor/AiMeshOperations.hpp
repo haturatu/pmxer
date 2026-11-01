@@ -5,5 +5,5 @@ namespace pmxer::ai {
 // Called only on the private staging document; throws before publishing on
 // failure.
 void editMesh(mmd::PmxDocument &, mmd::PmxDocument::Transaction &, const EditRegion &,
-              const Operation &);
+              const Operation &, EditTrace *trace = nullptr);
 } // namespace pmxer::ai

@@ -480,12 +480,14 @@ int main() {
             require(resolveTarget(garment, rough, plan.target).faces.size() == 2,
                     "Rough selection did not complete the garment");
             const auto preview = makeEditPreview(garment, rough, plan);
-            require(preview->document.model().materials.size() == 2 &&
-                        garment.document.model().materials.size() == 1,
-                    "Completed preview modified the source");
+            require(preview->document.model().materials.size() == 1 &&
+                        garment.document.model().materials.size() == 1 &&
+                        garment.document.model().materials[0].diffuse == sample().materials[0].diffuse &&
+                        preview->document.model().materials[0].diffuse == plan.operations[0].color,
+                    "Completed recolor did not preserve the source and material identity");
             require(applyEditPlan(garment, rough, plan).success, "Completed material edit failed");
             for (const auto &face : garment.document.faces())
-                require(face.material != garment.document.materialHandle(0),
+                require(garment.document.resolve(face.material)->diffuse == plan.operations[0].color,
                         "Garment back side was left unchanged");
             plan.target.materialIndices.clear();
             require(garment.undo() &&
