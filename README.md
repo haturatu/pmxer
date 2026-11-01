@@ -28,10 +28,10 @@ GUI と物理プレビューには追加の依存ライブラリが必要です�
 
 PMX / VMD の処理には libmmd を使っています。毎回 submodule をビルドする必要がないよう、システムに入っている版を使う方法もあります。
 
-Arch Linux と Artix Linux では、AUR から libmmd をインストールできます。
+Arch Linux と Artix Linux では、AUR の `libmmd-cpp` パッケージから libmmd をインストールできます。
 
 ```sh
-yay -S libmmd
+yay -S libmmd-cpp
 cmake -S . -B build/system -G Ninja -DCMAKE_BUILD_TYPE=Release -DLIBMMD_PROVIDER=SYSTEM
 cmake --build build/system --parallel
 ```
