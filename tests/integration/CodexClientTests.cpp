@@ -215,8 +215,13 @@ int main(int argc, char **argv) {
         wait(client, "report terminal server error immediately");
         require(client.state().error == "Test service unavailable" && !client.takePlan(),
                 "Server error was hidden by a timeout");
-        client.generate("retry recovery", "{}", {}, quick);
-        const auto retryDeadline = std::chrono::steady_clock::now() + 1s;
+        auto recovery = quick;
+        // This case verifies successful recovery, not the idle deadline. Leave
+        // room for a loaded CI runner beyond the mock's 200 ms retry backoff.
+        recovery.idleTimeout = 2s;
+        recovery.planTimeout = 5s;
+        client.generate("retry recovery", "{}", {}, recovery);
+        const auto retryDeadline = std::chrono::steady_clock::now() + 2s;
         while (!client.state().reconnecting && client.state().busy &&
                std::chrono::steady_clock::now() < retryDeadline)
             std::this_thread::sleep_for(5ms);

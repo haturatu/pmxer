@@ -14,18 +14,33 @@ std::filesystem::path temporarySibling(const std::filesystem::path &destination)
     return destination.string() + ".pmxer-tmp-" + std::to_string(stamp);
 }
 
-bool atomicReplace(const std::filesystem::path &temporary, const std::filesystem::path &destination) {
+bool atomicCreate(const std::filesystem::path &temporary,
+                  const std::filesystem::path &destination) {
+    std::error_code error;
+    std::filesystem::create_hard_link(temporary, destination, error);
+    if (error)
+        return false;
+    // Publication succeeded. Failure to unlink the temporary must not undo the
+    // result or permit replacing a concurrently created destination.
+    std::filesystem::remove(temporary, error);
+    return true;
+}
+
+bool atomicReplace(const std::filesystem::path &temporary,
+                   const std::filesystem::path &destination) {
     std::error_code error;
     std::filesystem::rename(temporary, destination, error);
     if (!error)
         return true;
 #ifdef _WIN32
-    if (ReplaceFileW(destination.c_str(), temporary.c_str(), nullptr, REPLACEFILE_WRITE_THROUGH, nullptr, nullptr))
+    if (ReplaceFileW(destination.c_str(), temporary.c_str(), nullptr, REPLACEFILE_WRITE_THROUGH,
+                     nullptr, nullptr))
         return true;
 
     const auto replaceError = GetLastError();
     if (replaceError == ERROR_FILE_NOT_FOUND &&
-        MoveFileExW(temporary.c_str(), destination.c_str(), MOVEFILE_WRITE_THROUGH | MOVEFILE_REPLACE_EXISTING))
+        MoveFileExW(temporary.c_str(), destination.c_str(),
+                    MOVEFILE_WRITE_THROUGH | MOVEFILE_REPLACE_EXISTING))
         return true;
 
     return false;

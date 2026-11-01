@@ -7,8 +7,8 @@ namespace pmxer {
 
 PreviewController::PreviewController(const mmd::PmxModel &model)
     : model_(&model), animator_(std::make_unique<mmd::MmdAnimator>(model)) {
-#if defined(LIBMMD_HAS_BULLET) || defined(PMXER_ENABLE_PHYSICS)
-    physics_ = std::make_unique<mmd::MmdPhysics>(model);
+#if PMXER_HAS_PHYSICS
+    physics_ = std::make_shared<mmd::MmdPhysics>(model);
     animator_->setPhysics(physics_.get());
 #endif
 }
@@ -16,8 +16,8 @@ PreviewController::PreviewController(const mmd::PmxModel &model)
 PreviewController::PreviewController(const mmd::PmxDocument &document)
     : document_(&document), model_(&document.model()),
       animator_(std::make_unique<mmd::MmdAnimator>(document.model())) {
-#if defined(LIBMMD_HAS_BULLET) || defined(PMXER_ENABLE_PHYSICS)
-    physics_ = std::make_unique<mmd::MmdPhysics>(document.model());
+#if PMXER_HAS_PHYSICS
+    physics_ = std::make_shared<mmd::MmdPhysics>(document.model());
     animator_->setPhysics(physics_.get());
 #endif
 }
@@ -101,7 +101,11 @@ void PreviewController::setPose(const mmd::VpdPose *pose) {
 
 void PreviewController::setPhysicsEnabled(bool enabled) {
     physicsEnabled_ = enabled;
+#if PMXER_HAS_PHYSICS
     animator_->setPhysics(enabled ? physics_.get() : nullptr);
+#else
+    (void)enabled;
+#endif
 }
 
 void PreviewController::setIkEnabled(bool enabled) {
@@ -115,7 +119,7 @@ void PreviewController::setFrame(float frame) {
 
 void PreviewController::reset() {
     frame_ = 0.0F;
-#if defined(LIBMMD_HAS_BULLET) || defined(PMXER_ENABLE_PHYSICS)
+#if PMXER_HAS_PHYSICS
     if (physics_)
         physics_->reset();
 #endif

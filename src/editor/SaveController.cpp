@@ -3,6 +3,7 @@
 #include "SaveController.hpp"
 
 #include "../platform/AtomicFile.hpp"
+#include "../platform/FileDigest.hpp"
 #include "../platform/Log.hpp"
 #include "../platform/Paths.hpp"
 #include "RecoveryController.hpp"
@@ -19,7 +20,12 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
     if (destination.empty())
         return {false, i18n::tr("保存先が指定されていません"), {}, {}};
     if (session.hasPendingTransformEdit() && !saveOptions.allowPendingTransformEdit)
-        return {false, i18n::tr("Transform Viewの一時変形はまだPMXに含まれていません。モーフを作成するか、一時変形を破棄してください。"), {}, {}};
+        return {false,
+                i18n::tr("Transform "
+                         "Viewの一時変形はまだPMXに含まれていません。モーフを作成するか、一時変形を"
+                         "破棄してください。"),
+                {},
+                {}};
 
     session.validation = session.document.validate();
     if (!session.validation.valid())
@@ -30,39 +36,62 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
         session.path.empty() ? recoveryPath({}, session.recoveryId) : recoveryPath(session.path));
     SaveResult result;
     try {
+        auto resources =
+            prepareSaveResources(session.document.model(), destination, saveOptions.copyResources);
+        result.resources = resources->resources;
         mmd::PmxSaveOptions pmxOptions;
         pmxOptions.mode = mmd::PmxSaveMode::preserve;
         pmxOptions.indexWidths = mmd::PmxIndexWidthPolicy::preserveAndWiden;
-        result.report = mmd::pmx::save(temporary, session.document.model(), pmxOptions);
+        result.report = mmd::pmx::save(temporary, resources->model, pmxOptions);
         auto written = mmd::pmx::load(temporary);
         // Preservation mode may widen indices after edits exceed the source
         // format's capacity. Verify all preserved fields against precisely the
         // widths reported by the writer, without relaxing the comparison.
-        auto expected = session.document.model();
+        auto expected = resources->model;
         expected.format.vertexIndexSize = result.report.vertex.newWidth;
         expected.format.textureIndexSize = result.report.texture.newWidth;
         expected.format.materialIndexSize = result.report.material.newWidth;
         expected.format.boneIndexSize = result.report.bone.newWidth;
         expected.format.morphIndexSize = result.report.morph.newWidth;
         expected.format.rigidBodyIndexSize = result.report.rigidBody.newWidth;
-        result.verification = mmd::pmx::semanticCompare(
-            expected, written, mmd::PmxComparisonProfile::preservation);
+        result.verification =
+            mmd::pmx::semanticCompare(expected, written, mmd::PmxComparisonProfile::preservation);
         if (!result.verification.equal()) {
             std::filesystem::remove(temporary);
             result.message = i18n::tr("保存後の意味比較に失敗しました");
             log::error(result.message.c_str());
             return result;
         }
-        if (!atomicReplace(temporary, destination)) {
+        if (!saveOptions.expectedDestinationSha256.empty()) {
+            bool matches = false;
+            try {
+                matches = sha256File(destination) == saveOptions.expectedDestinationSha256;
+            } catch (const std::exception &) { /* An unreadable or removed destination cannot
+                                                  satisfy the precondition. */
+            }
+            if (!matches) {
+                std::filesystem::remove(temporary);
+                result.message = "Output changed before publication";
+                result.destinationChanged = true;
+                return result;
+            }
+        }
+        const bool published = saveOptions.failIfDestinationExists
+                                   ? atomicCreate(temporary, destination)
+                                   : atomicReplace(temporary, destination);
+        if (!published) {
             std::filesystem::remove(temporary);
             result.message = i18n::tr("保存先を原子置換できませんでした");
             log::error(result.message.c_str());
             return result;
         }
+        resources->published = true;
         const auto sourceChanged = session.document.model().sourcePath != destination;
         session.path = destination;
-        session.document.setSourcePath(destination);
-        written.sourcePath = destination;
+        // sourcePath is the live resource origin, independent of the save path.
+        // Do not rebase undo commands or their paired snapshots implicitly.
+        written.sourcePath = session.document.model().sourcePath;
+        written.textures = session.document.model().textures;
         if (sourceChanged) {
             ++session.resourceRevision;
             session.derived.diagnosticsRevision = std::numeric_limits<std::uint64_t>::max();
@@ -71,12 +100,15 @@ SaveResult saveDocument(DocumentSession &session, const std::filesystem::path &d
         session.commands.markClean();
         session.modified = session.commands.isModified();
         session.baseline = std::move(written);
-        (void)discardRecoveryFile(oldRecovery);
-        session.recoveryFile.reset();
-        (void)discardRecovery(destination);
+        if (!saveOptions.preserveRecoveryFiles) {
+            (void)discardRecoveryFile(oldRecovery);
+            session.recoveryFile.reset();
+            (void)discardRecovery(destination);
+        }
         result.success = true;
         result.message = i18n::tr("保存しました");
-        log::info(result.message.c_str());
+        if (!saveOptions.quietSuccess)
+            log::info(result.message.c_str());
         return result;
     } catch (const std::exception &error) {
         std::filesystem::remove(temporary);

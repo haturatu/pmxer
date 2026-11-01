@@ -1,6 +1,7 @@
 #include "i18n/Language.hpp"
 
 #include "RecoveryController.hpp"
+#include "TextureResources.hpp"
 
 #include "../platform/AtomicFile.hpp"
 #include "../platform/Log.hpp"
@@ -43,7 +44,13 @@ RecoveryResult writeRecovery(DocumentSession &session) {
         mmd::PmxSaveOptions options;
         options.mode = mmd::PmxSaveMode::preserve;
         options.indexWidths = mmd::PmxIndexWidthPolicy::preserveAndWiden;
-        (void)mmd::pmx::save(temporary, session.document.model(), options);
+        (void)mmd::pmx::save(
+            temporary,
+            rebaseTexturePaths(session.document.model(),
+                               session.path.empty()
+                                   ? std::filesystem::current_path() / "untitled.pmx"
+                                   : session.path),
+            options);
         if (!atomicReplace(temporary, path)) {
             std::filesystem::remove(temporary);
             return {false, {}};
@@ -70,7 +77,9 @@ std::optional<mmd::PmxModel> loadRecovery(const std::filesystem::path &source) {
     if (!std::filesystem::exists(path))
         return std::nullopt;
     try {
-        return mmd::pmx::load(path);
+        auto model=mmd::pmx::load(path);
+        model.sourcePath=source;
+        return model;
     } catch (...) {
         return std::nullopt;
     }

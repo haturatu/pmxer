@@ -129,7 +129,7 @@ mmd::PmxVertex midpoint(const mmd::PmxVertex &a, const mmd::PmxVertex &b) {
 }
 } // namespace
 void editMesh(mmd::PmxDocument &doc, mmd::PmxDocument::Transaction &tx, const EditRegion &region,
-              const Operation &op) {
+              const Operation &op, EditTrace *trace) {
     if (op.type != OperationType::subdivide && op.amount == 0)
         return;
     if (op.type == OperationType::subdivide) {
@@ -171,6 +171,8 @@ void editMesh(mmd::PmxDocument &doc, mmd::PmxDocument::Transaction &tx, const Ed
             const auto vertex = midpoint(*doc.resolve(a), *doc.resolve(b));
             const auto h = tx.addVertex(vertex);
             midpoints[key] = h;
+            if (trace)
+                trace->vertexSources[h.id] = {{a.id, 0.5F}, {b.id, 0.5F}};
             for (const auto &morph : morphs) {
                 if (!morph.offsets.contains(a) && !morph.offsets.contains(b))
                     continue;

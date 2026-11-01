@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DocumentSession.hpp"
+#include "TextureResources.hpp"
 
 #include <mmd/pmx.hpp>
 
@@ -14,6 +15,8 @@ struct SaveResult {
     std::string message;
     mmd::PmxSaveReport report;
     mmd::SemanticCompareResult verification;
+    bool destinationChanged{};
+    std::vector<TextureResource> resources{};
 };
 
 struct SaveOptions {
@@ -21,6 +24,13 @@ struct SaveOptions {
     // pending. The caller owns the overlay and must discard it only after a
     // successful save.
     bool allowPendingTransformEdit{};
+    bool quietSuccess{};
+    // Batch saves do not own recovery files from another GUI session.
+    bool preserveRecoveryFiles{};
+    bool failIfDestinationExists{};
+    bool copyResources{};
+    // Best effort: verification and publication are separate filesystem operations.
+    std::string expectedDestinationSha256{};
 };
 
 [[nodiscard]] SaveResult saveDocument(

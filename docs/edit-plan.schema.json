@@ -1,0 +1,422 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "guards": {
+      "additionalProperties": false,
+      "properties": {
+        "preserve_morphs": {
+          "default": true,
+          "type": "boolean"
+        },
+        "preserve_unselected": {
+          "default": true,
+          "type": "boolean"
+        },
+        "preserve_uv": {
+          "default": true,
+          "type": "boolean"
+        },
+        "preserve_weights": {
+          "default": true,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "operations": {
+      "items": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "color": {
+                "items": {
+                  "maximum": 1.0,
+                  "minimum": 0.0,
+                  "type": "number"
+                },
+                "maxItems": 4,
+                "minItems": 4,
+                "type": "array"
+              },
+              "type": {
+                "const": "recolor"
+              }
+            },
+            "required": [
+              "type",
+              "color"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "required": [
+                  "translation"
+                ]
+              },
+              {
+                "required": [
+                  "scale"
+                ]
+              },
+              {
+                "required": [
+                  "rotation"
+                ]
+              }
+            ],
+            "properties": {
+              "pivot": {
+                "oneOf": [
+                  {
+                    "items": {
+                      "maximum": 1.0,
+                      "minimum": 0.0,
+                      "type": "number"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "type": "array"
+                  },
+                  {
+                    "enum": [
+                      "center",
+                      "top-center",
+                      "bottom-center"
+                    ]
+                  }
+                ]
+              },
+              "rotation": {
+                "items": {
+                  "maximum": 180.0,
+                  "minimum": -180.0,
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "scale": {
+                "items": {
+                  "maximum": 20.0,
+                  "minimum": 0.05000000074505806,
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "translation": {
+                "items": {
+                  "maximum": 100.0,
+                  "minimum": -100.0,
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "type": {
+                "const": "transform"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "oneOf": [
+              {
+                "required": [
+                  "amount"
+                ]
+              },
+              {
+                "required": [
+                  "strength"
+                ]
+              }
+            ],
+            "properties": {
+              "amount": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "iterations": {
+                "maximum": 3,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "strength": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "type": {
+                "const": "smooth"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "amount": {
+                "maximum": 10,
+                "minimum": -10,
+                "type": "number"
+              },
+              "iterations": {
+                "maximum": 3,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "type": {
+                "const": "inflate"
+              }
+            },
+            "required": [
+              "type",
+              "amount"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "iterations": {
+                "maximum": 3,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "type": {
+                "const": "subdivide"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "color": {
+                "items": {
+                  "maximum": 1.0,
+                  "minimum": 0.0,
+                  "type": "number"
+                },
+                "maxItems": 4,
+                "minItems": 4,
+                "type": "array"
+              },
+              "detail": {
+                "maximum": 64,
+                "minimum": 8,
+                "type": "integer"
+              },
+              "garment": {
+                "additionalProperties": false,
+                "properties": {
+                  "accentColor": {
+                    "items": {
+                      "maximum": 1.0,
+                      "minimum": 0.0,
+                      "type": "number"
+                    },
+                    "maxItems": 4,
+                    "minItems": 4,
+                    "type": "array"
+                  },
+                  "bowSize": {
+                    "maximum": 1.5,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "fullness": {
+                    "maximum": 1.6,
+                    "minimum": 0.6,
+                    "type": "number"
+                  },
+                  "lace": {
+                    "type": "boolean"
+                  },
+                  "skirtLength": {
+                    "maximum": 1.5,
+                    "minimum": 0.5,
+                    "type": "number"
+                  },
+                  "sleeveLength": {
+                    "maximum": 2.1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "style": {
+                    "enum": [
+                      "plain",
+                      "gothic_lolita"
+                    ],
+                    "type": "string"
+                  },
+                  "tiers": {
+                    "maximum": 4,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "trimColor": {
+                    "items": {
+                      "maximum": 1.0,
+                      "minimum": 0.0,
+                      "type": "number"
+                    },
+                    "maxItems": 4,
+                    "minItems": 4,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "style",
+                  "trimColor",
+                  "accentColor",
+                  "tiers",
+                  "skirtLength",
+                  "sleeveLength",
+                  "fullness",
+                  "bowSize",
+                  "lace"
+                ],
+                "type": "object"
+              },
+              "replace": {
+                "type": "boolean"
+              },
+              "shape": {
+                "enum": [
+                  "loafers",
+                  "shirt",
+                  "skirt",
+                  "dress",
+                  "pants",
+                  "boots",
+                  "coat"
+                ],
+                "type": "string"
+              },
+              "type": {
+                "const": "generate"
+              }
+            },
+            "required": [
+              "type",
+              "shape",
+              "color",
+              "replace"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "type": "array"
+    },
+    "preconditions": {
+      "additionalProperties": false,
+      "properties": {
+        "output_sha256": {
+          "description": "Best-effort verification before publication; not an atomic compare-and-swap or writer lock.",
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "selection": {
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "names"
+          ]
+        },
+        {
+          "required": [
+            "indices"
+          ]
+        }
+      ],
+      "properties": {
+        "expected_count": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "indices": {
+          "items": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "match": {
+          "enum": [
+            "exact",
+            "glob"
+          ]
+        },
+        "names": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "type": "array"
+        },
+        "type": {
+          "const": "material"
+        }
+      },
+      "required": [
+        "type",
+        "expected_count"
+      ],
+      "type": "object"
+    },
+    "summary": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "selection",
+    "operations"
+  ],
+  "type": "object"
+}
