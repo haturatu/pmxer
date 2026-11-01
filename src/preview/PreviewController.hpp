@@ -50,7 +50,9 @@ class PreviewController {
     const mmd::PmxDocument *document_{};
     const mmd::PmxModel *model_{};
     std::unique_ptr<mmd::MmdAnimator> animator_;
+#if PMXER_ENABLE_PHYSICS
     std::unique_ptr<mmd::MmdPhysics> physics_;
+#endif
     const mmd::VmdMotion *motion_{};
     std::vector<MorphPreview> morphPreviews_;
     std::vector<mmd::PmxMorphOffset> vertexPreviewOffsets_;

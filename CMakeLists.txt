@@ -54,12 +54,7 @@ if(PMXER_BUILD_GUI OR BUILD_TESTING)
   endif()
 endif()
 
-set(LIBMMD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(LIBMMD_INSTALL OFF CACHE BOOL "" FORCE)
-set(LIBMMD_ENABLE_PHYSICS ${PMXER_ENABLE_PHYSICS} CACHE BOOL "" FORCE)
-set(LIBMMD_ENABLE_BULLET ${PMXER_ENABLE_PHYSICS} CACHE BOOL "" FORCE)
-set(LIBMMD_FETCH_DEPENDENCIES ${PMXER_FETCH_LIBMMD_DEPENDENCIES} CACHE BOOL "" FORCE)
-add_subdirectory(external/libmmd)
+include(cmake/LibMmd.cmake)
 
 if(PMXER_ENABLE_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
@@ -138,9 +133,10 @@ add_library(pmxer_preview
 )
 target_include_directories(pmxer_preview PUBLIC src)
 target_link_libraries(pmxer_preview PUBLIC mmd::animation)
-if(TARGET mmd::physics)
+if(PMXER_ENABLE_PHYSICS)
   target_link_libraries(pmxer_preview PUBLIC mmd::physics)
 endif()
+target_compile_definitions(pmxer_preview PUBLIC PMXER_ENABLE_PHYSICS=$<BOOL:${PMXER_ENABLE_PHYSICS}>)
 
 add_library(pmxer_render
   src/render/ModelRenderer.cpp
