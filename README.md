@@ -18,6 +18,20 @@ Linux、Windows、macOS 向けの C++20 アプリケーションです。PMX / V
 
 GUI と物理プレビューには追加の依存ライブラリが必要です。`linux-dev` / `linux-release` preset では必要な GUI 依存ソースの取得を有効にしています。CLI のみを使う場合は `linux-cli` preset を使用してください。
 
+### システムにインストールした libmmd を使う
+
+Arch Linux と Artix Linux では、AUR から libmmd をインストールできます。
+
+```sh
+yay -S libmmd
+cmake -S . -B build/system -G Ninja -DCMAKE_BUILD_TYPE=Release -DLIBMMD_PROVIDER=SYSTEM
+cmake --build build/system --parallel
+```
+
+ほかのビルド依存関係も必要です。`LIBMMD_PROVIDER` は既定で `AUTO` です。互換性のある libmmd 0.3.2 以降の 0.3 系を検出するとシステム版を使い、見つからなければ組み込み版を使います。`SYSTEM` はシステム版を必須にし、`BUNDLED` は従来の組み込み版を使います。システム版を選ぶと libmmd の submodule 初期化やソース取得は不要です。CMake を直接実行する場合にも、アプリケーション固有のアセットや依存関係を準備してください。
+
+`PMXER_ENABLE_PHYSICS=OFF` を指定すると、システム版に物理機能が含まれていても物理プレビューを無効にします。
+
 ### Linux でビルドする
 
 リポジトリを取得して、Debug 版をビルドします。
