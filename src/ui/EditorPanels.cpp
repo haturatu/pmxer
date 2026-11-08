@@ -103,12 +103,16 @@ PreviewSession &updatePreview(DocumentSession &session) {
     replacePreviewFrame(state, state.controller->evaluate());
     state.appliedMorphRevision = state.morphRevision;
     state.appliedDeformMode = session.deform.mode;
+    state.appliedPhysicsEnabled = session.previewPhysics;
+    state.appliedIkEnabled = session.previewIk;
   } else {
     state.controller->setPhysicsEnabled(session.previewPhysics);
     state.controller->setIkEnabled(session.previewIk);
   }
   if (state.controller && (state.appliedMorphRevision != state.morphRevision ||
-                           state.appliedDeformMode != session.deform.mode)) {
+                           state.appliedDeformMode != session.deform.mode ||
+                           state.appliedPhysicsEnabled != session.previewPhysics ||
+                           state.appliedIkEnabled != session.previewIk)) {
     state.controller->clearMorphPreviews();
     for (const auto &preview : morph::effectiveMorphMix(session))
       state.controller->setMorphPreview(preview.morph, preview.weight);
@@ -116,6 +120,8 @@ PreviewSession &updatePreview(DocumentSession &session) {
     replacePreviewFrame(state, state.controller->evaluate());
     state.appliedMorphRevision = state.morphRevision;
     state.appliedDeformMode = session.deform.mode;
+    state.appliedPhysicsEnabled = session.previewPhysics;
+    state.appliedIkEnabled = session.previewIk;
   }
   const auto now = std::chrono::steady_clock::now();
   if (!state.clockInitialized) {
