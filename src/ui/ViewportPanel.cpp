@@ -848,29 +848,30 @@ void drawViewportPanel(DocumentSession &session, const mmd::AnimatedModelFrame *
         session.ui.cameraDistance = std::clamp(session.ui.cameraDistance *
                                                    std::exp(-ImGui::GetIO().MouseWheel * 0.12F),
                                                minimumDistance, maximumDistance);
-    if (hovered && ImGui::IsKeyPressed(ImGuiKey_F)) {
+    const bool viewportKeyboardShortcut = hovered && !ImGui::GetIO().WantTextInput;
+    if (viewportKeyboardShortcut && ImGui::IsKeyPressed(ImGuiKey_F)) {
         if (const auto selected = selectionBounds(session))
             frameBounds(session.ui, *selected,
                         available.x / std::max(available.y, 1.0F),
                         boundsRadius(bounds));
     }
-    if (hovered && ImGui::IsKeyPressed(ImGuiKey_Home))
+    if (viewportKeyboardShortcut && ImGui::IsKeyPressed(ImGuiKey_Home))
         frameBounds(session.ui, bounds,
                     available.x / std::max(available.y, 1.0F),
                     boundsRadius(bounds));
-    if (hovered && ImGui::IsKeyPressed(ImGuiKey_Keypad1)) {
+    if (viewportKeyboardShortcut && ImGui::IsKeyPressed(ImGuiKey_Keypad1)) {
         session.ui.cameraYaw = ImGui::GetIO().KeyCtrl ? 3.1415926F : 0.0F;
         session.ui.cameraPitch = 0.0F;
     }
-    if (hovered && ImGui::IsKeyPressed(ImGuiKey_Keypad3)) {
+    if (viewportKeyboardShortcut && ImGui::IsKeyPressed(ImGuiKey_Keypad3)) {
         session.ui.cameraYaw = ImGui::GetIO().KeyCtrl ? -1.5707963F : 1.5707963F;
         session.ui.cameraPitch = 0.0F;
     }
-    if (hovered && ImGui::IsKeyPressed(ImGuiKey_Keypad7)) {
+    if (viewportKeyboardShortcut && ImGui::IsKeyPressed(ImGuiKey_Keypad7)) {
         session.ui.cameraYaw = 0.0F;
         session.ui.cameraPitch = ImGui::GetIO().KeyCtrl ? -1.5697963F : 1.5697963F;
     }
-    if (hovered && ImGui::IsKeyPressed(ImGuiKey_Keypad5))
+    if (viewportKeyboardShortcut && ImGui::IsKeyPressed(ImGuiKey_Keypad5))
         session.ui.orthographic = !session.ui.orthographic;
     if (!ImGui::GetIO().WantTextInput &&
         ImGui::IsKeyPressed(ImGuiKey_Escape)) {
