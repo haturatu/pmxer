@@ -189,6 +189,8 @@ struct PreviewSession {
     std::uint64_t morphRevision{};
     std::uint64_t appliedMorphRevision{std::numeric_limits<std::uint64_t>::max()};
     DeformMode appliedDeformMode{DeformMode::inactive};
+    bool appliedPhysicsEnabled{};
+    bool appliedIkEnabled{};
 };
 
 struct DerivedEditorState {
